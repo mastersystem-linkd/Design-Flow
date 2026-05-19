@@ -1,0 +1,194 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ================================================================
+     CSS Custom Properties — Light / Dark theme tokens
+     ================================================================
+     Values are space-separated RGB channels so Tailwind's
+     `<alpha-value>` interpolation works:
+       bg-background       → rgb(var(--background))
+       bg-background/50    → rgb(var(--background) / 0.5)
+     ================================================================ */
+
+  :root {
+    /* ── Light mode (default) ─────────────────────────────── */
+    --background: 248 250 252;        /* slate-50 */
+    --foreground: 15 23 42;           /* slate-900 */
+    --card: 255 255 255;              /* white */
+    --card-foreground: 15 23 42;
+    --popover: 255 255 255;
+    --popover-foreground: 15 23 42;
+    --primary: 37 99 235;             /* blue-600 */
+    --primary-foreground: 255 255 255;
+    --secondary: 241 245 249;         /* slate-100 */
+    --secondary-foreground: 15 23 42;
+    --accent: 37 99 235;
+    --accent-foreground: 255 255 255;
+    --muted: 148 163 184;             /* slate-400 */
+    --muted-foreground: 100 116 139;  /* slate-500 */
+    --destructive: 239 68 68;         /* red-500 */
+    --destructive-foreground: 255 255 255;
+    --border: 226 232 240;            /* slate-200 */
+    --input: 226 232 240;
+    --ring: 37 99 235;
+    --success: 34 197 94;             /* green-500 */
+    --warning: 245 158 11;            /* amber-500 */
+    --coral: 239 68 68;               /* red-500 */
+    --sidebar: 15 23 42;              /* slate-900 — crisp dark sidebar */
+    --dashboard: 248 250 252;
+
+    /* Legacy tokens (resolved per theme) */
+    --ink: 15 23 42;
+    --cream: 255 255 255;
+    --gold: 37 99 235;
+  }
+
+  .dark {
+    /* ── Dark mode ────────────────────────────────────────── */
+    --background: 17 18 27;           /* deeper dark */
+    --foreground: 248 250 252;        /* slate-50 */
+    --card: 26 27 39;                 /* slightly lighter */
+    --card-foreground: 248 250 252;
+    --popover: 26 27 39;
+    --popover-foreground: 248 250 252;
+    --primary: 79 110 247;            /* #4F6EF7 */
+    --primary-foreground: 255 255 255;
+    --secondary: 30 31 45;
+    --secondary-foreground: 248 250 252;
+    --accent: 79 110 247;
+    --accent-foreground: 255 255 255;
+    --muted: 107 114 142;
+    --muted-foreground: 131 138 168;
+    --destructive: 242 108 108;       /* #F26C6C */
+    --destructive-foreground: 255 255 255;
+    --border: 40 42 58;
+    --input: 40 42 58;
+    --ring: 79 110 247;
+    --success: 60 201 122;            /* #3CC97A */
+    --warning: 245 166 35;            /* #F5A623 */
+    --coral: 242 108 108;
+    --sidebar: 12 13 22;
+    --dashboard: 17 18 27;
+
+    --ink: 248 250 252;
+    --cream: 26 27 39;
+    --gold: 79 110 247;
+  }
+
+  html {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    color: rgb(var(--foreground));
+    background-color: rgb(var(--background));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    transition: background-color 200ms, color 200ms;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  /* Make native selects readable in both themes */
+  select,
+  select option {
+    background-color: rgb(var(--card));
+    color: rgb(var(--foreground));
+  }
+
+  /* Smoother scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--border));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--muted));
+  }
+}
+
+/* ============================================================================
+   Mobile-friendly touch targets + table scroll hints
+   ============================================================================ */
+@media (max-width: 640px) {
+  /* Ensure touch targets are at least 44px */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Exception: small inline badges/pills */
+  .text-\[9px\], .text-\[10px\], .text-\[11px\] {
+    min-height: auto;
+    min-width: auto;
+  }
+  /* Fade hint on scrollable tables */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Safe area for mobile bottom tab bar (iPhone notch) */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ============================================================================
+   Global UX transitions — used by Toaster, drawers, and "just landed" cards.
+   ============================================================================ */
+@keyframes slideInRight {
+  from { transform: translateX(110%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(110%); opacity: 0; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes cardEnter {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes highlightPulse {
+  0%, 100% { box-shadow: 0 0 0 0   rgb(var(--primary) / 0); }
+  50%      { box-shadow: 0 0 0 4px rgb(var(--primary) / 0.4); }
+}
+@keyframes urgentBadgePulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0   rgb(var(--destructive) / 0.5); }
+  60%  { transform: scale(1.05); box-shadow: 0 0 0 5px rgb(var(--destructive) / 0); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0   rgb(var(--destructive) / 0); }
+}
+
+.animate-slide-in-right   { animation: slideInRight 0.25s ease-out both; }
+.animate-slide-out-right  { animation: slideOutRight 0.2s ease-in  both; }
+.animate-fade-in          { animation: fadeIn 0.25s ease-out both; }
+.animate-fade-out         { animation: fadeOut 0.2s ease-in both; }
+.animate-card-enter       { animation: cardEnter 0.3s ease-out both; }
+.animate-highlight-pulse  { animation: highlightPulse 1.8s ease-out 1; }
+.animate-urgent-pulse     { animation: urgentBadgePulse 1.2s ease-out 1; }
+
+/* ── Login page animations ── */
+@keyframes login-float-1 { from { transform: translate(0, 0); } to { transform: translate(20px, -30px); } }
+@keyframes login-float-2 { from { transform: translate(0, 0); } to { transform: translate(-15px, 25px); } }
+@keyframes login-float-3 { from { transform: translate(0, 0); } to { transform: translate(25px, 15px); } }
+@keyframes login-brand-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes login-field-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }

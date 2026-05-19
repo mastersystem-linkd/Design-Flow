@@ -1,0 +1,1746 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom";
+import { Link } from "react-router-dom";
+import {
+  Plus,
+  Paperclip,
+  HandPlatter,
+  Play,
+  Send,
+  Check,
+  ArrowRight,
+  Loader2,
+  ChevronUp,
+  ChevronDown,
+  Inbox,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  Eye,
+  RefreshCw,
+  Download,
+} from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useTasks } from "@/hooks/useTasks";
+import { useProfiles } from "@/hooks/useProfiles";
+import { useTaskMutations, type TaskMutationOp } from "@/hooks/useTaskMutations";
+import { TaskDetailDrawer } from "@/components/tasks/TaskDetailDrawer";
+import { FullKittingModal } from "@/components/tasks/FullKittingModal";
+import { FullKittingDrawer } from "@/components/tasks/FullKittingDrawer";
+import { EditTaskDialog } from "@/components/tasks/EditTaskDialog";
+import { NewBriefDialog } from "@/views/BriefingView";
+import {
+  Badge,
+  Button,
+  SkeletonText,
+  SearchInput,
+  EmptyState,
+  ConfirmDialog,
+  ExportDialog,
+  toast,
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  getInitials,
+  DeadlineCell,
+} from "@/components/ui";
+import { type CsvColumn } from "@/lib/exportCSV";
+import {
+  STATUS_LABELS,
+  COLUMN_DOT,
+  COLUMN_ACCENT,
+} from "@/lib/constants";
+import { ROUTES } from "@/lib/routes";
+import { cn, formatDate } from "@/lib/utils";
+import { isAdminOrCoordinator } from "@/lib/permissions";
+
+/** Compact creation timestamp for the Date/Time column (Indian locale). */
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/** Time-only (HH:MM, 24-hour) component of a timestamp. */
+function formatTimeOfDay(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+import type {
+  TaskStatus,
+  TaskWithRelations,
+  UserRole,
+} from "@/types/database";
+
+function isAdminRole(role: UserRole | null | undefined): boolean {
+  return isAdminOrCoordinator(role);
+}
+
+type FilterTab = "mine" | "all" | "urgent";
+
+/**
+ * Statuses shown on /dashboard. Only 4 tabs — full_kitting is handled
+ * internally (tasks auto-advance through it). `approved` and `sampling`
+ * live elsewhere.
+ */
+const DASHBOARD_STATUSES: readonly TaskStatus[] = [
+  "pool",
+  "todo",
+  "in_progress",
+  "done",
+] as const;
+
+function defaultFilterForRole(role: UserRole): FilterTab {
+  if (role === "designer") return "mine";
+  return "all";
+}
+
+function defaultStatusTabForRole(role: UserRole): TaskStatus {
+  // Designers land where their work usually is; admins start at the Pool.
+  return role === "designer" ? "in_progress" : "pool";
+}
+
+type SortKey = "deadline" | "code" | "qty" | "priority";
+type SortDir = "asc" | "desc";
+
+interface SortConfig {
+  key: SortKey;
+  dir: SortDir;
+}
+
+const DEFAULT_SORT: SortConfig = { key: "deadline", dir: "asc" };
+
+// ============================================================================
+// Top-level view
+// ============================================================================
+
+export function KanbanView() {
+  const { profile, user } = useAuth();
+  const { tasks, isLoading, error, refetch } = useTasks();
+  const {
+    assignTask,
+    updateTaskStatus,
+    selfAssignTask,
+    markTaskDone,
+    updateTask,
+    deleteTask: deleteTaskMutation,
+    isPending,
+  } = useTaskMutations();
+  const { profiles: designers } = useProfiles({
+    roles: ["designer"],
+  });
+
+  const role: UserRole = profile?.role ?? "designer";
+  const isAdmin = isAdminRole(role);
+
+  const [filter, setFilter] = useState<FilterTab>(defaultFilterForRole(role));
+  const [statusTab, setStatusTab] = useState<TaskStatus>(
+    defaultStatusTabForRole(role)
+  );
+  const [designerFilter, setDesignerFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [kittingTask, setKittingTask] = useState<TaskWithRelations | null>(null);
+  const [editTask, setEditTask] = useState<TaskWithRelations | null>(null);
+  const [deleteTask, setDeleteTask] = useState<TaskWithRelations | null>(null);
+  const [fkDrawerTask, setFkDrawerTask] = useState<TaskWithRelations | null>(null);
+  const [newBriefOpen, setNewBriefOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }
+
+  const taskExportColumns: CsvColumn<TaskWithRelations>[] = [
+    { key: "task_code", label: "Task Code" },
+    { key: "concept", label: "Concept" },
+    { key: "client", label: "Client", transform: (v) => (v as any)?.party_name ?? "" },
+    { key: "fabric", label: "Fabric" },
+    { key: "assignee", label: "Designer", transform: (v) => (v as any)?.full_name ?? "Unassigned" },
+    { key: "status", label: "Status" },
+    { key: "priority", label: "Priority" },
+    { key: "assigned_at", label: "Assigned Date" },
+    { key: "planned_deadline", label: "Deadline" },
+    { key: "completed_at", label: "Completed Date" },
+    { key: "delay_days", label: "Delay Days", transform: (v) => v != null ? String(v) : "" },
+    { key: "qty", label: "Qty (m)", transform: (v) => v != null ? String(v) : "" },
+    { key: "qty_completed", label: "Completed", transform: (v) => v != null ? String(v) : "" },
+    { key: "requires_full_kitting", label: "Full Knitting" },
+    { key: "mtr", label: "Mtr", transform: (v) => v != null ? String(v) : "" },
+  ];
+
+  // One sort config per status section.
+  const [sorts, setSorts] = useState<Record<TaskStatus, SortConfig>>(() => ({
+    pool: DEFAULT_SORT,
+    todo: DEFAULT_SORT,
+    in_progress: DEFAULT_SORT,
+    full_kitting: DEFAULT_SORT,
+    approved: DEFAULT_SORT, // unused but keeps the record total
+    sampling: DEFAULT_SORT, // unused
+    done: { key: "deadline", dir: "desc" },
+  }));
+
+  // Track tasks that just changed status to flash a brief highlight.
+  const [enteringIds, setEnteringIds] = useState<Set<string>>(new Set());
+
+  // ----------------- Filtering / scoping -----------------
+
+  const scoped = useMemo(() => {
+    // Exclude statuses that don't belong on the dashboard anymore.
+    // full_kitting tasks are kept — they'll be grouped under "in_progress" tab.
+    let list = tasks.filter(
+      (t) =>
+        t.status !== "sampling" &&
+        t.status !== "approved"
+    );
+
+    if (filter === "urgent") {
+      list = list.filter((t) => t.priority === "urgent");
+    } else if (filter === "mine") {
+      if (!user?.id) return [];
+      // Designers in "My Tasks" can still see the open pool to claim from.
+      list = list.filter(
+        (t) =>
+          t.assigned_to === user.id ||
+          (role === "designer" && t.status === "pool")
+      );
+    }
+
+    if (isAdmin && designerFilter) {
+      list = list.filter((t) => t.assigned_to === designerFilter);
+    }
+
+    return list;
+  }, [tasks, filter, user?.id, role, isAdmin, designerFilter]);
+
+  /** Search MATCHES — used for opacity dimming, not filtering. */
+  const matchesSearch = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return new Set<string>();
+    const matches = new Set<string>();
+    for (const t of scoped) {
+      const haystack = [
+        t.task_code,
+        t.concept,
+        t.client?.party_name ?? "",
+        t.assignee?.full_name ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (haystack.includes(q)) matches.add(t.id);
+    }
+    return matches;
+  }, [scoped, search]);
+
+  const grouped = useMemo(() => {
+    const map: Record<TaskStatus, TaskWithRelations[]> = {
+      pool: [],
+      todo: [],
+      in_progress: [],
+      full_kitting: [],
+      approved: [],
+      sampling: [],
+      done: [],
+    };
+    for (const t of scoped) {
+      // Merge full_kitting tasks into the "In Progress" tab
+      if (t.status === "full_kitting") {
+        map.in_progress.push(t);
+      } else {
+        map[t.status].push(t);
+      }
+    }
+    return map;
+  }, [scoped]);
+
+  const myStats = useMemo(() => {
+    if (!user?.id) return { active: 0, done: 0, total: 0 };
+    const mine = tasks.filter((t) => t.assigned_to === user.id);
+    return {
+      total: mine.length,
+      active: mine.filter((t) =>
+        ["todo", "in_progress", "full_kitting"].includes(t.status)
+      ).length,
+      done: mine.filter((t) => t.status === "done").length,
+    };
+  }, [tasks, user?.id]);
+
+  const urgentCount = useMemo(
+    () => scoped.filter((t) => t.priority === "urgent").length,
+    [scoped]
+  );
+
+  // ----------------- Row actions -----------------
+
+  function markEntering(taskId: string) {
+    setEnteringIds((prev) => new Set(prev).add(taskId));
+    setTimeout(() => {
+      setEnteringIds((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    }, 1800);
+  }
+
+  async function handleAccept(task: TaskWithRelations) {
+    if (!user?.id) return;
+    const { error } = await assignTask(task.id, user.id);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    await refetch();
+    markEntering(task.id);
+    toast.success(`${task.task_code} accepted ✓`);
+  }
+
+  /** Designer self-assigns from the Pool. */
+  async function handleSelfAssign(task: TaskWithRelations) {
+    const { error } = await selfAssignTask(task.id);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    await refetch();
+    markEntering(task.id);
+    toast.success("Task claimed! It's on your board now.");
+  }
+
+  async function handleAdvance(task: TaskWithRelations, next: TaskStatus) {
+    // If advancing to 'done', use markTaskDone (calculates delay_days) then
+    // open the FullKittingModal to ask about kitting.
+    if (next === "done") {
+      const { data, error } = await markTaskDone(task.id);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      await refetch();
+      markEntering(task.id);
+      // Open the kitting modal — pass the UPDATED task (with completed_at etc.)
+      setKittingTask(data ? { ...task, ...data } : task);
+      return;
+    }
+
+    const { error } = await updateTaskStatus(task.id, next);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    await refetch();
+    markEntering(task.id);
+    toast.success(`${task.task_code} → ${STATUS_LABELS[next]} ✓`);
+  }
+
+  function handleSubmitForReview(task: TaskWithRelations) {
+    const hasFile = (task.files?.length ?? 0) > 0;
+    if (!hasFile) {
+      toast.info("Upload your design file before submitting.");
+      setSelectedTaskId(task.id);
+      return;
+    }
+    void handleAdvance(task, "full_kitting");
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deleteTask) return;
+    const { error } = await deleteTaskMutation(deleteTask.id);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success("Task deleted");
+    setDeleteTask(null);
+    await refetch();
+  }
+
+  function updateSort(status: TaskStatus, key: SortKey) {
+    setSorts((prev) => {
+      const curr = prev[status];
+      const nextDir: SortDir =
+        curr.key === key ? (curr.dir === "asc" ? "desc" : "asc") : "asc";
+      return { ...prev, [status]: { key, dir: nextDir } };
+    });
+  }
+
+  // ----------------- Loading state -----------------
+  if (isLoading && tasks.length === 0) {
+    return <TableSkeleton />;
+  }
+
+  const totalCount = scoped.length;
+  const hasAny = totalCount > 0;
+
+  return (
+    <div className="space-y-5">
+      <TopBar
+        role={role}
+        myStats={myStats}
+        designers={designers}
+        designerFilter={designerFilter}
+        setDesignerFilter={setDesignerFilter}
+        search={search}
+        setSearch={setSearch}
+        isAdmin={isAdmin}
+        filter={filter}
+        setFilter={setFilter}
+        urgentCount={urgentCount}
+        onRefresh={handleRefresh}
+        isRefreshing={refreshing}
+        onExport={isAdmin ? () => setExportOpen(true) : undefined}
+        onNewBrief={() => setNewBriefOpen(true)}
+      />
+
+      {error && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          Failed to load tasks: {error}
+        </div>
+      )}
+
+      {filter === "urgent" && urgentCount === 0 ? (
+        <EmptyState
+          icon="🎉"
+          title="No urgent tasks right now"
+          description="Looks like everything's on track. Switch back to All Tasks to keep working."
+        />
+      ) : !hasAny ? (
+        <EmptyState
+          icon="📋"
+          title="Nothing on the board"
+          description={
+            isAdmin
+              ? "Create a new brief to start the pipeline."
+              : "Once a brief lands, it will show up here."
+          }
+        />
+      ) : (
+        <>
+          <StatusTabs
+            value={statusTab}
+            onChange={setStatusTab}
+            counts={DASHBOARD_STATUSES.reduce(
+              (acc, s) => ({ ...acc, [s]: grouped[s]?.length ?? 0 }),
+              {} as Record<TaskStatus, number>
+            )}
+          />
+          <TaskTableSection
+            key={statusTab}
+            status={statusTab}
+            tasks={grouped[statusTab]}
+            sort={sorts[statusTab]}
+            onSortChange={(k) => updateSort(statusTab, k)}
+            search={search}
+            matchesSearch={matchesSearch}
+            enteringIds={enteringIds}
+            onSelectTask={setSelectedTaskId}
+            onAccept={handleAccept}
+            onSelfAssign={handleSelfAssign}
+            onAdvance={handleAdvance}
+            onSubmitReview={handleSubmitForReview}
+            onEdit={setEditTask}
+            onDelete={setDeleteTask}
+            onFullKitting={setFkDrawerTask}
+            currentUserId={user?.id ?? null}
+            role={role}
+            isPending={isPending}
+          />
+        </>
+      )}
+
+      <TaskDetailDrawer
+        taskId={selectedTaskId}
+        open={!!selectedTaskId}
+        onOpenChange={(o) => !o && setSelectedTaskId(null)}
+        onChange={() => void refetch()}
+      />
+
+      {kittingTask && (
+        <FullKittingModal
+          task={kittingTask}
+          open={!!kittingTask}
+          onOpenChange={(o) => !o && setKittingTask(null)}
+          onComplete={() => {
+            setKittingTask(null);
+            void refetch();
+          }}
+        />
+      )}
+
+      {editTask && (
+        <EditTaskDialog
+          task={editTask}
+          open={!!editTask}
+          onOpenChange={(o) => !o && setEditTask(null)}
+          onSave={updateTask}
+          onSaved={() => {
+            setEditTask(null);
+            void refetch();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!deleteTask}
+        title="Delete this task?"
+        description={
+          deleteTask
+            ? `"${deleteTask.task_code}" will be permanently deleted. This action cannot be undone.`
+            : ""
+        }
+        variant="danger"
+        confirmLabel="Delete"
+        onConfirm={() => void handleDeleteConfirm()}
+        onCancel={() => setDeleteTask(null)}
+      />
+
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        data={tasks as unknown as Record<string, unknown>[]}
+        columns={taskExportColumns as unknown as CsvColumn<Record<string, unknown>>[]}
+        defaultFilename="linkd-tasks"
+        dateField="created_at"
+      />
+
+      <FullKittingDrawer
+        task={fkDrawerTask}
+        open={!!fkDrawerTask}
+        onOpenChange={(o) => !o && setFkDrawerTask(null)}
+        onSaved={() => {
+          setFkDrawerTask(null);
+          void refetch();
+        }}
+      />
+
+      <NewBriefDialog
+        open={newBriefOpen}
+        onOpenChange={setNewBriefOpen}
+        onCreated={() => void refetch()}
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// Top bar
+// ============================================================================
+
+interface TopBarProps {
+  role: UserRole;
+  myStats: { active: number; done: number; total: number };
+  designers: { id: string; full_name: string }[];
+  designerFilter: string;
+  setDesignerFilter: (v: string) => void;
+  search: string;
+  setSearch: (v: string) => void;
+  isAdmin: boolean;
+  filter: FilterTab;
+  setFilter: (v: FilterTab) => void;
+  urgentCount: number;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+  onExport?: () => void;
+  onNewBrief: () => void;
+}
+
+function TopBar({
+  role,
+  myStats,
+  designers,
+  designerFilter,
+  setDesignerFilter,
+  search,
+  setSearch,
+  isAdmin,
+  filter,
+  setFilter,
+  urgentCount,
+  onRefresh,
+  isRefreshing,
+  onExport,
+  onNewBrief,
+}: TopBarProps) {
+  const canCreate = isAdminOrCoordinator(role);
+
+  return (
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-1">
+        <div className="md:max-w-sm md:flex-1">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search task ID, concept, client, or designer…"
+          />
+        </div>
+        <FilterTabs
+          value={filter}
+          onChange={setFilter}
+          urgentCount={urgentCount}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+        </button>
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            title="Export CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {isAdmin ? (
+          <select
+            value={designerFilter}
+            onChange={(e) => setDesignerFilter(e.target.value)}
+            className="h-9 rounded-md border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Filter by designer"
+          >
+            <option value="">All designers</option>
+            {designers.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.full_name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <StatCluster stats={myStats} />
+        )}
+        {canCreate && (
+          <Button size="sm" className="gap-2" onClick={onNewBrief}>
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">New brief</span>
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatCluster({
+  stats,
+}: {
+  stats: { active: number; done: number; total: number };
+}) {
+  return (
+    <div className="flex gap-4 rounded-md border border-border bg-card px-4 py-2">
+      <Stat label="Active" value={stats.active} />
+      <VDivider />
+      <Stat label="Done" value={stats.done} />
+      <VDivider />
+      <Stat label="Total" value={stats.total} />
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex flex-col leading-tight">
+      <span className="text-lg font-semibold tabular-nums text-foreground">
+        {value}
+      </span>
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function VDivider() {
+  return <span className="self-stretch border-r border-border" />;
+}
+
+// ============================================================================
+// Filter tabs
+// ============================================================================
+
+function FilterTabs({
+  value,
+  onChange,
+  urgentCount,
+}: {
+  value: FilterTab;
+  onChange: (v: FilterTab) => void;
+  urgentCount: number;
+}) {
+  const TABS: { id: FilterTab; label: string }[] = [
+    { id: "mine", label: "My Tasks" },
+    { id: "all", label: "All Tasks" },
+    { id: "urgent", label: "Urgent Only" },
+  ];
+  return (
+    <div className="inline-flex flex-wrap gap-1.5">
+      {TABS.map((t) => {
+        const active = value === t.id;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => onChange(t.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+              active
+                ? "border-primary bg-primary text-white"
+                : "border-border bg-card text-foreground hover:border-primary/40"
+            )}
+            aria-pressed={active}
+          >
+            {t.label}
+            {t.id === "urgent" && urgentCount > 0 && (
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  active ? "bg-card animate-pulse" : "bg-destructive"
+                )}
+                aria-hidden
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// Status tabs (single-section switcher)
+// ============================================================================
+
+function StatusTabs({
+  value,
+  onChange,
+  counts,
+}: {
+  value: TaskStatus;
+  onChange: (s: TaskStatus) => void;
+  counts: Record<TaskStatus, number>;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Task status"
+      className="flex flex-wrap gap-1.5 border-b border-border pb-0"
+    >
+      {DASHBOARD_STATUSES.map((s) => {
+        const active = s === value;
+        const count = counts[s] ?? 0;
+        return (
+          <button
+            key={s}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(s)}
+            className={cn(
+              "relative inline-flex items-center gap-2 rounded-t-md border border-b-0 px-3.5 py-2 text-sm font-medium transition-colors -mb-px",
+              active
+                ? "border-border bg-card text-foreground"
+                : "border-transparent bg-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span
+              className={cn("h-2 w-2 rounded-full", COLUMN_DOT[s])}
+              aria-hidden
+            />
+            {STATUS_LABELS[s]}
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                active
+                  ? "bg-primary text-white"
+                  : "bg-secondary text-muted-foreground"
+              )}
+            >
+              {count}
+            </span>
+            {active && (
+              <span
+                className={cn(
+                  "absolute inset-x-0 -top-px h-[2px]",
+                  COLUMN_ACCENT[s]
+                )}
+                aria-hidden
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// Status section (header + sortable table)
+// ============================================================================
+
+interface SectionProps {
+  status: TaskStatus;
+  tasks: TaskWithRelations[];
+  sort: SortConfig;
+  onSortChange: (key: SortKey) => void;
+  search: string;
+  matchesSearch: Set<string>;
+  enteringIds: Set<string>;
+  onSelectTask: (id: string) => void;
+  onAccept: (t: TaskWithRelations) => void;
+  onSelfAssign: (t: TaskWithRelations) => void;
+  onAdvance: (t: TaskWithRelations, next: TaskStatus) => void;
+  onSubmitReview: (t: TaskWithRelations) => void;
+  onEdit: (t: TaskWithRelations) => void;
+  onDelete: (t: TaskWithRelations) => void;
+  onFullKitting: (t: TaskWithRelations) => void;
+  currentUserId: string | null;
+  role: UserRole;
+  isPending: ReturnType<typeof useTaskMutations>["isPending"];
+}
+
+function TaskTableSection(props: SectionProps) {
+  const { status, tasks, sort } = props;
+  const sorted = useMemo(() => sortTasks(tasks, sort), [tasks, sort]);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      {/* Accent stripe */}
+      <div className={cn("h-[3px]", COLUMN_ACCENT[status])} aria-hidden />
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border bg-card/50 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn("h-2.5 w-2.5 rounded-full", COLUMN_DOT[status])}
+            aria-hidden
+          />
+          <h2 className="text-sm font-semibold text-foreground">
+            {STATUS_LABELS[status]}
+          </h2>
+          <span className="rounded-full bg-card px-2 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+            {tasks.length}
+          </span>
+        </div>
+        <p className="hidden text-[11px] text-muted-foreground sm:block">
+          {SECTION_HINTS[status]}
+        </p>
+      </div>
+
+      {/* Table */}
+      {tasks.length === 0 ? (
+        <EmptySectionRow status={status} role={props.role} />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[2800px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-card/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                <th className="px-3 py-2 font-medium">Date/Time</th>
+                <th className="px-3 py-2 font-medium">Designer</th>
+                <th className="px-3 py-2 font-medium">Concept</th>
+                <th className="px-3 py-2 font-medium">Description</th>
+                <th className="px-3 py-2 font-medium">Party Name</th>
+                <th className="px-3 py-2 font-medium">Fabric</th>
+                <SortableHeader
+                  label="Mtr"
+                  active={sort.key === "qty"}
+                  dir={sort.dir}
+                  onClick={() => props.onSortChange("qty")}
+                  className="w-[70px] px-3 py-2"
+                />
+                <th className="px-3 py-2 font-medium">WhatsApp Group</th>
+                <th className="w-[120px] px-3 py-2 font-medium">Date</th>
+                <th className="w-[80px] px-3 py-2 font-medium">Time</th>
+                <th className="px-3 py-2 font-medium">Assigned By</th>
+                <th className="w-[80px] px-3 py-2 font-medium">QTY</th>
+                <SortableHeader
+                  label="Due Date"
+                  active={sort.key === "deadline"}
+                  dir={sort.dir}
+                  onClick={() => props.onSortChange("deadline")}
+                  className="w-[130px] px-3 py-2"
+                />
+                <th className="px-3 py-2 font-medium">Completion Timestamp</th>
+                <th className="w-[80px] px-3 py-2 font-medium">Completed</th>
+                <th className="w-[80px] px-3 py-2 font-medium">Pending</th>
+                <th className="w-[70px] px-3 py-2 font-medium">Done?</th>
+                <th className="w-[90px] px-3 py-2 font-medium">Started Late</th>
+                <th className="w-[80px] px-3 py-2 font-medium">Full Knitting</th>
+                <th className="px-3 py-2 font-medium">FK Form</th>
+                <th className="w-[180px] px-3 py-2 text-right font-medium sticky right-0 bg-card/30">
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((task) => (
+                <TaskRow
+                  key={`${task.id}-${task.status}`}
+                  task={task}
+                  dimmed={
+                    !!props.search && !props.matchesSearch.has(task.id)
+                  }
+                  entering={props.enteringIds.has(task.id)}
+                  onClick={() => props.onSelectTask(task.id)}
+                  onAccept={() => props.onAccept(task)}
+                  onSelfAssign={() => props.onSelfAssign(task)}
+                  onAdvance={(s) => props.onAdvance(task, s)}
+                  onSubmitReview={() => props.onSubmitReview(task)}
+                  onFullKitting={() => props.onFullKitting(task)}
+                  onEdit={() => props.onEdit(task)}
+                  onDelete={() => props.onDelete(task)}
+                  currentUserId={props.currentUserId}
+                  role={props.role}
+                  isPending={props.isPending}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const SECTION_HINTS: Record<TaskStatus, string> = {
+  pool: "Anyone can claim from here.",
+  todo: "Assigned and waiting to start.",
+  in_progress: "Work underway.",
+  full_kitting: "Waiting on admin review.",
+  approved: "",
+  sampling: "",
+  done: "Wrapped up.",
+};
+
+// ----------------- empty state row -----------------
+
+function EmptySectionRow({
+  status,
+  role,
+}: {
+  status: TaskStatus;
+  role: UserRole;
+}) {
+  const copy: Record<TaskStatus, string> = {
+    pool: "No tasks in the open pool.",
+    todo: "No tasks assigned to you yet.",
+    in_progress: "No active work right now.",
+    full_kitting: "No designs waiting for review.",
+    approved: "—",
+    sampling: "—",
+    done: "Completed designs will appear here.",
+  };
+  const hint =
+    role === "designer" && status === "todo" ? (
+      <span className="ml-1 text-muted-foreground/80">
+        Check the Open Pool above.
+      </span>
+    ) : null;
+  return (
+    <div className="flex items-center gap-3 px-4 py-5 text-sm text-muted-foreground">
+      <Inbox className="h-4 w-4 text-muted-foreground/70" />
+      <span>
+        {copy[status]}
+        {hint}
+      </span>
+    </div>
+  );
+}
+
+// ----------------- sortable header -----------------
+
+function SortableHeader({
+  label,
+  active,
+  dir,
+  onClick,
+  className,
+}: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <th className={cn("font-medium", className)}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "inline-flex items-center gap-1 transition-colors",
+          active ? "text-foreground" : "hover:text-foreground"
+        )}
+        aria-pressed={active}
+      >
+        {label}
+        {active ? (
+          dir === "asc" ? (
+            <ChevronUp className="h-3 w-3" />
+          ) : (
+            <ChevronDown className="h-3 w-3" />
+          )
+        ) : (
+          <ChevronUp className="h-3 w-3 opacity-30" />
+        )}
+      </button>
+    </th>
+  );
+}
+
+// ----------------- sort helper -----------------
+
+function sortTasks(tasks: TaskWithRelations[], sort: SortConfig) {
+  const order = sort.dir === "asc" ? 1 : -1;
+  const sorted = [...tasks];
+  sorted.sort((a, b) => {
+    switch (sort.key) {
+      case "code":
+        return order * a.task_code.localeCompare(b.task_code);
+      case "qty":
+        return order * (a.qty - b.qty);
+      case "priority": {
+        const rank = { urgent: 3, high: 2, normal: 1, low: 0 } as const;
+        return (
+          order *
+          ((rank[b.priority] ?? 0) - (rank[a.priority] ?? 0))
+        );
+      }
+      case "deadline":
+      default: {
+        const av = a.planned_deadline
+          ? new Date(a.planned_deadline).getTime()
+          : Number.POSITIVE_INFINITY;
+        const bv = b.planned_deadline
+          ? new Date(b.planned_deadline).getTime()
+          : Number.POSITIVE_INFINITY;
+        return order * (av - bv);
+      }
+    }
+  });
+  return sorted;
+}
+
+// ============================================================================
+// Task row
+// ============================================================================
+
+interface RowProps {
+  task: TaskWithRelations;
+  dimmed: boolean;
+  entering: boolean;
+  onClick: () => void;
+  onAccept: () => void;
+  onSelfAssign: () => void;
+  onAdvance: (status: TaskStatus) => void;
+  onSubmitReview: () => void;
+  onFullKitting: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  currentUserId: string | null;
+  role: UserRole;
+  isPending: ReturnType<typeof useTaskMutations>["isPending"];
+}
+
+function TaskRow({
+  task,
+  dimmed,
+  entering,
+  onClick,
+  onAccept,
+  onSelfAssign,
+  onAdvance,
+  onSubmitReview,
+  onFullKitting,
+  onEdit,
+  onDelete,
+  currentUserId,
+  role,
+  isPending,
+}: RowProps) {
+  const isMine = currentUserId !== null && task.assigned_to === currentUserId;
+  const isUnassigned = !task.assigned_to;
+  const isAdmin = isAdminRole(role);
+  const fileCount = task.files?.length ?? 0;
+  const isUrgent = task.priority === "urgent";
+
+  const ctas = getCtasForRow({
+    task,
+    role,
+    isMine,
+    isUnassigned,
+    isAdmin,
+    onAccept,
+    onSelfAssign,
+    onAdvance,
+    onSubmitReview,
+    onFullKitting,
+  });
+
+  const opPending = (op: TaskMutationOp) =>
+    isPending(op, task.id);
+
+  return (
+    <tr
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      tabIndex={0}
+      className={cn(
+        "group cursor-pointer border-b border-border/60 transition-colors",
+        "hover:bg-card/60 focus:bg-card/60 focus:outline-none",
+        entering && "animate-highlight-pulse",
+        dimmed && "opacity-30 pointer-events-none"
+      )}
+    >
+      {/* 1. Date/Time (created_at) */}
+      <td className="whitespace-nowrap px-3 py-3 align-middle text-[12px] text-muted-foreground">
+        {formatDateTime(task.created_at)}
+      </td>
+
+      {/* 2. Designer */}
+      <td className="px-3 py-3 align-middle whitespace-nowrap">
+        {task.assignee ? (
+          <div className="flex items-center gap-2">
+            <Avatar className="h-6 w-6">
+              {task.assignee.avatar_url ? (
+                <AvatarImage src={task.assignee.avatar_url} />
+              ) : null}
+              <AvatarFallback className="text-[9px]">
+                {getInitials(task.assignee.full_name)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="max-w-[120px] truncate text-xs text-foreground">
+              {task.assignee.full_name}
+            </span>
+          </div>
+        ) : (
+          <span className="text-xs italic text-muted-foreground">Open</span>
+        )}
+      </td>
+
+      {/* 3. Concept */}
+      <td className="px-3 py-3 align-middle">
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <span className="font-medium text-foreground">{task.concept}</span>
+          {fileCount > 0 && (
+            <span
+              className="flex items-center gap-0.5 text-[10px] text-muted-foreground"
+              title={`${fileCount} file${fileCount === 1 ? "" : "s"}`}
+            >
+              <Paperclip className="h-3 w-3" />
+              {fileCount}
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* 4. Description */}
+      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground">
+        <span className="block max-w-[260px] truncate" title={task.description ?? ""}>
+          {task.description || "—"}
+        </span>
+      </td>
+
+      {/* 5. Party Name */}
+      <td className="px-3 py-3 align-middle text-muted-foreground whitespace-nowrap">
+        {task.client?.party_name ?? "—"}
+      </td>
+
+      {/* 6. Fabric */}
+      <td className="px-3 py-3 align-middle whitespace-nowrap">
+        <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground">
+          {task.fabric}
+        </span>
+      </td>
+
+      {/* 7. Mtr */}
+      <td className="px-3 py-3 align-middle tabular-nums text-[12px]">
+        {task.mtr != null ? task.mtr : "—"}
+      </td>
+
+      {/* 8. WhatsApp Group */}
+      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground whitespace-nowrap">
+        {task.whatsapp_group || "—"}
+      </td>
+
+      {/* 9. Date — when the coordinator added the task (created_at) */}
+      <td className="whitespace-nowrap px-3 py-3 align-middle text-[12px]">
+        {formatDate(task.created_at)}
+      </td>
+
+      {/* 10. Time — when the coordinator added the task (created_at) */}
+      <td className="px-3 py-3 align-middle tabular-nums text-[12px] text-muted-foreground whitespace-nowrap">
+        {formatTimeOfDay(task.created_at)}
+      </td>
+
+      {/* 11. Assigned By */}
+      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground whitespace-nowrap">
+        {task.assigned_by || "—"}
+      </td>
+
+      {/* 12. QTY */}
+      <td className="px-3 py-3 align-middle tabular-nums text-foreground whitespace-nowrap">
+        {task.qty}M
+      </td>
+
+      {/* 12b. Due Date */}
+      <td className="px-3 py-3 align-middle whitespace-nowrap">
+        <DeadlineCell deadline={task.planned_deadline} />
+      </td>
+
+      {/* 13. Completion Timestamp */}
+      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground whitespace-nowrap">
+        {task.status === "done" ? formatDateTime(task.updated_at) : "—"}
+      </td>
+
+      {/* 14. How many Completed */}
+      <td className="px-3 py-3 align-middle tabular-nums text-[12px]">
+        {task.qty_completed ?? 0}
+      </td>
+
+      {/* 15. Pending */}
+      <td className="px-3 py-3 align-middle tabular-nums text-[12px]">
+        {Math.max(0, (task.qty ?? 0) - (task.qty_completed ?? 0))}
+      </td>
+
+      {/* 16. Tickbox if completed */}
+      <td className="px-3 py-3 align-middle text-center">
+        {task.status === "done" ? (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-success bg-success text-white">
+            <Check className="h-3 w-3" strokeWidth={3} />
+          </span>
+        ) : (
+          <span className="inline-block h-4 w-4 rounded border border-border" />
+        )}
+      </td>
+
+      {/* 17. Started Late */}
+      <td className="px-3 py-3 align-middle">
+        {task.started_late ? (
+          <Badge className="bg-destructive/10 text-destructive border border-destructive/40 px-1.5 py-0 text-[10px]">
+            Yes
+          </Badge>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">No</span>
+        )}
+      </td>
+
+      {/* 19 + 20. Full Knitting toggle + FK Form (shared optimistic state) */}
+      <FullKnittingCells
+        task={task}
+        isAdmin={isAdmin}
+        onFullKitting={onFullKitting}
+      />
+
+      {/* Action (sticky to right edge) */}
+      <td
+        className="px-3 py-3 align-middle text-right sticky right-0 bg-card/95 backdrop-blur"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+          {/* Status CTAs (Accept/Start/Submit/Completed/Claim) */}
+          {ctas.map((cta) => {
+            const Icon = cta.icon;
+            const pending = cta.pendingOp ? opPending(cta.pendingOp) : false;
+            return (
+              <button
+                key={cta.label}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cta.onClick();
+                }}
+                disabled={pending}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
+                  CTA_CLASSES[cta.variant]
+                )}
+              >
+                {pending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Icon className="h-3 w-3" />
+                )}
+                {cta.label}
+              </button>
+            );
+          })}
+
+          {/* ⋮ Dropdown — Edit / Delete / View */}
+          <RowActionMenu
+            role={role}
+            onView={onClick}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ----------------- CTA decision -----------------
+
+type CtaVariant = "gold" | "ink" | "emerald" | "outline";
+
+interface Cta {
+  label: string;
+  variant: CtaVariant;
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+  pendingOp?: "assign" | "selfAssign" | "markDone" | "updateStatus";
+}
+
+const CTA_CLASSES: Record<CtaVariant, string> = {
+  gold: "bg-primary text-foreground hover:bg-primary/90",
+  ink: "bg-primary text-white hover:bg-primary/90",
+  emerald: "bg-success text-white hover:bg-success/90",
+  outline: "border border-border bg-card text-foreground hover:bg-secondary",
+};
+
+function getCtasForRow(args: {
+  task: TaskWithRelations;
+  role: UserRole;
+  isMine: boolean;
+  isUnassigned: boolean;
+  isAdmin: boolean;
+  onAccept: () => void;
+  onSelfAssign: () => void;
+  onAdvance: (s: TaskStatus) => void;
+  onSubmitReview: () => void;
+  onFullKitting: () => void;
+}): Cta[] {
+  const {
+    task,
+    role,
+    isMine,
+    isUnassigned,
+    isAdmin,
+    onAccept,
+    onSelfAssign,
+    onAdvance,
+    onSubmitReview,
+    onFullKitting,
+  } = args;
+
+  switch (task.status) {
+    case "pool":
+      // Admin uses "Accept" (assigns via dropdown). Designers use "Claim".
+      if (isAdmin && isUnassigned) {
+        return [
+          {
+            label: "Accept",
+            variant: "gold",
+            icon: HandPlatter,
+            onClick: onAccept,
+            pendingOp: "assign",
+          },
+        ];
+      }
+      // Designer can self-assign if task is unassigned or started_at is null
+      if (role === "designer" && (isUnassigned || !task.started_at)) {
+        return [
+          {
+            label: "Claim",
+            variant: "gold",
+            icon: HandPlatter,
+            onClick: onSelfAssign,
+            pendingOp: "selfAssign",
+          },
+        ];
+      }
+      return [];
+
+    case "todo":
+      if (isMine || isAdmin) {
+        return [
+          {
+            label: "Start",
+            variant: "ink",
+            icon: Play,
+            onClick: () => onAdvance("in_progress"),
+            pendingOp: "updateStatus",
+          },
+        ];
+      }
+      return [];
+
+    case "in_progress":
+      if (isMine || isAdmin) {
+        return [
+          {
+            label: "Submit",
+            variant: "gold",
+            icon: Send,
+            onClick: onSubmitReview,
+            pendingOp: "updateStatus",
+          },
+        ];
+      }
+      return [];
+
+    case "full_kitting":
+      if (isAdmin) {
+        // Concept-track briefs need the Approve / Request Revision pair —
+        // they're in the "Design Approval" stage of the concept pipeline.
+        // Regular tasks just have a single "Completed" CTA.
+        const isConceptTrack =
+          (task.concept ?? "").trim().toLowerCase() === "concepts";
+        if (isConceptTrack) {
+          return [
+            {
+              label: "Approve",
+              variant: "emerald",
+              icon: Check,
+              onClick: () => onAdvance("done"),
+              pendingOp: "updateStatus",
+            },
+            {
+              label: "Revise",
+              variant: "outline",
+              icon: ArrowRight,
+              onClick: () => onAdvance("in_progress"),
+              pendingOp: "updateStatus",
+            },
+          ];
+        }
+        return [
+          {
+            label: "Completed",
+            variant: "emerald",
+            icon: Check,
+            onClick: () => onAdvance("done"),
+            pendingOp: "updateStatus",
+          },
+        ];
+      }
+      return [];
+
+    default:
+      return [];
+  }
+}
+
+// ============================================================================
+// Mini progress bar
+// ============================================================================
+
+// ============================================================================
+// Row action ⋮ dropdown — View, Edit, Delete
+// ============================================================================
+
+function RowActionMenu({
+  role,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  role: UserRole;
+  onView: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
+
+  const canEdit = isAdminOrCoordinator(role);
+  const canDelete = isAdminOrCoordinator(role);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Close on scroll (the table is scrollable)
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => setOpen(false);
+    window.addEventListener("scroll", handler, true);
+    return () => window.removeEventListener("scroll", handler, true);
+  }, [open]);
+
+  function handleToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    // Position the portal-rendered menu next to the trigger button
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const menuHeight = 160; // approximate
+      const openUp = spaceBelow < menuHeight;
+      setPos({
+        top: openUp ? rect.top - menuHeight : rect.bottom + 4,
+        left: rect.right - 160,
+      });
+    }
+    setOpen(true);
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleToggle}
+        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        aria-label="Task actions"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {open &&
+        ReactDOM.createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: pos.top, left: pos.left }}
+            className="z-[9999] min-w-[150px] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in"
+          >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onView();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+          >
+            <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+            View Details
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onEdit();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+              Edit Task
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onDelete();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete Task
+            </button>
+          )}
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+// ============================================================================
+// Full Knitting cell — toggle + conditional sub-fields
+// ============================================================================
+
+// ── Full Knitting toggle + FK Form (renders 2 <td> elements with shared state) ──
+
+function FullKnittingCells({
+  task,
+  isAdmin,
+  onFullKitting,
+}: {
+  task: TaskWithRelations;
+  isAdmin: boolean;
+  onFullKitting: () => void;
+}) {
+  const { updateTask } = useTaskMutations();
+  const [toggling, setToggling] = useState(false);
+  const [localYes, setLocalYes] = useState<boolean | null>(null);
+
+  const isYes = localYes ?? !!task.requires_full_kitting;
+
+  useEffect(() => { setLocalYes(null); }, [task.requires_full_kitting]);
+
+  async function handleToggle(value: string) {
+    const newVal = value === "yes";
+    if (newVal === isYes) return;
+
+    setLocalYes(newVal);
+    setToggling(true);
+
+    if (newVal) {
+      const { error } = await updateTask(task.id, { requires_full_kitting: true });
+      if (error) { setLocalYes(null); toast.error(error); }
+    } else {
+      const { error } = await updateTask(task.id, {
+        requires_full_kitting: false,
+        full_kitting_image_url: null,
+        full_kitting_notes: null,
+      });
+      if (error) { setLocalYes(null); toast.error(error); }
+    }
+    setToggling(false);
+  }
+
+  return (
+    <>
+      {/* Full Knitting toggle */}
+      <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+        <select
+          value={isYes ? "yes" : "no"}
+          onChange={(e) => void handleToggle(e.target.value)}
+          disabled={toggling}
+          className={cn(
+            "h-7 rounded-md border px-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
+            isYes
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-border bg-card text-muted-foreground",
+            toggling && "opacity-50"
+          )}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </td>
+
+      {/* FK Form — appears instantly when Yes; shows saved data if submitted */}
+      <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+        {isYes ? (
+          <div className="space-y-1 animate-fade-in">
+            {/* Show saved notes summary if any */}
+            {task.full_kitting_notes && (
+              <span
+                className="block max-w-[180px] truncate text-[10px] text-muted-foreground"
+                title={task.full_kitting_notes}
+              >
+                {task.full_kitting_notes}
+              </span>
+            )}
+            {/* Show file indicator if uploaded */}
+            {task.full_kitting_image_url && (
+              <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[10px] text-success border border-success/30">
+                <Check className="h-3 w-3" />
+                File attached
+              </span>
+            )}
+            {/* Knitting Form button */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onFullKitting(); }}
+              className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              <Plus className="h-3 w-3" />
+              {task.full_kitting_submitted_at ? "View / Edit" : "Knitting Form"}
+            </button>
+          </div>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">—</span>
+        )}
+      </td>
+    </>
+  );
+}
+
+function MiniProgress({ done, total }: { done: number; total: number }) {
+  const pct = Math.min(100, (done / total) * 100);
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      <div className="h-1 w-14 overflow-hidden rounded-full bg-secondary">
+        <div
+          className="h-full rounded-full bg-primary transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-[9px] tabular-nums text-muted-foreground">
+        {done}/{total}
+      </span>
+    </div>
+  );
+}
+
+// ============================================================================
+// Skeleton loader
+// ============================================================================
+
+function TableSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <div className="h-7 w-40 animate-pulse rounded bg-secondary" />
+        <div className="h-3 w-72 animate-pulse rounded bg-secondary" />
+      </div>
+      <div className="space-y-4">
+        {DASHBOARD_STATUSES.map((status, i) => (
+          <div
+            key={status}
+            className="overflow-hidden rounded-lg border border-border bg-card animate-fade-in"
+            style={{ animationDelay: `${i * 50}ms` }}
+          >
+            <div className={cn("h-[3px]", COLUMN_ACCENT[status])} />
+            <div className="flex items-center gap-2 border-b border-border bg-card/50 px-4 py-2.5">
+              <span className={cn("h-2.5 w-2.5 rounded-full", COLUMN_DOT[status])} />
+              <span className="text-sm font-semibold text-foreground">
+                {STATUS_LABELS[status]}
+              </span>
+            </div>
+            <div className="space-y-2 p-3">
+              <SkeletonText lines={3} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
