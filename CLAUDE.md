@@ -37,7 +37,6 @@ This directory has **two** project scaffolds. The Vite one is active; the Next.j
 - **React Router v6** for routing
 - **@supabase/supabase-js 2.45.4** (pinned — 2.105.x has a request-hang bug in this combo)
 - **lucide-react** for icons, **date-fns** for relative timestamps, **recharts** for charts (RadialBarChart in ConceptDashboard)
-- **sonner** — *deprecated in this codebase*. Still mounted as `SonnerToaster` for back-compat with old `import { toast } from "sonner"` usage; new code should import from `@/components/ui` instead. Remove once all views migrated.
 - **shadcn-style** UI primitives at `linkd-fms/src/components/ui/` (no shadcn CLI — components were hand-written)
 
 Backend: **Supabase** (project ref `jyfwyfpwbbgfpsntubfy`, region unknown — direct DB hostname is IPv6-only, use the connection pooler for non-IPv6 environments).
@@ -115,9 +114,14 @@ linkd-fms/
     │   ├── useAnalytics.ts                Concept Dashboard metrics: KPIs, status distribution, monthly volume
     │   │                                  (period-adaptive: days/weeks/months), designer concept stats + scoring,
     │   │                                  approval speed. Period filter: week | month | quarter.
-    │   └── useTaskAnalytics.ts            Task Dashboard metrics: completion KPIs, pipeline snapshot,
-    │                                      volume (period-adaptive), designer task stats + scoring.
-    │                                      Separate from useAnalytics — concepts and tasks are independent.
+    │   ├── useTaskAnalytics.ts            Task Dashboard metrics: completion KPIs, pipeline snapshot,
+    │   │                                  volume (period-adaptive), designer task stats + scoring.
+    │   │                                  Separate from useAnalytics — concepts and tasks are independent.
+    │   └── useKeyboardShortcuts.ts        Generic global keydown registrar. Takes a list of
+    │                                      { key, handler, description, category } shortcuts +
+    │                                      enabled flag. Auto-skips when an input/textarea/select is
+    │                                      focused, when any Radix dialog/sheet is open
+    │                                      ([role='dialog']), or when ctrl/meta/alt modifiers are held.
     ├── components/
     │   ├── ui/                            ⬇ ALL UI primitives — barrel-exported via ./index.ts
     │   │   ├── index.ts                   Single import point: `from "@/components/ui"`
@@ -139,7 +143,13 @@ linkd-fms/
     │   │   ├── label.tsx                  Radix label
     │   │   ├── LoadingButton.tsx          Button + inline spinner + auto-disable
     │   │   ├── LoadingScreen.tsx          Simple centered spinner (rarely used now; AppShellSkeleton preferred)
-    │   │   ├── SearchInput.tsx            Debounced search input w/ clear × + focus ring
+    │   │   ├── SearchInput.tsx            Debounced search input w/ clear × + focus ring.
+    │   │   │                              Exports as `forwardRef<HTMLInputElement>` so consumers
+    │   │   │                              (e.g. KanbanView) can focus it programmatically.
+    │   │   ├── KeyboardShortcutsDialog.tsx  Radix Dialog showing shortcuts grouped by category.
+    │   │   │                              Renders each shortcut as a `<kbd>` badge + description.
+    │   │   │                              Used by KanbanView (`?` key or keyboard icon button)
+    │   │   │                              with the shortcut list from `useKeyboardShortcuts`.
     │   │   ├── sheet.tsx                  Radix right-side drawer primitive
     │   │   ├── Skeleton.tsx              Skeleton + SkeletonCard/SkeletonTable/SkeletonText
     │   │   ├── TextilePattern.tsx         Decorative herringbone SVG for LoginView left panel
@@ -203,10 +213,19 @@ linkd-fms/
     │   │   │                              as a "new activity" pill instead of "999%".
     │   │   ├── WorkloadDistribution.tsx   Stacked horizontal bars per designer (completed / in-progress
     │   │   │                              / remaining), sorted by total assigned. Auto-tags rows
-    │   │   │                              "Overloaded" or "Light" vs the team average.
-    │   │   └── AtRiskTasks.tsx            Tabbed Needs-Attention panel: Overdue vs Urgent lists, each
-    │   │                                  capped at 8 rows, with assignee avatar, days-late/age badge,
-    │   │                                  and deep-link to /dashboard.
+    │   │   │                              "Overloaded" or "Light" vs the team average. `onDesignerClick`
+    │   │   │                              prop wires the avatar/name to open the scorecard drawer.
+    │   │   ├── AtRiskTasks.tsx            Tabbed Needs-Attention panel: Overdue vs Urgent lists, each
+    │   │   │                              capped at 8 rows, with assignee avatar, days-late/age badge,
+    │   │   │                              and deep-link to /dashboard.
+    │   │   └── DesignerScorecardDrawer.tsx  Admin-only Sheet (560-600px) — quick-peek scorecard called
+    │   │                                  from DesignerConceptMatrix / DesignerLeaderboard /
+    │   │                                  WorkloadDistribution / TaskLeaderboard. Shows header +
+    │   │                                  verdict pill + 4 KPI boxes + W/M/Q/Y period toggle +
+    │   │                                  concept donut + task pipeline + 6-month area chart +
+    │   │                                  recent activity + insights + admin actions (feedback,
+    │   │                                  export, open team). Has prominent "Open full scorecard
+    │   │                                  analysis" link that navigates to /scorecards/:id.
     │   └── concepts/
     │       ├── SubmitConceptDialog.tsx    Form + 100MB file upload to sample-files + min 50-char description
     │       ├── ConceptDetailDrawer.tsx    Review panel w/ admin approve/reject/revision + finalize
@@ -250,6 +269,32 @@ linkd-fms/
         │                                  Volume bars + Pipeline bars → WorkloadDistribution + AtRiskTasks
         │                                  → TaskLeaderboard. Designer view: 4 personal KPIs + big score
         │                                  card. (FUNCTIONAL)
+        ├── ScorecardsView.tsx             /scorecards — Admin-only grid of all designers as scorecard
+        │                                  cards. 4-stat banner (designers / avg composite / on track /
+        │                                  needs support) + top-performer call-out + search + designer
+        │                                  cards (composite score, verdict pill, concept/task mini blocks,
+        │                                  insights count). Clicking a card navigates to the full-page
+        │                                  scorecard at /scorecards/:designerId. (FUNCTIONAL)
+        ├── ScorecardDetailView.tsx        /scorecards/:designerId — Full-page deep-dive scorecard
+        │                                  inspired by HR reliability dashboards. Sections (top→bottom):
+        │                                  (1) Hero with Reliability gauge (composite + on-time/throughput/
+        │                                  consistency bars + STRONG/SOLID/DEVELOPING/NEEDS SUPPORT tier);
+        │                                  (2) 5 KPI tiles (Scheduled · Completed · On-Time % · Avg Delay
+        │                                  · Best Streak); (3) Concept Performance + Task Performance
+        │                                  pair (donut + score bars + section pill); (4) 6-Month Momentum
+        │                                  area chart; (5) Compact calendar heatmap (36×36 cells, Mon-first,
+        │                                  click any cell to drill in) + Composition donut (fills card
+        │                                  with stacked bar + summary verdict) + Weekly Throughput
+        │                                  sparkline; (6) Trend (6mo on-time %) + Weekday pattern +
+        │                                  Cycle Time histogram; (7) Priority breakdown donut + Vs Team
+        │                                  comparison bars + Concept Pipeline funnel; (8) Activity
+        │                                  timeline + Insights. Date-range filter (7d/30d/90d/6mo/12mo/
+        │                                  custom from→to) drives every KPI + chart. Selected day opens
+        │                                  drill-in panel listing all events. Admin gets Export CSV +
+        │                                  Send Feedback + Open Team actions; designer self-view hides
+        │                                  rank pill and admin actions. (FUNCTIONAL)
+        ├── SalvedgeView.tsx               /salvedge — Salvedge / challan-based fabric distribution
+        │                                  records. All roles; designers see their own. (FUNCTIONAL)
         └── SystemView.tsx                 /system — Admin data management: row counts per table, expandable
                                            data browser (search + per-row delete + pagination), bulk clear
                                            per table with FK-safe ordering, "Clear All" with ConfirmDialog.
@@ -260,38 +305,43 @@ linkd-fms/
 
 ## Routes & role mapping
 
-Canonical routes are constants in [`linkd-fms/src/lib/routes.ts`](linkd-fms/src/lib/routes.ts). After sign-in, [`roleHomePath()`](linkd-fms/src/lib/routes.ts) sends users to `/home` (the Dashboard overview) regardless of role.
+Canonical routes are constants in [`linkd-fms/src/lib/routes.ts`](linkd-fms/src/lib/routes.ts). After sign-in, [`roleHomePath()`](linkd-fms/src/lib/routes.ts) sends users to `/task-dashboard` regardless of role. The old `/home` route redirects to `/dashboard`.
 
 | Path | View | Admin | Design Coordinator | Designer |
 |---|---|---|---|---|
-| `/login` | LoginView | public (redirects authed users away) | same | same |
+| `/login` | LoginView (enhanced split-screen) | public | same | same |
 | `/onboarding` | OnboardingView | authed, no profile | same | same |
 | `/` | RootRedirect | — | — | — |
-| `/home` | DashboardView | yes (KPI overview) | yes | yes |
+| `/home` | redirect → /dashboard | — | — | — |
+| `/task-dashboard` | TaskDashboardView (landing page) | yes | yes | yes |
 | `/dashboard` | KanbanView | All Tasks | All Tasks | My Board |
-| `/dashboard/tasks` | KanbanView | alias for `/dashboard` | same | same |
+| `/dashboard/tasks` | KanbanView | alias | same | same |
 | `/brief/new` | BriefingView | yes | yes | AccessRestricted |
-| `/concepts` | ConceptsView | yes | **AccessRestricted** | yes |
-| `/sampling` | ProductionView | yes | yes | AccessRestricted |
-| `/analytics` | AnalyticsView (Concept Dashboard) | yes | yes | yes (personal view) |
-| `/task-dashboard` | TaskDashboardView (Task Dashboard) | yes | yes | yes (personal view) |
-| `/team` | TeamView | yes | yes | AccessRestricted |
-| `/system` | SystemView (Data Management) | yes | AccessRestricted | AccessRestricted |
-| `/notifications` | NotificationsView | yes | yes | yes |
+| `/concepts` | ConceptsView (22-col workflow) | yes | yes | yes |
+| `/analytics` | AnalyticsView (Concept Dashboard) | yes | yes | yes (personal) |
+| `/sampling` | ProductionView (Sampling Hub) | yes | yes | AccessRestricted |
+| `/salvedge` | SalvedgeView | yes | yes | yes |
+| `/team` | TeamView (role mgmt + codes) | yes | yes | AccessRestricted |
+| `/scorecards` | ScorecardsView (admin grid) | yes | inline restriction | inline restriction |
+| `/scorecards/:id` | ScorecardDetailView (full-page) | yes (any designer) | inline restriction | self only (gated in view) |
+| `/profile` | ProfileView (avatar + password) | yes | yes | yes |
+| `/system` | SystemView (CRUD + data mgmt) | yes | yes | AccessRestricted |
+| `/notifications` | NotificationsView (realtime) | yes | yes | yes |
 | `*` | NotFoundView (inside AppLayout) | authed | authed | authed |
 
-The key distinction: **coordinator gets admin-like access to almost everything except `/concepts`** (concept approval is the sole admin-exclusive in the route layer).
+**Coordinator now has admin-equivalent access** — `isAdmin()` returns true for both admin and design_coordinator. All permissions are equal except UI labeling.
 
 Legacy aliases: `/kanban → /dashboard`, `/briefing → /brief/new`, `/production → /sampling`.
 
-**Wrong-role behavior:** the **URL stays put**; ProtectedRoute renders `AccessRestrictedView` inside the normal AppLayout. The user keeps their sidebar and gets a friendly "this section is for admins" panel + a "Go to my dashboard" button.
+**Wrong-role behavior:** the **URL stays put**; ProtectedRoute renders `AccessRestrictedView` inside the normal AppLayout.
 
 **Per-role sidebar contents** (defined in `Sidebar.tsx`'s `getNavGroups(role)`):
-- **admin** → Home, All Tasks, Task Dashboard, Concepts, Concept Dashboard | **Manage**: Sampling, Team, System
-- **design_coordinator** → Home, All Tasks, Task Dashboard | **Manage**: Sampling, Team
-- **designer** → Home, My Board, Task Dashboard, Concepts, Concept Dashboard
 
-A "Notifications" row (with unread badge) is appended below the main nav for every role. A **ThemeToggle** (light/dark/system cycle) appears above the user profile block.
+- **admin** → Task Dashboard, All Tasks, Concepts, Concept Dashboard | **Manage**: Sampling, Salvedge, Files, Team, **Scorecards**, System
+- **design_coordinator** → Task Dashboard, All Tasks, Concepts, Concept Dashboard | **Manage**: Sampling, Salvedge, Files, Team, System *(no Scorecards — admin-only feature)*
+- **designer** → Task Dashboard, My Board, Salvedge, Concepts, Concept Dashboard
+
+A "Notifications" row (with unread badge) is appended below the main nav for every role. A **ThemeToggle** (light/dark/system cycle) appears above the user profile block in the sidebar. **Sign Out** button is in both the TopNav (top-right) and the Sidebar user dropdown. **Profile** link is in the user dropdown.
 
 A "Notifications" row (with unread badge) is appended below the main nav for every role — links to `/notifications`. A **ThemeToggle** (light/dark/system cycle) appears above the user profile block in the sidebar.
 
@@ -304,8 +354,7 @@ A "Notifications" row (with unread badge) is appended below the main nav for eve
   <AuthProvider>
     <App>
       <BrowserRouter>
-        <Toaster />                          <- new custom toaster (mounted once)
-        <SonnerToaster />                    <- legacy, kept for back-compat
+        <Toaster />                          <- custom toaster (mounted once)
         <Routes>
           <Route path="/login" .../>         <- public; LoginView
           <Route path="/onboarding" .../>    <- public-ish
@@ -332,7 +381,7 @@ A "Notifications" row (with unread badge) is appended below the main nav for eve
 
 **Sidebar** ([`Sidebar.tsx`](linkd-fms/src/components/layout/Sidebar.tsx)):
 - 220px wide, fixed left, dark sidebar background (`rgb(var(--sidebar))`), full height.
-- Brand block (logo image on white card + "Design Flow System" label) — click navigates to `roleHomePath(role)` (= `/home`).
+- Brand block (logo image on white card + "Design Flow System" label) — click navigates to `roleHomePath(role)` (= `/task-dashboard`).
 - **Dashboard (Home icon) is the first nav item** for all roles, above All Tasks / My Board.
 - Nav groups have optional section labels (e.g. "Manage" for the admin/coordinator second group) rendered as `10px` uppercase headers.
 - Active link styled `bg-primary text-white shadow-sm shadow-primary/20`; hover is `bg-white/[0.07]`. Links use `rounded-lg`, `13px` font size.
@@ -514,7 +563,8 @@ All hooks live in `linkd-fms/src/hooks/`. Read patterns return `{ data, isLoadin
 | `useFullKitting()` | Structured kitting form CRUD for `full_kitting_details` table. `getKittingForTask(taskId)` fetches existing record; `submitKitting(taskId, formData)` inserts record + advances task to done. |
 | `useSamples(filters?)` | Sample records with full CRUD. Filters: `dateRange`, `customerName` (ILIKE), `status` (pending/completed/all). Mutations: `createSample(input)`, `updateSample(id, data)`, `deleteSample(id)`. All auto-refetch after mutation. Filter key memoized for stable deps. |
 | `useAnalytics(period?)` | Concept Dashboard data layer. Computes all metrics from `useConcepts` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data (days for week, weeks for month, months for quarter). Returns KPIs (submitted/approved/rate/turnaround), status distribution, volume points, designer concept stats with weighted scoring, approval speed. |
-| `useTaskAnalytics(period?)` | Task Dashboard data layer. Computes all metrics from `useTasks` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data. Returns KPIs (completed/on-time/avg days/created), pipeline snapshot, volume points, designer task stats with weighted scoring. Separate from `useAnalytics` — the two systems are independent. |
+| `useTaskAnalytics(period?)` | Task Dashboard data layer. Computes all metrics from `useTasks` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data. Returns KPIs (completed/on-time/avg days/created), pipeline snapshot, volume points, designer task stats with weighted scoring, **plus the raw `tasks` array re-exported so consumers don't double-fetch**. Separate from `useAnalytics` — the two systems are independent. |
+| `useDesignerScorecard(designerId, period?)` | Per-designer scorecard data layer. Composes `useConcepts` + `useTasks` + `useProfiles` + `useDesignerCodes`. No new DB queries. Reuses the 30/35/20/15 scoring formulas. Returns: profile + designer codes, concept block (submitted/approved/rejected/revisions/pending/approvalRate/avgReviewHours/score/breakdown/monthlyTargetProgress), task block (assigned/completed/onTime/inProgress/avgDays/score/breakdown/teamAvgDays), composite score, rank (concept/task/overall + total), 6-month trend, 365-day dailyActivity (for heatmap), last-10 activity feed (merged concept + task events), and insights array (rule-based strengths/watchouts capped at 4 with watchouts first). Period = `week`/`month`/`quarter`/`year`. |
 
 ---
 
@@ -695,6 +745,26 @@ The kanban ([`KanbanView.tsx`](linkd-fms/src/views/KanbanView.tsx)) is a **tabbe
 
 **Mobile (<768px)**: responsive column hiding; compact info inline.
 
+**Keyboard shortcuts** (wired via [`useKeyboardShortcuts`](linkd-fms/src/hooks/useKeyboardShortcuts.ts) — auto-disabled while typing in inputs or when any Radix dialog/sheet is open, so they don't conflict with the search box, drawer, or modals):
+
+| Key | Action |
+|---|---|
+| `J` | Move highlight to next task (sets `activeRowIndex`, scrolls into view via `scrollIntoView({ block: "nearest" })`) |
+| `K` | Move highlight to previous task |
+| `Enter` | Open the highlighted task in `TaskDetailDrawer` |
+| `Esc` | Close drawer if open, otherwise clear the row highlight (`activeRowIndex = -1`) |
+| `/` or `F` | Focus the search input (uses the `forwardRef` on `SearchInput`) |
+| `1`–`4` | Switch to status tab — Pool / To-Do / In Progress / Done (mapped from `DASHBOARD_STATUSES` indices) |
+| `?` | Open `KeyboardShortcutsDialog` (also accessible via the keyboard icon button in the TopBar, left of Refresh) |
+
+Implementation notes:
+
+- Highlighted row gets `bg-primary/[0.04] ring-2 ring-inset ring-primary` + `aria-selected`; a per-row `useEffect` scrolls it into view when `active` flips true
+- `activeRowIndex` resets to `-1` whenever the user switches tabs (effect on `statusTab`)
+- It does **not** reset when the drawer opens — so Esc on the drawer puts focus back on the same row
+- A guard effect clamps `activeRowIndex` back to range if the underlying task list shrinks (e.g. a task advances out of the current tab)
+- `visibleTasks` is a separate memo in `KanbanView` that mirrors `TaskTableSection`'s internal sort, so J/K/Enter can map the index back to the right task
+
 ---
 
 ## Concepts (`/concepts`) — UX rules
@@ -793,7 +863,7 @@ The sampling view ([`ProductionView.tsx`](linkd-fms/src/views/ProductionView.tsx
 - Both `font-sans` and `font-serif` map to the same Inter stack.
 - Headings: `font-weight: 600`, `letter-spacing: -0.01em`.
 
-**Toasts.** New code: `import { toast } from "@/components/ui"`. Old code may still `import { toast } from "sonner"` — both render via the corresponding mounted toaster.
+**Toasts.** `import { toast } from "@/components/ui"`. Supports `toast.success()`, `toast.error()`, `toast.info()`, `toast.warning()`, `toast.dismiss()`, `toast.dismissAll()`.
 
 **Confirmation prompts.** Use `<ConfirmDialog variant="danger">` rather than `window.confirm()`.
 
@@ -899,7 +969,7 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 5. **DB password and service role were exposed in chat during initial setup.** Rotate both.
 6. **5173 sometimes lingers.** Kill the owning process in PowerShell, then re-run `npm run dev`.
 7. **`useTasks` filterKey trick.** Uses `JSON.stringify(filters)` as dep, so callers can pass fresh objects.
-8. **Two toasters mounted.** `<Toaster>` (brand) + `<SonnerToaster>` (legacy). Remove sonner once fully migrated.
+8. **Single custom toaster.** `<Toaster>` from `@/components/ui/Toaster.tsx`. Sonner has been fully removed.
 9. **Bundle size ~572 KB.** Acceptable for internal tool; code-split per route if needed.
 10. **Wrong-role behavior is inline, not redirect.** ProtectedRoute renders `AccessRestrictedView` inside AppLayout — URL preserved.
 11. **TopNav search is local-only.** Captures input + `Ctrl+K` focus, but only filters the kanban's local list.
@@ -954,7 +1024,9 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 **Dashboards (FUNCTIONAL):**
 
 - **Concept Dashboard** (`/analytics`) — Admin/coordinator section order: (1) 4 KPI cards (submitted/approved/rate/avg review time) with trend %; (2) status badges (pending review · in revision · approved · awaiting finalization), clickable; (3) **hero row** — `DesignerConceptMatrix` (per-designer breakdown with own W/M/Q/Y filter, stacked bars by approved/revision/rejected/pending, team totals strip, champion call-out, sortable columns) + `TeamTargetHero` (radial dial of "% designers hit 3 approved", inline stat strip days-left/pace/not-started, designer pip dock); (4) volume chart (period-adaptive: days for week, weeks for month, months for quarter) + concept status bars; (5) `ConceptFunnel` (5-stage funnel with conversion rates + stale-review warning); (6) `MdReviewPanel` (admin only — review-speed circle + counts grid + velocity); (7) `DesignerLeaderboard` (sortable, animated score bars, scoring: volume 30 + approval rate 35 + speed 20 + low revisions 15); (8) `ConceptTurnaround` (approval-speed area chart with success/warning/destructive zones). Designer personal view: `PersonalTargetRing` (radial with milestone ticks at 1/2/3 + contextual message) + 4 personal KPIs + big score card.
-- **Task Dashboard** (`/task-dashboard`) — Admin/coordinator section order: (1) `TaskHealthHero` (horizontal strip with dividers: throughput + on-time radial | auto-generated headline insight | active/urgent/overdue dock; handles sparse-data / no-previous-period without leaking the 999 trend sentinel); (2) 4 KPI cards (completed/on-time/avg days/created) with trend %; (3) status badges (active in pipeline · urgent · overdue); (4) volume bar chart + pipeline health bars (clickable, links to `/dashboard`); (5) `WorkloadDistribution` (stacked horizontal bars per designer, auto-tagged Overloaded/Light vs team avg) + `AtRiskTasks` (tabbed Overdue/Urgent with deep-link); (6) `TaskLeaderboard` (sortable, animated score bars, scoring: volume 30 + on-time 35 + speed 20 + active work 15). Designer personal view: 4 personal KPIs + big score card.
+- **Task Dashboard** (`/task-dashboard`) — Admin/coordinator section order: (1) `TaskHealthHero` (horizontal strip with dividers: throughput + on-time radial | auto-generated headline insight | active/urgent/overdue dock; handles sparse-data / no-previous-period without leaking the 999 trend sentinel); (2) 4 KPI cards (completed/on-time/avg days/created) with trend %; (3) status badges (active in pipeline · urgent · overdue); (4) volume bar chart + pipeline health bars (clickable, links to `/dashboard`); (5) `WorkloadDistribution` (stacked horizontal bars per designer, auto-tagged Overloaded/Light vs team avg, `onDesignerClick` opens scorecard drawer) + `AtRiskTasks` (tabbed Overdue/Urgent with deep-link); (6) `TaskLeaderboard` (sortable, animated score bars, scoring: volume 30 + on-time 35 + speed 20 + active work 15, row click opens scorecard drawer). Designer personal view: 4 personal KPIs + big score card.
+- **Designer Scorecards** (`/scorecards`, admin only) — Grid landing page that judges every designer at a glance. 4-stat banner (designers/avg composite/on track/needs support) + top-performer call-out + search + designer cards (composite score, verdict pill, concept/task mini blocks, strengths/watchouts count). Each card click → full-page scorecard at `/scorecards/:designerId`.
+- **Full-page scorecard** (`/scorecards/:designerId`) — Deep-dive performance analysis. Sections: **(1) Hero** with Reliability gauge (composite + on-time/throughput/consistency bars, tiered STRONG/SOLID/DEVELOPING/NEEDS SUPPORT). **(2) 5 KPI tiles** (Scheduled · Completed · On-Time % · Avg Delay · Best Streak) with trend pills. **(3) Concept Performance + Task Performance cards** (donut + 4-bar score breakdown + section pill + avg review/completion footnote with team-avg delta). **(4) 6-Month Momentum** recharts AreaChart (concepts approved + tasks completed). **(5) Calendar heatmap** (compact 36×36 cells, Mon-first, click any cell → drill-in panel with all that day's events listed by tone) + **Composition donut** (140px + stacked summary bar + verdict footnote) + **Weekly Throughput sparkline** (12 weeks, stacked tasks + concepts). **(6) Trend (6mo on-time % bars) + Day-of-week pattern + Cycle Time histogram** (delay buckets 0d / 1d / 2-3d / 4-7d / 8+d). **(7) Priority breakdown donut + Vs Team comparison bars (delta-colored) + Concept Pipeline funnel** (Submitted → Reviewed → Approved → Finalized with drop-off %). **(8) Activity timeline + Insights**. Date-range filter (7d/30d/90d/6mo/12mo/Custom from→to) drives all KPIs + charts. Admin gets Export CSV + Send Feedback (inline) + Open Team actions. Designer self-view hides rank + admin actions ("My Performance" subtitle).
 - **System** (`/system`) — Admin data management page: live row counts per table, expandable data browser (search by any column + per-row delete + pagination 20/page), bulk "Clear" per table (FK-safe dependency ordering), "Clear All Data" with task counter reset. Protected tables: profiles, auth.users, designer_codes never deleted.
 
 **Not yet built:**
@@ -983,6 +1055,9 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 | Change kanban column styling | [`lib/constants.ts`](linkd-fms/src/lib/constants.ts) — `COLUMN_BG`, `COLUMN_DOT`, `COLUMN_ACCENT` |
 | Adjust deadline thresholds | [`lib/days.ts`](linkd-fms/src/lib/days.ts) |
 | Change kanban row actions | [`KanbanView.tsx`](linkd-fms/src/views/KanbanView.tsx) — action handlers + `DASHBOARD_STATUSES` |
+| Change kanban keyboard shortcuts | [`KanbanView.tsx`](linkd-fms/src/views/KanbanView.tsx) — `shortcuts` useMemo (J/K/Enter/Esc/1-4//F/?) |
+| Add a global keyboard shortcut to a different view | [`useKeyboardShortcuts.ts`](linkd-fms/src/hooks/useKeyboardShortcuts.ts) — call with a list of `Shortcut` objects; render `<KeyboardShortcutsDialog>` to show help |
+| Change keyboard shortcut help dialog styling | [`KeyboardShortcutsDialog.tsx`](linkd-fms/src/components/ui/KeyboardShortcutsDialog.tsx) — `<kbd>` badges + KEY_LABELS map |
 | Change task code format | [`useTaskMutations.ts`](linkd-fms/src/hooks/useTaskMutations.ts) — `buildTaskCode()` |
 | Add a task drawer section | [`TaskDetailDrawer.tsx`](linkd-fms/src/components/tasks/TaskDetailDrawer.tsx) |
 | Add a briefing form field | [`BriefingView.tsx`](linkd-fms/src/views/BriefingView.tsx) + `useTaskMutations.createTask` + types |
@@ -1001,6 +1076,13 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 | Change the Task Health hero | [`TaskHealthHero.tsx`](linkd-fms/src/components/analytics/TaskHealthHero.tsx) — throughput/on-time + headline insight + risk dock (`buildInsight()`) |
 | Change designer workload bars | [`WorkloadDistribution.tsx`](linkd-fms/src/components/analytics/WorkloadDistribution.tsx) — stacked bars + Overloaded/Light tagging |
 | Change the at-risk task panel | [`AtRiskTasks.tsx`](linkd-fms/src/components/analytics/AtRiskTasks.tsx) — Overdue/Urgent tabs |
+| Change the scorecards listing grid | [`ScorecardsView.tsx`](linkd-fms/src/views/ScorecardsView.tsx) — admin grid, verdict tiering, top-performer call-out |
+| Change full-page scorecard layout | [`ScorecardDetailView.tsx`](linkd-fms/src/views/ScorecardDetailView.tsx) — Reliability hero, KPI tiles, calendar heatmap, all 10+ chart panels |
+| Change scorecard data shape | [`useDesignerScorecard.ts`](linkd-fms/src/hooks/useDesignerScorecard.ts) — concept + task block, rank, 6mo trend, 365-day dailyActivity, insights rules |
+| Change the quick-peek scorecard drawer | [`DesignerScorecardDrawer.tsx`](linkd-fms/src/components/analytics/DesignerScorecardDrawer.tsx) — Sheet variant called from leaderboards / matrix / workload |
+| Tweak Reliability scoring tiers (STRONG / SOLID / etc.) | `reliabilityTier()` in [`ScorecardDetailView.tsx`](linkd-fms/src/views/ScorecardDetailView.tsx) — thresholds 80 / 60 / 40 |
+| Change calendar heatmap cell color rules | `dayTier()` in [`ScorecardDetailView.tsx`](linkd-fms/src/views/ScorecardDetailView.tsx) — green/amber/red/blue based on on-time / delayed / mixed / pending-only |
+| Change verdict tiers shown on listing cards | `verdictFor()` in [`ScorecardsView.tsx`](linkd-fms/src/views/ScorecardsView.tsx) — Top/Solid/Developing/Needs Support |
 | Change designer scoring formula | `useAnalytics.ts` (concept scoring) or `useTaskAnalytics.ts` (task scoring) — search for "score" |
 | Change period filter behavior | Both hooks: `getPeriodRange()` + volume data generation logic |
 | Add a new chart component | `components/analytics/` + import in the relevant view |

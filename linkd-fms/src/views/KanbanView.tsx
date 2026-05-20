@@ -19,12 +19,18 @@ import {
   Eye,
   RefreshCw,
   Download,
+  Keyboard,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useTaskMutations, type TaskMutationOp } from "@/hooks/useTaskMutations";
 import { TaskDetailDrawer } from "@/components/tasks/TaskDetailDrawer";
+import { KeyboardShortcutsDialog } from "@/components/ui/KeyboardShortcutsDialog";
+import {
+  useKeyboardShortcuts,
+  type Shortcut,
+} from "@/hooks/useKeyboardShortcuts";
 import { FullKittingModal } from "@/components/tasks/FullKittingModal";
 import { FullKittingDrawer } from "@/components/tasks/FullKittingDrawer";
 import { EditTaskDialog } from "@/components/tasks/EditTaskDialog";
@@ -162,6 +168,26 @@ export function KanbanView() {
   const [refreshing, setRefreshing] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
+  // Keyboard navigation: index of the highlighted row within the active tab.
+  const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset row selection whenever the user switches tabs.
+  useEffect(() => {
+    setActiveRowIndex(-1);
+  }, [statusTab]);
+
+  // ----------------- Bulk selection (admin / coordinator only) -----------------
+  const canBulk = isAdminOrCoordinator(role);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number }>({
+    done: 0,
+    total: 0,
+  });
+
   async function handleRefresh() {
     setRefreshing(true);
     await refetch();
@@ -215,11 +241,12 @@ export function KanbanView() {
       list = list.filter((t) => t.priority === "urgent");
     } else if (filter === "mine") {
       if (!user?.id) return [];
-      // Designers in "My Tasks" can still see the open pool to claim from.
+      // Designers see: their own tasks + the open Pool (to claim from)
+      // + all To-Do tasks (read-only, to see what colleagues are working on).
       list = list.filter(
         (t) =>
           t.assigned_to === user.id ||
-          (role === "designer" && t.status === "pool")
+          (role === "designer" && (t.status === "pool" || t.status === "todo"))
       );
     }
 
@@ -269,6 +296,16 @@ export function KanbanView() {
     }
     return map;
   }, [scoped]);
+
+  /**
+   * Sorted tasks for the currently visible tab, mirroring what
+   * `TaskTableSection` renders. Used by keyboard shortcuts (J/K/Enter) to
+   * map `activeRowIndex` back to a real task.
+   */
+  const visibleTasks = useMemo(
+    () => sortTasks(grouped[statusTab] ?? [], sorts[statusTab]),
+    [grouped, statusTab, sorts]
+  );
 
   const myStats = useMemo(() => {
     if (!user?.id) return { active: 0, done: 0, total: 0 };
@@ -381,6 +418,197 @@ export function KanbanView() {
     });
   }
 
+  // ----------------- Keyboard shortcuts -----------------
+  const shortcuts = useMemo<Shortcut[]>(() => {
+    const list: Shortcut[] = [
+      {
+        key: "j",
+        category: "Navigation",
+        description: "Move to next task",
+        handler: () => {
+          if (visibleTasks.length === 0) return;
+          setActiveRowIndex((i) =>
+            Math.min(visibleTasks.length - 1, i < 0 ? 0 : i + 1)
+          );
+        },
+      },
+      {
+        key: "k",
+        category: "Navigation",
+        description: "Move to previous task",
+        handler: () => {
+          if (visibleTasks.length === 0) return;
+          setActiveRowIndex((i) => Math.max(0, i < 0 ? 0 : i - 1));
+        },
+      },
+      {
+        key: "Enter",
+        category: "Navigation",
+        description: "Open selected task",
+        handler: () => {
+          if (activeRowIndex < 0) return;
+          const task = visibleTasks[activeRowIndex];
+          if (task) setSelectedTaskId(task.id);
+        },
+      },
+      {
+        key: "Escape",
+        category: "Navigation",
+        description: "Close drawer or deselect row",
+        handler: () => {
+          if (selectedTaskId) setSelectedTaskId(null);
+          else setActiveRowIndex(-1);
+        },
+      },
+      {
+        key: "/",
+        category: "Search",
+        description: "Focus search input",
+        handler: () => searchInputRef.current?.focus(),
+      },
+      {
+        key: "f",
+        category: "Search",
+        description: "Focus search input",
+        handler: () => searchInputRef.current?.focus(),
+      },
+      {
+        key: "?",
+        category: "Help",
+        description: "Show keyboard shortcuts",
+        handler: () => setShortcutsHelpOpen(true),
+      },
+    ];
+    // Tab shortcuts: 1 → first status, 2 → second, etc.
+    DASHBOARD_STATUSES.forEach((status, idx) => {
+      list.push({
+        key: String(idx + 1),
+        category: "Tabs",
+        description: `Switch to ${STATUS_LABELS[status]}`,
+        handler: () => setStatusTab(status),
+      });
+    });
+    return list;
+  }, [visibleTasks, activeRowIndex, selectedTaskId]);
+
+  useKeyboardShortcuts(shortcuts);
+
+  // Keep active row valid when the underlying task list shrinks.
+  useEffect(() => {
+    if (activeRowIndex >= visibleTasks.length) {
+      setActiveRowIndex(visibleTasks.length > 0 ? visibleTasks.length - 1 : -1);
+    }
+  }, [visibleTasks.length, activeRowIndex]);
+
+  // ----------------- Auto-clear bulk selection -----------------
+  // Selection is scoped to "what's currently visible on screen", so reset
+  // whenever the filter/tab/search/data changes underneath it.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setLastSelectedIndex(null);
+  }, [statusTab, filter, designerFilter, search, tasks]);
+
+  // ----------------- Bulk handlers -----------------
+  function toggleRowSelection(
+    taskId: string,
+    index: number,
+    withShift: boolean
+  ) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      // Shift-click: select the range between last selected and current index
+      // using the *visible* (sorted + filtered) list so it matches what the
+      // user is actually seeing.
+      if (withShift && lastSelectedIndex !== null && lastSelectedIndex !== index) {
+        const [from, to] =
+          lastSelectedIndex < index
+            ? [lastSelectedIndex, index]
+            : [index, lastSelectedIndex];
+        const shouldSelect = !prev.has(taskId);
+        for (let i = from; i <= to; i++) {
+          const t = visibleTasks[i];
+          if (!t) continue;
+          if (shouldSelect) next.add(t.id);
+          else next.delete(t.id);
+        }
+      } else {
+        if (next.has(taskId)) next.delete(taskId);
+        else next.add(taskId);
+      }
+      return next;
+    });
+    setLastSelectedIndex(index);
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        for (const t of visibleTasks) next.add(t.id);
+      } else {
+        for (const t of visibleTasks) next.delete(t.id);
+      }
+      return next;
+    });
+    setLastSelectedIndex(null);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setLastSelectedIndex(null);
+  }
+
+  /**
+   * Run a mutation sequentially across every selected task ID. Continues on
+   * individual failures (per-task toast); surfaces a single success toast at
+   * the end. Refetches once when done.
+   */
+  async function executeBulkOperation(
+    operation: (taskId: string) => Promise<{ error: string | null } | void>
+  ) {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    setBulkUpdating(true);
+    setBulkProgress({ done: 0, total: ids.length });
+
+    let successCount = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const taskId = ids[i]!;
+      try {
+        const result = await operation(taskId);
+        // Existing mutations return { data, error } and never throw.
+        if (result && "error" in result && result.error) {
+          toast.error(`Task ${taskId.slice(0, 8)}: ${result.error}`);
+        } else {
+          successCount++;
+        }
+      } catch (err) {
+        // Defensive — none of our mutations currently throw, but isolate any
+        // unexpected runtime errors so the loop keeps going.
+        console.error(err);
+        toast.error(`Failed updating task ${taskId.slice(0, 8)}`);
+      }
+      setBulkProgress({ done: i + 1, total: ids.length });
+    }
+
+    setBulkUpdating(false);
+    if (successCount > 0) {
+      toast.success(`${successCount} task${successCount === 1 ? "" : "s"} updated`);
+    }
+    clearSelection();
+    await refetch();
+  }
+
+  async function bulkAssign(designerId: string) {
+    if (!designerId) return;
+    await executeBulkOperation((taskId) => assignTask(taskId, designerId));
+  }
+
+  async function bulkMove(nextStatus: TaskStatus) {
+    await executeBulkOperation((taskId) => updateTaskStatus(taskId, nextStatus));
+  }
+
   // ----------------- Loading state -----------------
   if (isLoading && tasks.length === 0) {
     return <TableSkeleton />;
@@ -399,6 +627,7 @@ export function KanbanView() {
         setDesignerFilter={setDesignerFilter}
         search={search}
         setSearch={setSearch}
+        searchInputRef={searchInputRef}
         isAdmin={isAdmin}
         filter={filter}
         setFilter={setFilter}
@@ -407,6 +636,7 @@ export function KanbanView() {
         isRefreshing={refreshing}
         onExport={isAdmin ? () => setExportOpen(true) : undefined}
         onNewBrief={() => setNewBriefOpen(true)}
+        onOpenShortcuts={() => setShortcutsHelpOpen(true)}
       />
 
       {error && (
@@ -450,6 +680,7 @@ export function KanbanView() {
             search={search}
             matchesSearch={matchesSearch}
             enteringIds={enteringIds}
+            activeRowIndex={activeRowIndex}
             onSelectTask={setSelectedTaskId}
             onAccept={handleAccept}
             onSelfAssign={handleSelfAssign}
@@ -461,6 +692,10 @@ export function KanbanView() {
             currentUserId={user?.id ?? null}
             role={role}
             isPending={isPending}
+            canBulk={canBulk}
+            selectedIds={selectedIds}
+            onToggleRow={toggleRowSelection}
+            onToggleAll={toggleAllVisible}
           />
         </>
       )}
@@ -471,6 +706,24 @@ export function KanbanView() {
         onOpenChange={(o) => !o && setSelectedTaskId(null)}
         onChange={() => void refetch()}
       />
+
+      <KeyboardShortcutsDialog
+        open={shortcutsHelpOpen}
+        onOpenChange={setShortcutsHelpOpen}
+        shortcuts={shortcuts}
+      />
+
+      {canBulk && selectedIds.size > 0 && (
+        <BulkActionBar
+          count={selectedIds.size}
+          designers={designers}
+          updating={bulkUpdating}
+          progress={bulkProgress}
+          onAssign={bulkAssign}
+          onMove={bulkMove}
+          onClear={clearSelection}
+        />
+      )}
 
       {kittingTask && (
         <FullKittingModal
@@ -551,6 +804,7 @@ interface TopBarProps {
   setDesignerFilter: (v: string) => void;
   search: string;
   setSearch: (v: string) => void;
+  searchInputRef: React.RefObject<HTMLInputElement>;
   isAdmin: boolean;
   filter: FilterTab;
   setFilter: (v: FilterTab) => void;
@@ -559,6 +813,7 @@ interface TopBarProps {
   isRefreshing: boolean;
   onExport?: () => void;
   onNewBrief: () => void;
+  onOpenShortcuts: () => void;
 }
 
 function TopBar({
@@ -569,6 +824,7 @@ function TopBar({
   setDesignerFilter,
   search,
   setSearch,
+  searchInputRef,
   isAdmin,
   filter,
   setFilter,
@@ -577,6 +833,7 @@ function TopBar({
   isRefreshing,
   onExport,
   onNewBrief,
+  onOpenShortcuts,
 }: TopBarProps) {
   const canCreate = isAdminOrCoordinator(role);
 
@@ -585,6 +842,7 @@ function TopBar({
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-1">
         <div className="md:max-w-sm md:flex-1">
           <SearchInput
+            ref={searchInputRef}
             value={search}
             onChange={setSearch}
             placeholder="Search task ID, concept, client, or designer…"
@@ -598,6 +856,15 @@ function TopBar({
       </div>
 
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenShortcuts}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          title="Keyboard shortcuts (?)"
+          aria-label="Open keyboard shortcuts"
+        >
+          <Keyboard className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           onClick={onRefresh}
@@ -641,6 +908,133 @@ function TopBar({
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Bulk action bar — floating, admin/coordinator only
+// ============================================================================
+
+interface BulkActionBarProps {
+  count: number;
+  designers: { id: string; full_name: string }[];
+  updating: boolean;
+  progress: { done: number; total: number };
+  onAssign: (designerId: string) => void | Promise<void>;
+  onMove: (status: TaskStatus) => void | Promise<void>;
+  onClear: () => void;
+}
+
+const BULK_MOVE_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "pool", label: "Pool" },
+  { value: "todo", label: "To-Do" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "full_kitting", label: "Full Knitting" },
+  { value: "done", label: "Done" },
+];
+
+function BulkActionBar({
+  count,
+  designers,
+  updating,
+  progress,
+  onAssign,
+  onMove,
+  onClear,
+}: BulkActionBarProps) {
+  const pct =
+    progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
+  return (
+    <div
+      role="region"
+      aria-label="Bulk actions"
+      className={cn(
+        "fixed bottom-4 left-1/2 z-40 -translate-x-1/2",
+        "flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-xl",
+        "animate-slide-up"
+      )}
+    >
+      <span className="text-sm font-medium text-foreground tabular-nums">
+        {count} selected
+      </span>
+
+      <span className="h-5 w-px bg-border" aria-hidden />
+
+      {/* Assign to */}
+      <select
+        defaultValue=""
+        disabled={updating}
+        onChange={(e) => {
+          const id = e.target.value;
+          if (!id) return;
+          void onAssign(id);
+          e.target.value = "";
+        }}
+        className="h-8 rounded-md border border-border bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        aria-label="Assign selected tasks to a designer"
+      >
+        <option value="" disabled>
+          Assign to…
+        </option>
+        {designers.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.full_name}
+          </option>
+        ))}
+      </select>
+
+      {/* Move to */}
+      <select
+        defaultValue=""
+        disabled={updating}
+        onChange={(e) => {
+          const v = e.target.value as TaskStatus | "";
+          if (!v) return;
+          void onMove(v);
+          e.target.value = "";
+        }}
+        className="h-8 rounded-md border border-border bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        aria-label="Move selected tasks to a status"
+      >
+        <option value="" disabled>
+          Move to…
+        </option>
+        {BULK_MOVE_OPTIONS.map((s) => (
+          <option key={s.value} value={s.value}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Progress while running */}
+      {updating && (
+        <>
+          <span className="h-5 w-px bg-border" aria-hidden />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="tabular-nums">
+              Updating {progress.done}/{progress.total}…
+            </span>
+            <div className="h-1 w-24 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      <span className="h-5 w-px bg-border" aria-hidden />
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onClear}
+        disabled={updating}
+      >
+        Deselect all
+      </Button>
     </div>
   );
 }
@@ -809,6 +1203,13 @@ interface SectionProps {
   search: string;
   matchesSearch: Set<string>;
   enteringIds: Set<string>;
+  /** Index of the currently keyboard-highlighted row, or -1 for none. */
+  activeRowIndex: number;
+  /** Admin/coordinator can bulk-select rows. */
+  canBulk: boolean;
+  selectedIds: Set<string>;
+  onToggleRow: (taskId: string, index: number, withShift: boolean) => void;
+  onToggleAll: (checked: boolean) => void;
   onSelectTask: (id: string) => void;
   onAccept: (t: TaskWithRelations) => void;
   onSelfAssign: (t: TaskWithRelations) => void;
@@ -823,8 +1224,25 @@ interface SectionProps {
 }
 
 function TaskTableSection(props: SectionProps) {
-  const { status, tasks, sort } = props;
+  const { status, tasks, sort, canBulk, selectedIds, onToggleAll } = props;
   const sorted = useMemo(() => sortTasks(tasks, sort), [tasks, sort]);
+
+  // Header select-all state: count how many visible (sorted) rows are selected.
+  const visibleSelectedCount = useMemo(
+    () => sorted.reduce((n, t) => n + (selectedIds.has(t.id) ? 1 : 0), 0),
+    [sorted, selectedIds]
+  );
+  const allSelected = sorted.length > 0 && visibleSelectedCount === sorted.length;
+  const someSelected =
+    visibleSelectedCount > 0 && visibleSelectedCount < sorted.length;
+
+  // Drive the native "indeterminate" property via a ref (HTML attr can't do it).
+  const headerCheckRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerCheckRef.current) {
+      headerCheckRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card">
@@ -856,8 +1274,22 @@ function TaskTableSection(props: SectionProps) {
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[2800px] text-sm">
+            <caption className="sr-only">Tasks organized by status</caption>
             <thead>
               <tr className="border-b border-border bg-card/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                {canBulk && (
+                  <th className="w-[32px] px-2 py-2 text-center font-medium">
+                    <input
+                      ref={headerCheckRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={(e) => onToggleAll(e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Select all visible tasks"
+                      className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-primary"
+                    />
+                  </th>
+                )}
                 <th className="px-3 py-2 font-medium">Date/Time</th>
                 <th className="px-3 py-2 font-medium">Designer</th>
                 <th className="px-3 py-2 font-medium">Concept</th>
@@ -896,7 +1328,7 @@ function TaskTableSection(props: SectionProps) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((task) => (
+              {sorted.map((task, idx) => (
                 <TaskRow
                   key={`${task.id}-${task.status}`}
                   task={task}
@@ -904,6 +1336,11 @@ function TaskTableSection(props: SectionProps) {
                     !!props.search && !props.matchesSearch.has(task.id)
                   }
                   entering={props.enteringIds.has(task.id)}
+                  active={idx === props.activeRowIndex}
+                  selected={selectedIds.has(task.id)}
+                  canBulk={canBulk}
+                  rowIndex={idx}
+                  onToggleSelect={props.onToggleRow}
                   onClick={() => props.onSelectTask(task.id)}
                   onAccept={() => props.onAccept(task)}
                   onSelfAssign={() => props.onSelfAssign(task)}
@@ -1052,6 +1489,15 @@ interface RowProps {
   task: TaskWithRelations;
   dimmed: boolean;
   entering: boolean;
+  /** When true the row is the current keyboard-highlighted row. */
+  active: boolean;
+  /** Whether the row is in the bulk-selection set. */
+  selected: boolean;
+  /** True when the viewer is admin/coordinator (renders checkbox cell). */
+  canBulk: boolean;
+  /** Index of this row within the sorted/visible list (for shift-click). */
+  rowIndex: number;
+  onToggleSelect: (taskId: string, rowIndex: number, withShift: boolean) => void;
   onClick: () => void;
   onAccept: () => void;
   onSelfAssign: () => void;
@@ -1069,6 +1515,11 @@ function TaskRow({
   task,
   dimmed,
   entering,
+  active,
+  selected,
+  canBulk,
+  rowIndex,
+  onToggleSelect,
   onClick,
   onAccept,
   onSelfAssign,
@@ -1086,6 +1537,14 @@ function TaskRow({
   const isAdmin = isAdminRole(role);
   const fileCount = task.files?.length ?? 0;
   const isUrgent = task.priority === "urgent";
+
+  // Scroll the highlighted row into view as the user pages with J/K.
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (active && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [active]);
 
   const ctas = getCtasForRow({
     task,
@@ -1105,6 +1564,7 @@ function TaskRow({
 
   return (
     <tr
+      ref={rowRef}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -1113,13 +1573,43 @@ function TaskRow({
         }
       }}
       tabIndex={0}
+      aria-selected={active || selected || undefined}
       className={cn(
         "group cursor-pointer border-b border-border/60 transition-colors",
         "hover:bg-card/60 focus:bg-card/60 focus:outline-none",
         entering && "animate-highlight-pulse",
+        active && "ring-2 ring-inset ring-primary",
+        // Bulk-selection tint (separate from the keyboard active ring so both
+        // can coexist visually).
+        selected && "bg-primary/[0.04]",
+        // Keep the soft tint when keyboard-active but not bulk-selected.
+        active && !selected && "bg-primary/[0.04]",
         dimmed && "opacity-30 pointer-events-none"
       )}
     >
+      {/* Bulk-select checkbox (admin / coordinator only) */}
+      {canBulk && (
+        <td
+          className="w-[32px] px-2 py-3 text-center align-middle"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) =>
+              onToggleSelect(
+                task.id,
+                rowIndex,
+                (e.nativeEvent as MouseEvent).shiftKey
+              )
+            }
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Select task ${task.task_code}`}
+            className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-primary"
+          />
+        </td>
+      )}
+
       {/* 1. Date/Time (created_at) */}
       <td className="whitespace-nowrap px-3 py-3 align-middle text-[12px] text-muted-foreground">
         {formatDateTime(task.created_at)}
@@ -1397,7 +1887,7 @@ function getCtasForRow(args: {
       if (isMine || isAdmin) {
         return [
           {
-            label: "Submit",
+            label: "Completed",
             variant: "gold",
             icon: Send,
             onClick: onSubmitReview,

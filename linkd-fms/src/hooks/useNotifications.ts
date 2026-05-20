@@ -105,6 +105,39 @@ export function useNotifications(): UseNotifications {
     void refetch();
   }, [refetch]);
 
+  // ── Notification sound ────────────────────────────────────────────────
+  // We use the Web Audio API to generate a short chime sound — no external
+  // audio file needed. The sound is created once and reused.
+
+  const playNotificationSound = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+      // Play two tones for a pleasant "ding-ding" chime
+      const playTone = (freq: number, startTime: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.3, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      const now = ctx.currentTime;
+      playTone(880, now, 0.15);        // A5
+      playTone(1174.66, now + 0.15, 0.2); // D6
+
+      // Close context after sounds finish
+      setTimeout(() => void ctx.close(), 500);
+    } catch {
+      // AudioContext not available — fail silently
+    }
+  }, []);
+
   // ── Realtime subscription ────────────────────────────────────────────
 
   useEffect(() => {
@@ -124,6 +157,8 @@ export function useNotifications(): UseNotifications {
           const newRow = payload.new;
           // Prepend — newest first.
           setNotifications((prev) => [newRow, ...prev]);
+          // Play notification sound
+          playNotificationSound();
         }
       )
       .subscribe();
@@ -134,7 +169,7 @@ export function useNotifications(): UseNotifications {
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [userId]);
+  }, [userId, playNotificationSound]);
 
   // ── Derived state ────────────────────────────────────────────────────
 

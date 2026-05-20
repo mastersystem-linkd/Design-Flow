@@ -36,6 +36,9 @@ import {
 import { useConcepts } from "@/hooks/useConcepts";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
+import { useAuth } from "@/hooks/useAuth";
+import { isAdmin as isAdminCheck } from "@/lib/permissions";
+import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
 import { cn } from "@/lib/utils";
 
 type LocalPeriod = "week" | "month" | "quarter" | "year";
@@ -74,6 +77,9 @@ interface DesignerRow {
  * Sortable, with a team-totals strip at the top and a champion call-out.
  */
 export function DesignerConceptMatrix() {
+  const { profile: viewer } = useAuth();
+  const canOpenScorecard = isAdminCheck(viewer?.role);
+  const [scorecardDesignerId, setScorecardDesignerId] = useState<string | null>(null);
   const [period, setPeriod] = useState<LocalPeriod>("month");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "submitted",
@@ -294,7 +300,12 @@ export function DesignerConceptMatrix() {
         ) : (
           <ul className="space-y-2.5">
             {designers.map((d) => (
-              <DesignerRow key={d.id} d={d} maxSubmitted={Math.max(1, totals.submitted, ...designers.map((x) => x.submitted))} />
+              <DesignerRow
+                key={d.id}
+                d={d}
+                maxSubmitted={Math.max(1, totals.submitted, ...designers.map((x) => x.submitted))}
+                onClickName={canOpenScorecard ? () => setScorecardDesignerId(d.id) : undefined}
+              />
             ))}
           </ul>
         )}
@@ -307,13 +318,26 @@ export function DesignerConceptMatrix() {
           <LegendDot color="bg-muted/60" label="Pending review" />
         </div>
       </CardContent>
+
+      <DesignerScorecardDrawer
+        designerId={scorecardDesignerId}
+        onClose={() => setScorecardDesignerId(null)}
+      />
     </Card>
   );
 }
 
 /* -------------------------------------------------------------------------- */
 
-function DesignerRow({ d, maxSubmitted }: { d: DesignerRow; maxSubmitted: number }) {
+function DesignerRow({
+  d,
+  maxSubmitted,
+  onClickName,
+}: {
+  d: DesignerRow;
+  maxSubmitted: number;
+  onClickName?: () => void;
+}) {
   const hasData = d.submitted > 0;
   const widthPct = (d.submitted / maxSubmitted) * 100;
   const seg = (n: number) =>
@@ -328,7 +352,16 @@ function DesignerRow({ d, maxSubmitted }: { d: DesignerRow; maxSubmitted: number
     >
       <div className="flex items-center gap-3">
         {/* Avatar + name */}
-        <div className="flex w-[130px] shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onClickName}
+          disabled={!onClickName}
+          className={cn(
+            "flex w-[130px] shrink-0 items-center gap-2 rounded-md text-left",
+            onClickName && "cursor-pointer hover:opacity-80"
+          )}
+          title={onClickName ? "View scorecard" : undefined}
+        >
           <Avatar className="h-8 w-8">
             {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
             <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
@@ -336,14 +369,19 @@ function DesignerRow({ d, maxSubmitted }: { d: DesignerRow; maxSubmitted: number
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium leading-tight text-foreground">
+            <p
+              className={cn(
+                "truncate text-xs font-medium leading-tight text-foreground",
+                onClickName && "group-hover:text-primary group-hover:underline"
+              )}
+            >
               {d.full_name.split(" ")[0]}
             </p>
             <Badge variant="outline" className="mt-0.5 text-[8px] px-1 py-0">
               {d.designerCode}
             </Badge>
           </div>
-        </div>
+        </button>
 
         {/* Stacked bar */}
         <div className="min-w-0 flex-1">

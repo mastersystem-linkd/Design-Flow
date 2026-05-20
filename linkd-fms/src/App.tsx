@@ -1,7 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Toaster as SonnerToaster } from "sonner";
 import { Toaster } from "@/components/ui/Toaster";
-import { useTheme } from "@/hooks/useTheme";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { LoginView } from "@/views/LoginView";
 import { OnboardingView } from "@/views/OnboardingView";
@@ -15,23 +13,25 @@ import { ProductionView } from "@/views/ProductionView";
 import { TeamView } from "@/views/TeamView";
 import { NotificationsView } from "@/views/NotificationsView";
 import { TaskDashboardView } from "@/views/TaskDashboardView";
+import { ScorecardsView } from "@/views/ScorecardsView";
+import { ScorecardDetailView } from "@/views/ScorecardDetailView";
 import { SystemView } from "@/views/SystemView";
+import { SalvedgeView } from "@/views/SalvedgeView";
 import { ProfileView } from "@/views/ProfileView";
+import { FilesView } from "@/views/FilesView";
+import { ResetPasswordView } from "@/views/ResetPasswordView";
 import { RootRedirect } from "@/components/layout/RootRedirect";
 import { ROUTES } from "@/lib/routes";
 
 export default function App() {
-  const { resolvedTheme } = useTheme();
   return (
     <BrowserRouter>
-      {/* Brand toaster (used by anything importing from @/components/ui). */}
       <Toaster />
-      {/* Sonner kept temporarily — existing views still import `toast` from "sonner". */}
-      <SonnerToaster position="top-right" richColors theme={resolvedTheme} />
 
       <Routes>
         {/* Public + auth-flow pages — no app shell */}
         <Route path={ROUTES.login} element={<LoginView />} />
+        <Route path="/reset-password" element={<ResetPasswordView />} />
         <Route path={ROUTES.onboarding} element={<OnboardingView />} />
 
         {/* /home → redirect to /dashboard (legacy) */}
@@ -128,11 +128,45 @@ export default function App() {
           <Route path={ROUTES.taskDashboard} element={<TaskDashboardView />} />
         </Route>
 
+        {/* /scorecards — Designer performance scorecards (admin only) */}
+        <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
+          <Route path={ROUTES.scorecards} element={<ScorecardsView />} />
+        </Route>
+
+        {/* /scorecards/:designerId — Full-page scorecard. Admin sees anyone;
+            designer sees only their own (gated inside the view). */}
+        <Route
+          element={
+            <ProtectedRoute
+              allowedRoles={["admin", "designer", "design_coordinator"]}
+            />
+          }
+        >
+          <Route
+            path={`${ROUTES.scorecards}/:designerId`}
+            element={<ScorecardDetailView />}
+          />
+        </Route>
+
         {/* /system — Data management (admin + coordinator) */}
         <Route
           element={<ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />}
         >
           <Route path={ROUTES.system} element={<SystemView />} />
+        </Route>
+
+        {/* /salvedge — Salvedge records (all roles — designers see their own) */}
+        <Route
+          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
+        >
+          <Route path={ROUTES.salvedge} element={<SalvedgeView />} />
+        </Route>
+
+        {/* /files — File browser (all roles) */}
+        <Route
+          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
+        >
+          <Route path={ROUTES.files} element={<FilesView />} />
         </Route>
 
         {/* Legacy aliases — old links still resolve */}

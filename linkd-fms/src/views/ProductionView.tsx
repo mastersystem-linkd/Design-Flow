@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Plus,
   Search,
@@ -46,8 +46,10 @@ import {
   getInitials,
   DeadlineCell,
   ExportDialog,
+  Pagination,
 } from "@/components/ui";
 import { Input } from "@/components/ui/input";
+import { usePagination } from "@/hooks/usePagination";
 import { type CsvColumn } from "@/lib/exportCSV";
 import { COLUMN_ACCENT, COLUMN_DOT, STATUS_LABELS } from "@/lib/constants";
 import { cn, formatDate } from "@/lib/utils";
@@ -85,6 +87,7 @@ export function ProductionView() {
 
   const {
     samples,
+    totalCount: sampleTotal,
     isLoading: samplesLoading,
     refetch: refetchSamples,
     createSample,
@@ -92,14 +95,19 @@ export function ProductionView() {
     deleteSample,
   } = useSamples(sampleFilters);
 
+  const samplePg = usePagination(sampleTotal, 25);
+
+  // Reset page when filters change
+  useEffect(() => { samplePg.resetPage(); }, [customerSearch, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const visibleSamples = samples.slice(samplePg.from, samplePg.to + 1);
+
   // ── State ──
   const [formOpen, setFormOpen] = useState(false);
   const [editSample, setEditSample] = useState<Sample | null>(null);
   const [deletingSample, setDeletingSample] = useState<Sample | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [samplePage, setSamplePage] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
-  const PAGE_SIZE = 20;
 
   const sampleExportColumns: CsvColumn<Sample>[] = [
     { key: "created_at", label: "Date" },
@@ -120,8 +128,6 @@ export function ProductionView() {
     [tasks]
   );
 
-  const visibleSamples = samples.slice(0, (samplePage + 1) * PAGE_SIZE);
-  const hasMoreSamples = visibleSamples.length < samples.length;
 
   // ── Stats ──
   const stats = useMemo(() => {
@@ -256,7 +262,7 @@ export function ProductionView() {
             <button
               key={s}
               type="button"
-              onClick={() => { setStatusFilter(s); setSamplePage(0); }}
+              onClick={() => { setStatusFilter(s); samplePg.resetPage(); }}
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                 statusFilter === s
@@ -295,6 +301,7 @@ export function ProductionView() {
           <>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-sm">
+                <caption className="sr-only">Sampling records</caption>
                 <thead>
                   <tr className="border-b border-border bg-card/30 text-left text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                     <th className="px-3 py-2 font-medium">Date</th>
@@ -325,15 +332,18 @@ export function ProductionView() {
                 </tbody>
               </table>
             </div>
-            {hasMoreSamples && (
-              <div className="border-t border-border px-4 py-3 text-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSamplePage((p) => p + 1)}
-                >
-                  Load more ({samples.length - visibleSamples.length} remaining)
-                </Button>
+            {sampleTotal > 0 && (
+              <div className="px-4 pb-3">
+                <Pagination
+                  page={samplePg.page}
+                  totalPages={samplePg.totalPages}
+                  hasNext={samplePg.hasNext}
+                  hasPrev={samplePg.hasPrev}
+                  onPageChange={samplePg.setPage}
+                  showing={samplePg.showing}
+                  pageSize={samplePg.pageSize}
+                  onPageSizeChange={samplePg.setPageSize}
+                />
               </div>
             )}
           </>
@@ -357,6 +367,7 @@ export function ProductionView() {
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px] text-sm">
+              <caption className="sr-only">Sampling records</caption>
               <thead>
                 <tr className="border-b border-border bg-card/30 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                   <th className="px-3 py-2 font-medium">Concept</th>

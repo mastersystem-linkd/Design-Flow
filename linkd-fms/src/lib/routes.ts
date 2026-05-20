@@ -13,9 +13,17 @@ export const ROUTES = {
   team: "/team",
   notifications: "/notifications",
   taskDashboard: "/task-dashboard",
+  scorecards: "/scorecards",
+  salvedge: "/salvedge",
   system: "/system",
   profile: "/profile",
+  files: "/files",
 } as const;
+
+/** Helper for the dynamic `/scorecards/:designerId` route. */
+export function scorecardDetailPath(designerId: string): string {
+  return `${ROUTES.scorecards}/${designerId}`;
+}
 
 /**
  * The default landing page for each role after sign-in. All roles land on

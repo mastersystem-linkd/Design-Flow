@@ -9,7 +9,7 @@ import {
   X,
   ArrowRight,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaskMutations } from "@/hooks/useTaskMutations";
@@ -388,26 +388,34 @@ function BriefingForm({
     submitAttempted && errors[key] ? errors[key] : undefined;
 
   return (
-    <div className="mx-auto max-w-[700px] space-y-8 pb-12">
+    <div className={cn(
+      isDialog ? "px-6 py-5" : "mx-auto max-w-[700px] pb-12",
+      isDialog ? "space-y-4" : "space-y-8"
+    )}>
       {/* ---------- Header ---------- */}
-      <header className="space-y-2">
-        <div className="flex items-center gap-3">
-          <Badge className="border border-dashed border-muted bg-card text-[10px] uppercase tracking-wider text-muted-foreground">
-            DRAFT
-          </Badge>
-          <span className="text-[11px] text-muted-foreground">
-            ID assigned on submit
-          </span>
-        </div>
-        <h1 className="font-sans text-4xl tracking-tight text-foreground">
-          New brief
+      <header className={cn(isDialog ? "space-y-1" : "space-y-2")}>
+        {!isDialog && (
+          <div className="flex items-center gap-3">
+            <Badge className="border border-dashed border-muted bg-card text-[10px] uppercase tracking-wider text-muted-foreground">
+              DRAFT
+            </Badge>
+            <span className="text-[11px] text-muted-foreground">
+              ID assigned on submit
+            </span>
+          </div>
+        )}
+        <h1 className={cn(
+          "font-sans tracking-tight text-foreground",
+          isDialog ? "text-lg font-semibold" : "text-4xl"
+        )}>
+          New Brief
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Define the work. The ORD-YYYY-NNNN code is assigned the moment you submit.
+        <p className="text-xs text-muted-foreground">
+          Fill in the details below. Task code is assigned on submit.
         </p>
       </header>
 
-      <form onSubmit={handleSubmit} className="space-y-8" noValidate>
+      <form onSubmit={handleSubmit} className={cn(isDialog ? "space-y-4" : "space-y-8")} noValidate>
         {/* ============== CLIENT ============== */}
         <FormSection title="Client" required>
           {!showAddClient ? (
@@ -477,7 +485,7 @@ function BriefingForm({
           )}
         </FormSection>
 
-        <Divider />
+        {!isDialog && <Divider />}
 
         {/* ============== WHATSAPP GROUP ============== */}
         <FormSection title="WhatsApp Group" hint="Optional — pick the coordination thread.">
@@ -493,7 +501,7 @@ function BriefingForm({
           </Field>
         </FormSection>
 
-        <Divider />
+        {!isDialog && <Divider />}
 
         {/* ============== WORK ============== */}
         <FormSection title="The work">
@@ -584,7 +592,7 @@ function BriefingForm({
           </Field>
         </FormSection>
 
-        <Divider />
+        {!isDialog && <Divider />}
 
         {/* ============== TIMING ============== */}
         <FormSection title="Timing">
@@ -627,7 +635,7 @@ function BriefingForm({
           </Field>
         </FormSection>
 
-        <Divider />
+        {!isDialog && <Divider />}
 
         {/* ============== PRIORITY ============== */}
         <FormSection title="Priority">
@@ -650,7 +658,7 @@ function BriefingForm({
           </div>
         </FormSection>
 
-        <Divider />
+        {!isDialog && <Divider />}
 
         {/* ============== ASSIGNMENT ============== */}
         <FormSection
@@ -687,7 +695,7 @@ function BriefingForm({
           </div>
         </FormSection>
 
-        <Divider />
+        {!isDialog && <Divider />}
 
         {/* ============== ASSIGNED BY ============== */}
         <FormSection title="Assigned By">
@@ -707,7 +715,10 @@ function BriefingForm({
         </FormSection>
 
         {/* ============== Submit ============== */}
-        <div className="flex items-center justify-between border-t border-border pt-6">
+        <div className={cn(
+          "flex items-center justify-between",
+          isDialog ? "pt-2" : "border-t border-border pt-6"
+        )}>
           {isDialog && onCancel ? (
             <Button
               type="button"

@@ -8,15 +8,16 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { useTaskAnalytics, type Period, type DesignerTaskStat } from "@/hooks/useTaskAnalytics";
 import { useTasks } from "@/hooks/useTasks";
+import { useTaskAnalytics, type Period, type DesignerTaskStat } from "@/hooks/useTaskAnalytics";
 import { KpiCard } from "@/components/analytics/KpiCard";
 import { TaskHealthHero } from "@/components/analytics/TaskHealthHero";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
+import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
 import {
   Card, CardContent, Badge, Button, SkeletonCard, SkeletonTable,
-  Avatar, AvatarFallback, AvatarImage, getInitials,
+  Avatar, AvatarFallback, AvatarImage, getInitials, DeadlineCell,
 } from "@/components/ui";
 import { STATUS_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,12 @@ export function TaskDashboardView() {
   const [period, setPeriod] = useState<Period>("month");
   const a = useTaskAnalytics(period);
   const { tasks } = useTasks();
+
+  // Scorecard drawer state (admin-only opens; for designer self-view this
+  // would still pop, but coordinators see nothing because the drawer
+  // gates render on isAdmin).
+  const [scorecardDesignerId, setScorecardDesignerId] = useState<string | null>(null);
+  const canOpenScorecard = role === "admin";
 
   const myStats = isDesigner
     ? a.designerStats.find((d) => d.id === profile?.id) ?? null
@@ -115,13 +122,44 @@ export function TaskDashboardView() {
             <KpiCard icon={<Timer className="h-4 w-4 text-primary" />} label="Avg Days" value={myStats.completed > 0 ? `${myStats.avgDays}d` : "—"} metric={{ current: 0, previous: 0, trend: 0 }} tintClass="bg-primary/10" />
             <KpiCard icon={<LayoutGrid className="h-4 w-4 text-warning" />} label="In Progress" value={myStats.inProgress} metric={{ current: 0, previous: 0, trend: 0 }} tintClass="bg-warning/10" />
           </div>
+          {/* Score card */}
           <Card>
-            <CardContent className="flex flex-col items-center py-8">
-              <p className={cn("text-6xl font-bold tabular-nums", myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive")}>{myStats.score}</p>
-              <div className="mt-3 h-3 w-64 overflow-hidden rounded-full bg-secondary">
+            <CardContent className="flex flex-col items-center py-6">
+              <p className={cn("text-5xl font-bold tabular-nums", myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive")}>{myStats.score}</p>
+              <div className="mt-3 h-2.5 w-48 overflow-hidden rounded-full bg-secondary">
                 <div className={cn("h-full rounded-full transition-[width] duration-[800ms]", myStats.score >= 90 ? "bg-success" : myStats.score >= 75 ? "bg-warning" : "bg-destructive")} style={{ width: `${myStats.score}%` }} />
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">Your task performance score this {period}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Performance score this {period}</p>
+            </CardContent>
+          </Card>
+
+          {/* My active tasks */}
+          <MyTasksTable tasks={tasks} userId={profile?.id ?? ""} />
+
+          {/* My pipeline snapshot */}
+          <Card>
+            <CardContent className="py-4">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">My Pipeline</h3>
+              <div className="space-y-2">
+                {(["todo", "in_progress", "full_kitting", "done"] as const).map((s) => {
+                  const myCount = tasks.filter((t) => t.assigned_to === profile?.id && t.status === s).length;
+                  const label = STATUS_LABELS[s] ?? s;
+                  const barColor = s === "todo" ? "bg-warning" : s === "in_progress" ? "bg-primary" : s === "full_kitting" ? "bg-[#7C5CFC]" : "bg-success";
+                  const maxBar = Math.max(1, ...["todo", "in_progress", "full_kitting", "done"].map((st) =>
+                    tasks.filter((t) => t.assigned_to === profile?.id && t.status === st).length
+                  ));
+                  return (
+                    <div key={s} className="flex items-center gap-3">
+                      <span className="w-[90px] shrink-0 text-xs text-foreground">{label}</span>
+                      <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
+                        <div className={cn("h-6 rounded-md transition-[width] duration-500", barColor)}
+                          style={{ width: `${Math.max(myCount > 0 ? 8 : 4, (myCount / maxBar) * 100)}%` }} />
+                      </div>
+                      <span className="w-6 text-right text-sm font-semibold tabular-nums text-foreground">{myCount}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
         </>
@@ -140,11 +178,11 @@ export function TaskDashboardView() {
 
           {/* KPIs */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard icon={<CheckCircle2 className="h-4 w-4 text-success" />} label="Tasks Completed" value={a.kpis.totalCompleted.current} metric={a.kpis.totalCompleted} tintClass="bg-success/10" />
+            <KpiCard icon={<CheckCircle2 className="h-4 w-4 text-success" />} label="Tasks Completed" value={a.kpis.totalCompleted.current} metric={a.kpis.totalCompleted} tintClass="bg-success/10" animateValue sparklineData={a.sparklines.completed} />
             <KpiCard icon={<Clock className="h-4 w-4 text-primary" />} label="On-Time Delivery" value={`${a.kpis.onTimeRate.current}%`} metric={a.kpis.onTimeRate} tintClass="bg-primary/10"
-              valueColor={a.kpis.onTimeRate.current > 85 ? "text-success" : a.kpis.onTimeRate.current < 70 ? "text-destructive" : "text-warning"} />
+              valueColor={a.kpis.onTimeRate.current > 85 ? "text-success" : a.kpis.onTimeRate.current < 70 ? "text-destructive" : "text-warning"} sparklineData={a.sparklines.onTime} />
             <KpiCard icon={<Timer className="h-4 w-4 text-primary" />} label="Avg Completion" value={`${a.kpis.avgCompletionDays.current}d`} metric={a.kpis.avgCompletionDays} tintClass="bg-primary/10" invertTrend />
-            <KpiCard icon={<PlusCircle className="h-4 w-4 text-primary" />} label="Tasks Created" value={a.kpis.totalCreated.current} metric={a.kpis.totalCreated} tintClass="bg-primary/10" />
+            <KpiCard icon={<PlusCircle className="h-4 w-4 text-primary" />} label="Tasks Created" value={a.kpis.totalCreated.current} metric={a.kpis.totalCreated} tintClass="bg-primary/10" animateValue sparklineData={a.sparklines.created} />
           </div>
 
           {/* Charts */}
@@ -206,7 +244,10 @@ export function TaskDashboardView() {
           {/* Workload + At-risk */}
           <div className="grid gap-4 lg:grid-cols-5">
             <div className="lg:col-span-3">
-              <WorkloadDistribution data={a.designerStats} />
+              <WorkloadDistribution
+                data={a.designerStats}
+                onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
+              />
             </div>
             <div className="lg:col-span-2">
               <AtRiskTasks tasks={tasks} />
@@ -214,9 +255,17 @@ export function TaskDashboardView() {
           </div>
 
           {/* Leaderboard */}
-          <TaskLeaderboard data={a.designerStats} />
+          <TaskLeaderboard
+            data={a.designerStats}
+            onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
+          />
         </>
       )}
+
+      <DesignerScorecardDrawer
+        designerId={scorecardDesignerId}
+        onClose={() => setScorecardDesignerId(null)}
+      />
     </div>
   );
 }
@@ -228,7 +277,125 @@ export function TaskDashboardView() {
 type SortKey = "score" | "completed" | "onTime" | "avgDays" | "assigned";
 const RANK_EMOJI: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
-function TaskLeaderboard({ data }: { data: DesignerTaskStat[] }) {
+// ============================================================================
+// Designer's personal task list
+// ============================================================================
+
+function MyTasksTable({
+  tasks,
+  userId,
+}: {
+  tasks: { id: string; task_code: string; concept: string; status: string; priority: string; planned_deadline: string | null; client?: { party_name: string } | null; assigned_to: string | null; completed_at?: string | null; delay_days?: number | null }[];
+  userId: string;
+}) {
+  const myTasks = tasks
+    .filter((t) => t.assigned_to === userId && t.status !== "done")
+    .sort((a, b) => {
+      const ad = a.planned_deadline ? new Date(a.planned_deadline).getTime() : Infinity;
+      const bd = b.planned_deadline ? new Date(b.planned_deadline).getTime() : Infinity;
+      return ad - bd;
+    });
+
+  const recentDone = tasks
+    .filter((t) => t.assigned_to === userId && t.status === "done")
+    .sort((a, b) => new Date(b.completed_at ?? b.planned_deadline ?? 0).getTime() - new Date(a.completed_at ?? a.planned_deadline ?? 0).getTime())
+    .slice(0, 5);
+
+  if (myTasks.length === 0 && recentDone.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No tasks assigned to you right now. Check the Pool to claim one!
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="py-4">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">
+          My Active Tasks
+          {myTasks.length > 0 && (
+            <Badge variant="secondary" className="ml-2 text-[10px]">{myTasks.length}</Badge>
+          )}
+        </h3>
+
+        {myTasks.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-3 py-2 text-left font-medium">Concept</th>
+                  <th className="px-3 py-2 text-left font-medium">Client</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2 text-left font-medium">Deadline</th>
+                  <th className="px-3 py-2 text-left font-medium">Priority</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myTasks.map((t) => (
+                  <tr key={t.id} className="border-b border-border/40 hover:bg-primary/[0.02]">
+                    <td className="px-3 py-2.5 font-medium text-foreground">{t.concept}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{t.client?.party_name ?? "—"}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge className={cn("text-[10px]",
+                        t.status === "in_progress" ? "bg-primary/20 text-primary border border-primary/30" :
+                        t.status === "todo" ? "bg-card text-foreground border border-border" :
+                        "bg-secondary text-muted-foreground border border-border"
+                      )}>
+                        {STATUS_LABELS[t.status as keyof typeof STATUS_LABELS] ?? t.status}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2.5"><DeadlineCell deadline={t.planned_deadline} /></td>
+                    <td className="px-3 py-2.5 text-xs capitalize text-muted-foreground">
+                      {t.priority === "urgent" ? (
+                        <Badge className="bg-destructive text-white text-[9px]">Urgent</Badge>
+                      ) : t.priority}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No active tasks — all caught up! 🎉</p>
+        )}
+
+        {recentDone.length > 0 && (
+          <div className="mt-4 border-t border-border pt-3">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Recently Completed
+            </h4>
+            <div className="space-y-1.5">
+              {recentDone.map((t) => (
+                <div key={t.id} className="flex items-center justify-between text-xs">
+                  <span className="text-foreground">{t.concept}</span>
+                  <div className="flex items-center gap-2">
+                    {t.delay_days != null && t.delay_days <= 1 ? (
+                      <span className="text-success">✓ On time</span>
+                    ) : t.delay_days != null ? (
+                      <span className="text-destructive">+{t.delay_days}d late</span>
+                    ) : null}
+                    <Badge className="bg-success/20 text-success border border-success/30 text-[9px]">Done</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TaskLeaderboard({
+  data,
+  onDesignerClick,
+}: {
+  data: DesignerTaskStat[];
+  onDesignerClick?: (id: string) => void;
+}) {
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "score", dir: "desc" });
 
   const sorted = [...data].sort((a, b) => {
@@ -273,7 +440,14 @@ function TaskLeaderboard({ data }: { data: DesignerTaskStat[] }) {
                 const scoreColor = d.score >= 90 ? "bg-success" : d.score >= 75 ? "bg-warning" : "bg-destructive";
 
                 return (
-                  <tr key={d.id} className="border-b border-border transition-colors hover:bg-primary/[0.03]">
+                  <tr
+                    key={d.id}
+                    onClick={() => onDesignerClick?.(d.id)}
+                    className={cn(
+                      "border-b border-border transition-colors hover:bg-primary/[0.03]",
+                      onDesignerClick && "cursor-pointer"
+                    )}
+                  >
                     <td className={cn("px-4 py-3 text-center", rank === 1 && "bg-warning/10", rank === 2 && "bg-muted/20", rank === 3 && "bg-warning/5")}>
                       {emoji ?? <span className="text-muted-foreground">{rank}</span>}
                     </td>
@@ -284,7 +458,7 @@ function TaskLeaderboard({ data }: { data: DesignerTaskStat[] }) {
                           <AvatarFallback className="bg-primary/10 text-primary text-[10px]">{getInitials(d.full_name)}</AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium text-foreground leading-tight">{d.full_name}</p>
+                          <p className={cn("font-medium leading-tight", onDesignerClick ? "text-primary hover:underline" : "text-foreground")}>{d.full_name}</p>
                           <Badge variant="outline" className="mt-0.5 text-[9px] px-1">{d.designerCode}</Badge>
                         </div>
                       </div>

@@ -264,6 +264,8 @@ export function AnalyticsView() {
               metric={a.kpis.totalSubmitted}
               tintClass="bg-primary/10"
               to={ROUTES.concepts}
+              animateValue
+              sparklineData={a.sparklines.submitted}
               sub={`by ${a.designerStats.filter(d => d.submitted > 0).length} designer${a.designerStats.filter(d => d.submitted > 0).length !== 1 ? "s" : ""}`}
             />
             <KpiCard
@@ -273,6 +275,8 @@ export function AnalyticsView() {
               metric={a.kpis.totalApproved}
               tintClass="bg-success/10"
               to={ROUTES.concepts}
+              animateValue
+              sparklineData={a.sparklines.approved}
               sub={`${a.kpis.totalApproved.current + (a.statusDistribution.find(s => s.status === "rejected")?.count ?? 0)} reviewed`}
             />
             <KpiCard

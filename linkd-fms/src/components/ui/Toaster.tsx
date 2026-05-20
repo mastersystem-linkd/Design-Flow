@@ -127,8 +127,8 @@ const VARIANT: Record<
     icon: AlertTriangle,
     border: "border-l-amber-500",
     iconColor: "text-amber-700",
-    role: "status",
-    ariaLive: "polite",
+    role: "alert",
+    ariaLive: "assertive",
   },
 };
 

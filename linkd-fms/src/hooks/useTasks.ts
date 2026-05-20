@@ -29,6 +29,7 @@ export interface TaskFilters {
 
 export interface UseTasksResult {
   tasks: TaskWithRelations[];
+  totalCount: number;
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -193,5 +194,5 @@ export function useTasks(filters?: TaskFilters): UseTasksResult {
     };
   }, [fetchTasks]);
 
-  return { tasks, isLoading, error, refetch: fetchTasks };
+  return { tasks, totalCount: tasks.length, isLoading, error, refetch: fetchTasks };
 }

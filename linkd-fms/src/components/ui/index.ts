@@ -77,3 +77,6 @@ export { LoadingButton, type LoadingButtonProps } from "./LoadingButton";
 export { ConnectionDot } from "./ConnectionDot";
 export { SearchInput, type SearchInputProps } from "./SearchInput";
 export { ExportDialog } from "./ExportDialog";
+export { Pagination, type PaginationProps } from "./Pagination";
+export { Sparkline } from "./Sparkline";
+export { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";

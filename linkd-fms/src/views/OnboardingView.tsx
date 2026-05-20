@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import { toast } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,7 +56,7 @@ export function OnboardingView() {
 
   async function handleRetry() {
     await refreshProfile();
-    toast.message("Checked again");
+    toast.info("Checked again");
   }
 
   return (

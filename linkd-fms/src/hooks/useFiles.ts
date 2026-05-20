@@ -1,0 +1,197 @@
+import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export type BucketName = "design-files" | "sample-files" | "task-files";
+
+export interface StorageFile {
+  id: string;
+  name: string;
+  bucket: BucketName;
+  /** Full path inside the bucket (folder/filename). */
+  path: string;
+  created_at: string;
+  updated_at: string;
+  size: number;
+  mimetype: string;
+}
+
+const BUCKETS: BucketName[] = ["design-files", "sample-files", "task-files"];
+
+const BUCKET_LABELS: Record<BucketName, string> = {
+  "design-files": "Design Files",
+  "sample-files": "Sample Files",
+  "task-files": "Task Files",
+};
+
+export { BUCKET_LABELS };
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function isImageMime(mime: string): boolean {
+  return /^image\/(jpe?g|png|gif|webp|svg)/.test(mime);
+}
+
+export { isImageMime };
+
+/**
+ * Recursively list all files inside a bucket (up to ~500).
+ * Supabase storage .list() returns items in the given folder,
+ * including sub-folders. We traverse one level deep (user-id folders).
+ */
+async function listAllInBucket(bucket: BucketName): Promise<StorageFile[]> {
+  const results: StorageFile[] = [];
+
+  // List top-level (usually user-id folders)
+  const { data: topLevel, error } = await supabase.storage
+    .from(bucket)
+    .list("", { limit: 200, sortBy: { column: "name", order: "asc" } });
+
+  if (error || !topLevel) return results;
+
+  for (const item of topLevel) {
+    if (item.id) {
+      // It's a file at root level
+      results.push(toStorageFile(item, bucket, item.name));
+    } else {
+      // It's a folder — list its contents
+      const { data: children } = await supabase.storage
+        .from(bucket)
+        .list(item.name, {
+          limit: 200,
+          sortBy: { column: "created_at", order: "desc" },
+        });
+
+      if (children) {
+        for (const child of children) {
+          if (child.id) {
+            results.push(
+              toStorageFile(child, bucket, `${item.name}/${child.name}`)
+            );
+          } else {
+            // One more level deep (e.g. user/concepts/*)
+            const { data: grandchildren } = await supabase.storage
+              .from(bucket)
+              .list(`${item.name}/${child.name}`, {
+                limit: 200,
+                sortBy: { column: "created_at", order: "desc" },
+              });
+            if (grandchildren) {
+              for (const gc of grandchildren) {
+                if (gc.id) {
+                  results.push(
+                    toStorageFile(
+                      gc,
+                      bucket,
+                      `${item.name}/${child.name}/${gc.name}`
+                    )
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+function toStorageFile(
+  raw: { id: string; name: string; created_at: string; updated_at: string; metadata: any },
+  bucket: BucketName,
+  path: string
+): StorageFile {
+  return {
+    id: raw.id,
+    name: raw.name,
+    bucket,
+    path,
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+    size: raw.metadata?.size ?? 0,
+    mimetype: raw.metadata?.mimetype ?? "application/octet-stream",
+  };
+}
+
+// ============================================================================
+// Hook
+// ============================================================================
+
+export interface UseFiles {
+  files: StorageFile[];
+  isLoading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+  getSignedUrl: (file: StorageFile) => Promise<string | null>;
+  deleteFile: (file: StorageFile) => Promise<{ error: string | null }>;
+}
+
+export function useFiles(): UseFiles {
+  const [files, setFiles] = useState<StorageFile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const allResults = await Promise.all(
+        BUCKETS.map((b) => listAllInBucket(b))
+      );
+      const merged = allResults
+        .flat()
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      setFiles(merged);
+    } catch (e: any) {
+      console.error("[useFiles] error:", e);
+      setError(e.message ?? "Failed to load files");
+      setFiles([]);
+    }
+
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  const getSignedUrl = useCallback(
+    async (file: StorageFile): Promise<string | null> => {
+      const { data, error: err } = await supabase.storage
+        .from(file.bucket)
+        .createSignedUrl(file.path, 3600);
+      if (err) {
+        console.error("[useFiles] signedUrl error:", err);
+        return null;
+      }
+      return data.signedUrl;
+    },
+    []
+  );
+
+  const deleteFile = useCallback(
+    async (file: StorageFile): Promise<{ error: string | null }> => {
+      const { error: err } = await supabase.storage
+        .from(file.bucket)
+        .remove([file.path]);
+      if (err) return { error: err.message };
+      // Remove from local state
+      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+      return { error: null };
+    },
+    []
+  );
+
+  return { files, isLoading, error, refetch, getSignedUrl, deleteFile };
+}

@@ -19,898 +19,294 @@
     --teal: #2dd4bf;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    padding: 40px 24px;
-    line-height: 1.5;
-  }
-  h1 {
-    text-align: center;
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    margin-bottom: 8px;
-  }
+  body { font-family: "Inter", system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 40px 24px; line-height: 1.5; }
+  h1 { text-align: center; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px; }
   h1 span { color: var(--primary); }
-  .subtitle {
-    text-align: center;
-    color: var(--muted);
-    font-size: 14px;
-    margin-bottom: 48px;
-  }
-  h2 {
-    font-size: 20px;
-    font-weight: 700;
-    margin-bottom: 24px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid var(--primary);
-    display: inline-block;
-    letter-spacing: -0.02em;
-  }
+  .subtitle { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 48px; }
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 24px; padding-bottom: 8px; border-bottom: 2px solid var(--primary); display: inline-block; }
   .section { margin-bottom: 64px; max-width: 1200px; margin-left: auto; margin-right: auto; }
-
-  /* ── Flow containers ── */
-  .flow-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-    margin: 20px 0;
-  }
-  .flow-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    margin: 20px 0;
-  }
-
-  /* ── Nodes ── */
-  .node {
-    border: 1.5px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 20px;
-    background: var(--card);
-    text-align: center;
-    min-width: 140px;
-    position: relative;
-    transition: border-color 0.2s, box-shadow 0.2s;
-  }
-  .node:hover {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(79,110,247,0.15);
-  }
-  .node-label {
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 2px;
-  }
-  .node-sub {
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .node.primary   { border-color: var(--primary); background: rgba(79,110,247,0.08); }
-  .node.success   { border-color: var(--success); background: rgba(60,201,122,0.08); }
-  .node.warning   { border-color: var(--warning); background: rgba(245,166,35,0.08); }
-  .node.danger    { border-color: var(--destructive); background: rgba(242,108,108,0.08); }
-  .node.purple    { border-color: var(--purple); background: rgba(124,92,252,0.08); }
-  .node.teal      { border-color: var(--teal); background: rgba(45,212,191,0.08); }
+  .flow-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .flow-col { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 20px 0; }
+  .node { border: 1.5px solid var(--border); border-radius: 12px; padding: 14px 20px; background: var(--card); text-align: center; min-width: 140px; transition: border-color 0.2s, box-shadow 0.2s; }
+  .node:hover { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,110,247,0.15); }
+  .node-label { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .node-sub { font-size: 11px; color: var(--muted); }
+  .node.primary { border-color: var(--primary); background: rgba(79,110,247,0.08); }
+  .node.success { border-color: var(--success); background: rgba(60,201,122,0.08); }
+  .node.warning { border-color: var(--warning); background: rgba(245,166,35,0.08); }
+  .node.danger { border-color: var(--destructive); background: rgba(242,108,108,0.08); }
+  .node.purple { border-color: var(--purple); background: rgba(124,92,252,0.08); }
+  .node.teal { border-color: var(--teal); background: rgba(45,212,191,0.08); }
   .node.muted-node { border-color: var(--border); opacity: 0.6; }
-
-  /* ── Arrows ── */
-  .arrow {
-    color: var(--muted);
-    font-size: 20px;
-    flex-shrink: 0;
-    user-select: none;
-  }
-  .arrow-down {
-    color: var(--muted);
-    font-size: 20px;
-    user-select: none;
-  }
-  .arrow-label {
-    font-size: 10px;
-    color: var(--primary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
-  }
-
-  /* ── Pipeline ── */
-  .pipeline {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    flex-wrap: wrap;
-    justify-content: center;
-    margin: 20px 0;
-  }
-  .pipe-node {
-    padding: 10px 16px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1.5px solid var(--border);
-    text-align: center;
-    min-width: 100px;
-    position: relative;
-  }
+  .arrow { color: var(--muted); font-size: 20px; flex-shrink: 0; }
+  .arrow-down { color: var(--muted); font-size: 20px; }
+  .pipeline { display: flex; align-items: center; gap: 0; flex-wrap: wrap; justify-content: center; margin: 20px 0; }
+  .pipe-node { padding: 10px 16px; font-size: 12px; font-weight: 600; border: 1.5px solid var(--border); text-align: center; min-width: 100px; }
   .pipe-node:first-child { border-radius: 10px 0 0 10px; }
   .pipe-node:last-child { border-radius: 0 10px 10px 0; }
   .pipe-node .pipe-sub { font-size: 9px; color: var(--muted); font-weight: 400; margin-top: 2px; }
-  .pipe-arrow {
-    width: 0; height: 0;
-    border-top: 18px solid transparent;
-    border-bottom: 18px solid transparent;
-    border-left: 12px solid var(--border);
-    flex-shrink: 0;
-  }
-
-  /* ── Grid layouts ── */
-  .grid-3 {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
-    margin: 20px 0;
-  }
-  .grid-4 {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
-    margin: 20px 0;
-  }
-
-  /* ── Role cards ── */
-  .role-card {
-    border: 1.5px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    background: var(--card);
-  }
-  .role-card h3 {
-    font-size: 15px;
-    font-weight: 700;
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .role-card ul {
-    list-style: none;
-    padding: 0;
-  }
-  .role-card li {
-    font-size: 12px;
-    color: var(--muted);
-    padding: 3px 0;
-    padding-left: 16px;
-    position: relative;
-  }
-  .role-card li::before {
-    content: ""; position: absolute; left: 0; top: 9px;
-    width: 6px; height: 6px; border-radius: 50%;
-  }
+  .pipe-arrow { width: 0; height: 0; border-top: 18px solid transparent; border-bottom: 18px solid transparent; border-left: 12px solid var(--border); flex-shrink: 0; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0; }
+  .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }
+  .role-card { border: 1.5px solid var(--border); border-radius: 12px; padding: 20px; background: var(--card); }
+  .role-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .role-card ul { list-style: none; padding: 0; }
+  .role-card li { font-size: 12px; color: var(--muted); padding: 3px 0 3px 16px; position: relative; }
+  .role-card li::before { content: ""; position: absolute; left: 0; top: 9px; width: 6px; height: 6px; border-radius: 50%; }
   .role-admin li::before { background: var(--primary); }
   .role-coord li::before { background: var(--purple); }
   .role-designer li::before { background: var(--success); }
-  .role-card .badge {
-    font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
-    text-transform: uppercase; letter-spacing: 0.05em;
-  }
-
-  /* ── Table ── */
-  .info-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-    margin: 16px 0;
-  }
-  .info-table th {
-    text-align: left;
-    padding: 8px 12px;
-    background: rgba(79,110,247,0.08);
-    border: 1px solid var(--border);
-    color: var(--primary);
-    font-weight: 600;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .info-table td {
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    vertical-align: top;
-  }
-  .info-table code {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
-    background: rgba(79,110,247,0.1);
-    padding: 1px 5px;
-    border-radius: 4px;
-    color: var(--primary);
-  }
-
-  /* ── Misc ── */
-  .divider {
-    height: 1px;
-    background: var(--border);
-    margin: 48px 0;
-  }
-  .tag {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
+  .role-card .badge { font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .info-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 16px 0; }
+  .info-table th { text-align: left; padding: 8px 12px; background: rgba(79,110,247,0.08); border: 1px solid var(--border); color: var(--primary); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .info-table td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+  .info-table code { font-family: monospace; font-size: 11px; background: rgba(79,110,247,0.1); padding: 1px 5px; border-radius: 4px; color: var(--primary); }
+  .divider { height: 1px; background: var(--border); margin: 48px 0; }
+  .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
   .tag-blue { background: rgba(79,110,247,0.15); color: var(--primary); }
   .tag-green { background: rgba(60,201,122,0.15); color: var(--success); }
   .tag-amber { background: rgba(245,166,35,0.15); color: var(--warning); }
   .tag-red { background: rgba(242,108,108,0.15); color: var(--destructive); }
   .tag-purple { background: rgba(124,92,252,0.15); color: var(--purple); }
   .tag-teal { background: rgba(45,212,191,0.15); color: var(--teal); }
-
-  .note {
-    font-size: 11px;
-    color: var(--muted);
-    border-left: 3px solid var(--border);
-    padding: 8px 12px;
-    margin: 12px 0;
-    background: rgba(255,255,255,0.02);
-    border-radius: 0 8px 8px 0;
-  }
-
-  .legend {
-    display: flex; flex-wrap: wrap; gap: 16px;
-    font-size: 11px; color: var(--muted); margin: 12px 0;
-    justify-content: center;
-  }
+  .note { font-size: 11px; color: var(--muted); border-left: 3px solid var(--border); padding: 8px 12px; margin: 12px 0; background: rgba(255,255,255,0.02); border-radius: 0 8px 8px 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11px; color: var(--muted); margin: 12px 0; justify-content: center; }
   .legend-item { display: flex; align-items: center; gap: 6px; }
-  .legend-dot {
-    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
-  }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 </style>
 </head>
 <body>
 
 <h1>LinkD <span>FMS</span> — System Flow Diagram</h1>
-<p class="subtitle">Complete architecture, data flows, and logic maps for the Design Flow System</p>
+<p class="subtitle">Complete architecture &middot; 18 views &middot; 19 hooks &middot; 64 components &middot; 16 migrations &middot; 14 tables</p>
 
-<!-- ================================================================== -->
-<!-- SECTION 1: BOOT SEQUENCE -->
-<!-- ================================================================== -->
+<!-- SECTION 1: BOOT -->
 <div class="section">
 <h2>1. Application Boot Sequence</h2>
-
 <div class="flow-col">
-  <div class="node" style="min-width:300px">
+  <div class="node">
     <div class="node-label">Browser loads index.html</div>
-    <div class="node-sub">Inline script prevents theme flash (FOUC)</div>
+    <div class="node-sub">FOUC prevention script + Inter font</div>
   </div>
   <div class="arrow-down">↓</div>
-  <div class="node primary" style="min-width:300px">
-    <div class="node-label">ThemeProvider</div>
-    <div class="node-sub">Reads localStorage → resolves light/dark/system → applies class to &lt;html&gt;</div>
+  <div class="node primary">
+    <div class="node-label">ErrorBoundary → ThemeProvider → AuthProvider</div>
+    <div class="node-sub">Error catch → light/dark/system → session + profile</div>
   </div>
   <div class="arrow-down">↓</div>
-  <div class="node primary" style="min-width:300px">
-    <div class="node-label">AuthProvider</div>
-    <div class="node-sub">getSession() → onAuthStateChange → fetchProfile() (10s timeout)</div>
-  </div>
-  <div class="arrow-down">↓</div>
-  <div class="node primary" style="min-width:300px">
-    <div class="node-label">BrowserRouter → Routes</div>
-    <div class="node-sub">ProtectedRoute guards every authed page</div>
+  <div class="node primary">
+    <div class="node-label">BrowserRouter → ProtectedRoute guards</div>
+    <div class="node-sub">5-step: loading → auth → profile → role → render</div>
   </div>
   <div class="arrow-down">↓</div>
   <div class="flow-row">
-    <div class="node success">
-      <div class="node-label">Authenticated</div>
-      <div class="node-sub">→ /home (Dashboard)</div>
-    </div>
-    <div class="node warning">
-      <div class="node-label">No Profile</div>
-      <div class="node-sub">→ /onboarding</div>
-    </div>
-    <div class="node danger">
-      <div class="node-label">Not Authed</div>
-      <div class="node-sub">→ /login</div>
-    </div>
+    <div class="node success"><div class="node-label">Authenticated</div><div class="node-sub">→ /task-dashboard</div></div>
+    <div class="node warning"><div class="node-label">No Profile</div><div class="node-sub">→ /onboarding</div></div>
+    <div class="node danger"><div class="node-label">Not Authed</div><div class="node-sub">→ /login</div></div>
   </div>
 </div>
 </div>
 
-<!-- ================================================================== -->
-<!-- SECTION 2: AUTH FLOW -->
-<!-- ================================================================== -->
+<!-- SECTION 2: PAGE MAP -->
 <div class="section">
-<h2>2. Authentication Flow</h2>
-
-<div class="flow-col">
-  <div class="node" style="min-width:340px">
-    <div class="node-label">User enters email + password</div>
-    <div class="node-sub">LoginView.tsx — split-screen layout</div>
-  </div>
-  <div class="arrow-down">↓</div>
-  <div class="node primary" style="min-width:340px">
-    <div class="node-label">supabase.auth.signInWithPassword()</div>
-    <div class="node-sub">Supabase Auth API</div>
-  </div>
-  <div class="arrow-down">↓</div>
-  <div class="flow-row">
-    <div class="node danger">
-      <div class="node-label">Error</div>
-      <div class="node-sub">humaniseAuthError() → inline message<br>Clear password, keep email</div>
-    </div>
-    <div class="arrow">→</div>
-    <div class="node" style="opacity:0.5">
-      <div class="node-label">Retry</div>
-    </div>
-  </div>
-  <div class="flow-col" style="margin-top:8px">
-    <div class="arrow-down">↓ success</div>
-    <div class="node success" style="min-width:340px">
-      <div class="node-label">Success Flash (300ms)</div>
-      <div class="node-sub">Green checkmark animation in button</div>
-    </div>
-    <div class="arrow-down">↓</div>
-    <div class="node primary" style="min-width:340px">
-      <div class="node-label">AuthProvider → fetchProfile()</div>
-      <div class="node-sub">Query profiles WHERE id = user.id</div>
-    </div>
-    <div class="arrow-down">↓</div>
-    <div class="flow-row">
-      <div class="node success">
-        <div class="node-label">Profile exists</div>
-        <div class="node-sub">→ roleHomePath(role) = /home</div>
-      </div>
-      <div class="node warning">
-        <div class="node-label">No profile row</div>
-        <div class="node-sub">→ /onboarding</div>
-      </div>
-    </div>
-  </div>
-</div>
+<h2>2. Page Map &amp; Navigation (18 views)</h2>
+<table class="info-table">
+  <thead><tr><th>Route</th><th>View</th><th>Admin</th><th>Coordinator</th><th>Designer</th></tr></thead>
+  <tbody>
+    <tr><td><code>/login</code></td><td>LoginView (enhanced split-screen)</td><td colspan="3" style="text-align:center">Public</td></tr>
+    <tr><td><code>/task-dashboard</code></td><td>TaskDashboardView (landing page)</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/dashboard</code></td><td>KanbanView (task board)</td><td>All Tasks</td><td>All Tasks</td><td>My Board</td></tr>
+    <tr><td><code>/brief/new</code></td><td>BriefingView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/concepts</code></td><td>ConceptsView (22-col workflow)</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/analytics</code></td><td>AnalyticsView (Concept Dashboard)</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/sampling</code></td><td>ProductionView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/salvedge</code></td><td>SalvedgeView</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/team</code></td><td>TeamView (role mgmt + codes)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/scorecards</code></td><td>ScorecardsView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/profile</code></td><td>ProfileView</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/notifications</code></td><td>NotificationsView</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/system</code></td><td>SystemView (CRUD + data mgmt)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+  </tbody>
+</table>
 </div>
 
-<!-- ================================================================== -->
-<!-- SECTION 3: ROUTE PROTECTION -->
-<!-- ================================================================== -->
+<!-- SECTION 3: ROLES -->
 <div class="section">
-<h2>3. Route Protection (5-Step Guard)</h2>
-
-<div class="flow-col">
-  <div class="node" style="min-width:360px">
-    <div class="node-label">User navigates to any protected route</div>
-    <div class="node-sub">ProtectedRoute.tsx wraps every authed page</div>
-  </div>
-  <div class="arrow-down">↓</div>
-
-  <div class="node" style="min-width:360px">
-    <div class="node-label">Step 1: isLoading?</div>
-    <div class="node-sub">Yes → &lt;AppShellSkeleton /&gt; (full-page loading)</div>
-  </div>
-  <div class="arrow-down">↓ no</div>
-
-  <div class="node" style="min-width:360px">
-    <div class="node-label">Step 2: !isAuthenticated?</div>
-    <div class="node-sub">Yes → Navigate to /login (saves return URL)</div>
-  </div>
-  <div class="arrow-down">↓ no</div>
-
-  <div class="node" style="min-width:360px">
-    <div class="node-label">Step 3: needsOnboarding?</div>
-    <div class="node-sub">Yes → Navigate to /onboarding</div>
-  </div>
-  <div class="arrow-down">↓ no</div>
-
-  <div class="node warning" style="min-width:360px">
-    <div class="node-label">Step 4: Role not in allowedRoles?</div>
-    <div class="node-sub">Yes → &lt;AppLayout&gt; + &lt;AccessRestrictedView /&gt; (URL stays put!)</div>
-  </div>
-  <div class="arrow-down">↓ no</div>
-
-  <div class="node success" style="min-width:360px">
-    <div class="node-label">Step 5: Render page</div>
-    <div class="node-sub">&lt;AppLayout&gt; + {children} with fade-in animation</div>
-  </div>
-</div>
-</div>
-
-<!-- ================================================================== -->
-<!-- SECTION 4: ROLE PERMISSIONS -->
-<!-- ================================================================== -->
-<div class="section">
-<h2>4. Role Permissions Matrix</h2>
-
+<h2>3. Role Permissions</h2>
 <div class="grid-3">
   <div class="role-card role-admin">
     <h3><span class="badge" style="background:var(--primary);color:#fff">Admin</span> Full Power</h3>
     <ul>
-      <li>Dashboard, All Tasks, New Brief</li>
+      <li>All Tasks, Task Dashboard, Concept Dashboard</li>
       <li>Concept approval (review/reject/revision)</li>
-      <li>Change user roles</li>
-      <li>Manage lookup tables (fabrics, categories)</li>
-      <li>Manage designer codes</li>
-      <li>Full CRUD on samples/salvedge</li>
-      <li>Task soft-delete + backward moves</li>
-      <li>Sampling, Analytics, Team</li>
+      <li>Change user roles + manage designer codes</li>
+      <li>Manage lookup tables (System CRUD)</li>
+      <li>CSV Export on all views</li>
+      <li>Sampling, Salvedge, Scorecards, Team</li>
     </ul>
   </div>
   <div class="role-card role-coord">
     <h3><span class="badge" style="background:var(--purple);color:#fff">Coordinator</span> Almost Admin</h3>
     <ul>
-      <li>Dashboard, All Tasks, New Brief</li>
-      <li style="color:var(--destructive)">Cannot approve concepts</li>
-      <li style="color:var(--destructive)">Cannot change roles</li>
-      <li style="color:var(--destructive)">Cannot manage lookups</li>
+      <li>Same as Admin (permissions now equal)</li>
+      <li>Concept approval + review</li>
       <li>Task lifecycle (create, assign, advance)</li>
-      <li>Task soft-delete + backward moves</li>
-      <li>Client CRUD</li>
-      <li>Sampling, Analytics, Team</li>
+      <li>System CRUD access</li>
+      <li>Sampling, Salvedge, Team</li>
     </ul>
   </div>
   <div class="role-card role-designer">
     <h3><span class="badge" style="background:var(--success);color:#fff">Designer</span> Submit & Work</h3>
     <ul>
-      <li>Dashboard, My Board</li>
-      <li>Claim tasks from open pool</li>
-      <li>Submit concepts for review</li>
-      <li>Upload design files</li>
-      <li>Track qty completed</li>
-      <li>Finalize approved concepts</li>
-      <li style="color:var(--destructive)">Cannot create briefs</li>
-      <li style="color:var(--destructive)">Cannot move tasks backward</li>
+      <li>My Board, Task Dashboard, Concepts</li>
+      <li>Claim tasks from pool</li>
+      <li>Submit + finalize concepts</li>
+      <li>Salvedge view</li>
+      <li style="color:var(--destructive)">Cannot create briefs or manage team</li>
     </ul>
   </div>
 </div>
 </div>
 
-<!-- ================================================================== -->
-<!-- SECTION 5: TASK PIPELINE -->
-<!-- ================================================================== -->
+<!-- SECTION 4: TASK PIPELINE -->
 <div class="section">
-<h2>5. Task Pipeline (7-Stage Lifecycle)</h2>
-
+<h2>4. Task Pipeline</h2>
 <div class="pipeline">
-  <div class="pipe-node" style="background:rgba(100,116,139,0.1);border-color:#64748b">
-    <div>Pool</div>
-    <div class="pipe-sub">Unassigned</div>
-  </div>
+  <div class="pipe-node" style="background:rgba(100,116,139,0.1);border-color:#64748b"><div>Pool</div><div class="pipe-sub">Unassigned</div></div>
   <div class="pipe-arrow" style="border-left-color:#64748b"></div>
-  <div class="pipe-node" style="background:rgba(255,255,255,0.03)">
-    <div>To-Do</div>
-    <div class="pipe-sub">Assigned</div>
-  </div>
+  <div class="pipe-node"><div>To-Do</div><div class="pipe-sub">Assigned</div></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node" style="background:rgba(79,110,247,0.1);border-color:var(--primary)">
-    <div>In Progress</div>
-    <div class="pipe-sub">Working</div>
-  </div>
+  <div class="pipe-node" style="background:rgba(79,110,247,0.1);border-color:var(--primary)"><div>In Progress</div><div class="pipe-sub">Working</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--primary)"></div>
-  <div class="pipe-node" style="background:rgba(79,110,247,0.15);border-color:var(--primary)">
-    <div>Full Kitting</div>
-    <div class="pipe-sub">Review</div>
-  </div>
-  <div class="pipe-arrow" style="border-left-color:var(--primary)"></div>
-  <div class="pipe-node" style="background:rgba(79,110,247,0.08);border-color:var(--primary)">
-    <div>Approved</div>
-    <div class="pipe-sub">Verified</div>
-  </div>
+  <div class="pipe-node" style="background:rgba(79,110,247,0.15);border-color:var(--primary)"><div>Full Knitting</div><div class="pipe-sub">Review</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--warning)"></div>
-  <div class="pipe-node" style="background:rgba(245,166,35,0.1);border-color:var(--warning)">
-    <div>Sampling</div>
-    <div class="pipe-sub">Production</div>
-  </div>
+  <div class="pipe-node" style="background:rgba(245,166,35,0.1);border-color:var(--warning)"><div>Sampling</div><div class="pipe-sub">Production</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--success)"></div>
-  <div class="pipe-node" style="background:rgba(60,201,122,0.1);border-color:var(--success)">
-    <div>Done</div>
-    <div class="pipe-sub">Complete</div>
-  </div>
+  <div class="pipe-node" style="background:rgba(60,201,122,0.1);border-color:var(--success)"><div>Done</div><div class="pipe-sub">Complete</div></div>
 </div>
-
 <div class="note">
-  <strong>Forward:</strong> Always allowed for assignee/admin/coordinator.<br>
-  <strong>Backward:</strong> Admin + coordinator ONLY. Designer cannot move tasks back.<br>
-  <strong>Auto-transitions:</strong> assign pool task → todo &nbsp;|&nbsp; qty partial → in_progress &nbsp;|&nbsp; qty complete → full_kitting
+  <strong>Dashboard tabs:</strong> Pool, To-Do, In Progress, Done (full_kitting merged into In Progress)<br>
+  <strong>Task code:</strong> <code>DF NN-D{MMYY}-CONC-QM</code> (e.g. DF 01-S0526-FLOR-200M)<br>
+  <strong>Notifications:</strong> Task assigned → designer, task done → coordinators, overdue → assignees
+</div>
 </div>
 
-<h3 style="margin-top:32px;font-size:14px;color:var(--text);margin-bottom:12px">Status Actions per Role</h3>
-<table class="info-table">
-  <thead>
-    <tr><th>Status</th><th>Action</th><th>Who Can Do It</th><th>What Happens</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><span class="tag tag-blue">Pool</span></td><td>Accept Task</td><td>Designer, Admin</td><td>assigns to self → moves to <code>todo</code>, regenerates task code</td></tr>
-    <tr><td><span class="tag tag-blue">To-Do</span></td><td>Start Working</td><td>Assignee, Admin</td><td>→ <code>in_progress</code>, stamps <code>started_at</code></td></tr>
-    <tr><td><span class="tag tag-blue">In Progress</span></td><td>Submit for Review</td><td>Assignee, Admin</td><td>Checks files exist → <code>full_kitting</code>, stamps <code>kitted_at</code></td></tr>
-    <tr><td><span class="tag tag-purple">Full Kitting</span></td><td>Approve / Completed</td><td>All / Admin</td><td>→ <code>done</code></td></tr>
-    <tr><td><span class="tag tag-purple">Full Kitting</span></td><td>Request Revision</td><td>Admin (concepts)</td><td>→ <code>in_progress</code> (backward)</td></tr>
-    <tr><td><span class="tag tag-amber">Sampling</span></td><td>Mark Done</td><td>Admin, Coordinator</td><td>→ <code>done</code></td></tr>
-  </tbody>
-</table>
-</div>
-
-<!-- ================================================================== -->
-<!-- SECTION 6: TASK CODE GENERATION -->
-<!-- ================================================================== -->
+<!-- SECTION 5: CONCEPT WORKFLOW -->
 <div class="section">
-<h2>6. Task Code Generation Logic</h2>
-
+<h2>5. Concept Approval Workflow</h2>
 <div class="flow-col">
-  <div class="node primary" style="min-width:400px">
-    <div class="node-label" style="font-family:monospace;font-size:16px;letter-spacing:0.05em">DF {NN}-{D}{MMYY}-{CONC}-{QQQ}M</div>
-    <div class="node-sub" style="margin-top:8px">Example: <strong style="color:var(--text)">DF 01-S0526-FLOR-200M</strong></div>
-  </div>
-</div>
-
-<table class="info-table" style="max-width:700px;margin:20px auto">
-  <thead><tr><th>Part</th><th>Meaning</th><th>Source</th><th>Example</th></tr></thead>
-  <tbody>
-    <tr><td><code>DF</code></td><td>Fixed prefix</td><td>Hardcoded</td><td>DF</td></tr>
-    <tr><td><code>NN</code></td><td>Per-year sequence</td><td>DB trigger → task_counters</td><td>01, 42</td></tr>
-    <tr><td><code>D</code></td><td>Designer letter</td><td>designer_codes table</td><td>S, K, P (pool)</td></tr>
-    <tr><td><code>MMYY</code></td><td>Month + Year</td><td>Current date</td><td>0526</td></tr>
-    <tr><td><code>CONC</code></td><td>Concept abbreviation</td><td>First 4 alpha chars</td><td>FLOR, ABST</td></tr>
-    <tr><td><code>QQQ</code></td><td>Quantity (meters)</td><td>Form input</td><td>200, 50</td></tr>
-  </tbody>
-</table>
-
-<div class="flow-row" style="margin-top:24px">
-  <div class="node" style="min-width:200px">
-    <div class="node-label">INSERT task</div>
-    <div class="node-sub">DB trigger generates ORD-YYYY-NNNN</div>
-  </div>
-  <div class="arrow">→</div>
-  <div class="node primary" style="min-width:200px">
-    <div class="node-label">Extract sequence</div>
-    <div class="node-sub">extractSeq() → "0001"</div>
-  </div>
-  <div class="arrow">→</div>
-  <div class="node primary" style="min-width:200px">
-    <div class="node-label">Fetch designer letter</div>
-    <div class="node-sub">designer_codes → "S" or "P"</div>
-  </div>
-  <div class="arrow">→</div>
-  <div class="node success" style="min-width:200px">
-    <div class="node-label">Build DF code</div>
-    <div class="node-sub">DF 01-S0526-FLOR-200M</div>
-  </div>
-</div>
-
-<div class="note" style="margin-top:16px">
-  <strong>Pool → Assign:</strong> When a pool task (code has "P") is assigned to a designer, the code is regenerated with the real designer letter. Non-pool codes are never changed.
-</div>
-</div>
-
-<!-- ================================================================== -->
-<!-- SECTION 7: CONCEPT APPROVAL FLOW -->
-<!-- ================================================================== -->
-<div class="section">
-<h2>7. Concept Approval Workflow</h2>
-
-<div class="flow-col">
-  <div class="node teal" style="min-width:350px">
-    <div class="node-label">Designer submits concept</div>
-    <div class="node-sub">Title + image + client + designer + priority + file upload<br>
-    DB trigger: concept_code = C-YYYYMMDD-XXXX, md_planned_date = tomorrow</div>
-  </div>
+  <div class="node teal"><div class="node-label">Designer submits concept</div><div class="node-sub">Title + file + client + priority · DB auto-generates code</div></div>
   <div class="arrow-down">↓</div>
-  <div class="node" style="min-width:350px">
-    <div class="node-label"><span class="tag tag-amber">Pending</span> Admin reviews within +1 day</div>
-    <div class="node-sub">ConceptDetailDrawer → notes + 3 action buttons</div>
-  </div>
+  <div class="node warning"><div class="node-label">Admin reviews within 1 day</div><div class="node-sub">ConceptDetailDrawer → approve / reject / revision</div></div>
   <div class="arrow-down">↓</div>
-
   <div class="flow-row">
     <div class="flow-col">
-      <div class="node success">
-        <div class="node-label">Approve</div>
-        <div class="node-sub">md_status = 'approved'<br>designer_planned_date = today + 4</div>
-      </div>
+      <div class="node success"><div class="node-label">Approve</div><div class="node-sub">Designer has +4 days to finalize</div></div>
       <div class="arrow-down">↓</div>
-      <div class="node teal">
-        <div class="node-label">Designer finalizes</div>
-        <div class="node-sub">designer_actual_date = today<br>Within +4 days</div>
-      </div>
+      <div class="node purple"><div class="node-label">Final Approval</div><div class="node-sub">Admin grants final approval</div></div>
     </div>
-
-    <div class="flow-col">
-      <div class="node warning">
-        <div class="node-label">Request Revision</div>
-        <div class="node-sub">md_status = 'revision_requested'<br>Designer can edit &amp; resubmit</div>
-      </div>
-      <div class="arrow-down">↓</div>
-      <div class="node" style="opacity:0.5">
-        <div class="node-label">Back to Pending</div>
-      </div>
-    </div>
-
-    <div class="flow-col">
-      <div class="node danger">
-        <div class="node-label">Reject</div>
-        <div class="node-sub">md_status = 'rejected'<br>Terminal state</div>
-      </div>
-    </div>
+    <div class="node warning"><div class="node-label">Revision</div><div class="node-sub">Designer fixes + re-submits</div></div>
+    <div class="node danger"><div class="node-label">Reject</div><div class="node-sub">Terminal state</div></div>
   </div>
 </div>
-
 <div class="note">
-  <strong>Admin-exclusive:</strong> Only admin can approve/reject/revise concepts. Coordinators and designers cannot.
-  <br><strong>DB triggers:</strong> md_actual_date + md_reviewed_at auto-stamped on any verdict.
+  <strong>Monthly target:</strong> 3 approved concepts per designer<br>
+  <strong>Notifications:</strong> Concept submitted → admins, reviewed → designer, overdue concepts → alerts<br>
+  <strong>Dashboards:</strong> Concept Dashboard (funnel + leaderboard + target race + MD review panel)
 </div>
 </div>
 
-<!-- ================================================================== -->
-<!-- SECTION 8: DATABASE SCHEMA -->
-<!-- ================================================================== -->
+<!-- SECTION 6: DATABASE -->
 <div class="section">
-<h2>8. Database Schema (12 Tables)</h2>
-
+<h2>6. Database Schema (14+ Tables, 16 Migrations)</h2>
 <div class="grid-4">
-  <div class="node primary">
-    <div class="node-label">profiles</div>
-    <div class="node-sub">id, full_name, role, avatar_url<br><span class="tag tag-blue">3 roles</span></div>
-  </div>
-  <div class="node primary">
-    <div class="node-label">tasks</div>
-    <div class="node-sub">task_code, status, qty, fabric<br>full_kitting, assigned_to, deadline<br><span class="tag tag-blue">7 statuses</span> <span class="tag tag-amber">30+ cols</span></div>
-  </div>
-  <div class="node primary">
-    <div class="node-label">concepts</div>
-    <div class="node-sub">concept_code, md_status, title<br>image_url, final_approval<br><span class="tag tag-purple">4 statuses</span></div>
-  </div>
-  <div class="node">
-    <div class="node-label">clients</div>
-    <div class="node-sub">party_name (unique)</div>
-  </div>
-  <div class="node">
-    <div class="node-label">task_logs</div>
-    <div class="node-sub">Audit trail (append-only)<br>status_from → status_to</div>
-  </div>
-  <div class="node">
-    <div class="node-label">files</div>
-    <div class="node-sub">storage_url, file_name<br>task_id FK</div>
-  </div>
-  <div class="node">
-    <div class="node-label">sampling_logs</div>
-    <div class="node-sub">meters_printed, proof_url</div>
-  </div>
-  <div class="node teal">
-    <div class="node-label">designer_codes</div>
-    <div class="node-sub">code (U/V/S/K), status<br>Used for task code gen</div>
-  </div>
-  <div class="node purple">
-    <div class="node-label">concept_categories</div>
-    <div class="node-sub">Lookup: "Block print", "Damask"<br><span class="tag tag-purple">0011</span></div>
-  </div>
-  <div class="node purple">
-    <div class="node-label">fabrics</div>
-    <div class="node-sub">Lookup: "Cotton Voile"<br><span class="tag tag-purple">0011</span></div>
-  </div>
-  <div class="node muted-node">
-    <div class="node-label">samples</div>
-    <div class="node-sub">Daily records (no UI yet)<br><span class="tag tag-amber">0010</span></div>
-  </div>
-  <div class="node muted-node">
-    <div class="node-label">salvedge_records</div>
-    <div class="node-sub">Fabric distribution (no UI)<br><span class="tag tag-amber">0010</span></div>
-  </div>
+  <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">3 roles · avatar</div></div>
+  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">30+ cols · 7 statuses</div></div>
+  <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses · final approval</div></div>
+  <div class="node"><div class="node-label">clients</div><div class="node-sub">party_name</div></div>
+  <div class="node"><div class="node-label">task_logs</div><div class="node-sub">append-only audit</div></div>
+  <div class="node"><div class="node-label">files</div><div class="node-sub">task attachments</div></div>
+  <div class="node"><div class="node-label">sampling_logs</div><div class="node-sub">meters printed</div></div>
+  <div class="node teal"><div class="node-label">designer_codes</div><div class="node-sub">U/V/S/K letters</div></div>
+  <div class="node purple"><div class="node-label">concept_categories</div><div class="node-sub">taxonomy (0011)</div></div>
+  <div class="node purple"><div class="node-label">fabrics</div><div class="node-sub">taxonomy (0011)</div></div>
+  <div class="node"><div class="node-label">notifications</div><div class="node-sub">realtime bell (0013)</div></div>
+  <div class="node"><div class="node-label">full_kitting_details</div><div class="node-sub">kitting form (0013)</div></div>
+  <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010)</div></div>
+  <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric dist (0010)</div></div>
 </div>
-
 <div class="note">
-  <strong>Auto-generated IDs:</strong> tasks → <code>ORD-YYYY-NNNN</code> (overwritten to DF format) &nbsp;|&nbsp; concepts → <code>C-YYYYMMDD-XXXX</code><br>
-  <strong>Soft-delete:</strong> tasks.deleted_at (hidden from non-admins via RLS)<br>
-  <strong>Generated columns:</strong> samples.pending_qty, salvedge_records.pending
+  <strong>Storage:</strong> design-files, sample-files, proof-photos, avatars — all 100 MB, all file types<br>
+  <strong>RLS:</strong> 40+ policies · auth_role() + is_admin() + is_admin_or_coordinator() helpers
 </div>
 </div>
 
-<!-- ================================================================== -->
-<!-- SECTION 9: PAGE MAP -->
-<!-- ================================================================== -->
+<!-- SECTION 7: KEY FEATURES -->
 <div class="section">
-<h2>9. Page Map &amp; Navigation</h2>
-
-<table class="info-table">
-  <thead>
-    <tr><th>Route</th><th>View</th><th>Admin</th><th>Coordinator</th><th>Designer</th><th>Status</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>/login</code></td><td>LoginView</td><td colspan="3" style="text-align:center">Public</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/onboarding</code></td><td>OnboardingView</td><td colspan="3" style="text-align:center">Authed, no profile</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/home</code></td><td>DashboardView</td><td>yes</td><td>yes</td><td>yes</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/dashboard</code></td><td>KanbanView</td><td>All Tasks</td><td>All Tasks</td><td>My Board</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/brief/new</code></td><td>BriefingView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/concepts</code></td><td>ConceptsView</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/sampling</code></td><td>ProductionView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/analytics</code></td><td>AnalyticsView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td><span class="tag tag-amber">Placeholder</span></td></tr>
-    <tr><td><code>/team</code></td><td>TeamView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td><span class="tag tag-green">Done</span></td></tr>
-    <tr><td><code>/notifications</code></td><td>NotificationsView</td><td>yes</td><td>yes</td><td>yes</td><td><span class="tag tag-green">Done</span></td></tr>
-  </tbody>
-</table>
-
-<div class="legend" style="margin-top:20px">
-  <div class="legend-item"><div class="legend-dot" style="background:var(--success)"></div> Fully functional</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--warning)"></div> Placeholder / Coming soon</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--destructive)"></div> Access restricted for this role</div>
+<h2>7. Key Features Built</h2>
+<div class="grid-3">
+  <div class="node primary"><div class="node-label">Realtime Sync</div><div class="node-sub">Tasks + Concepts + Notifications via Supabase Realtime</div></div>
+  <div class="node success"><div class="node-label">Notification System</div><div class="node-sub">Bell + dropdown + full page + realtime + sound chime</div></div>
+  <div class="node warning"><div class="node-label">Deadline Alerts</div><div class="node-sub">Overdue tasks, concept pace, stale reviews — hourly checks</div></div>
+  <div class="node teal"><div class="node-label">CSV Export</div><div class="node-sub">Tasks, Concepts, Samples, Analytics — with column picker</div></div>
+  <div class="node purple"><div class="node-label">Concept Dashboard</div><div class="node-sub">Funnel + target race + MD review + leaderboard + scorecards</div></div>
+  <div class="node"><div class="node-label">Task Dashboard</div><div class="node-sub">KPIs + pipeline + workload + at-risk + leaderboard</div></div>
+  <div class="node success"><div class="node-label">Profile & Auth</div><div class="node-sub">Avatar upload, password change, role management</div></div>
+  <div class="node"><div class="node-label">Mobile Tab Bar</div><div class="node-sub">Fixed bottom nav + safe-area padding</div></div>
+  <div class="node danger"><div class="node-label">Error Boundary</div><div class="node-sub">Catches crashes → friendly "Something went wrong" card</div></div>
+  <div class="node"><div class="node-label">System CRUD</div><div class="node-sub">Add/edit/delete clients, fabrics, categories inline</div></div>
+  <div class="node primary"><div class="node-label">Full Knitting</div><div class="node-sub">Toggle + FK Form column + kitting modal + file upload</div></div>
+  <div class="node warning"><div class="node-label">Designer Scorecards</div><div class="node-sub">Detailed performance sheets per designer</div></div>
 </div>
 </div>
 
-<!-- ================================================================== -->
-<!-- SECTION 10: BRIEFING FORM FLOW -->
-<!-- ================================================================== -->
+<!-- SECTION 8: TECH -->
 <div class="section">
-<h2>10. Brief Creation Flow</h2>
-
-<div class="flow-col">
-  <div class="node" style="min-width:400px">
-    <div class="node-label">Admin/Coordinator opens /brief/new</div>
-  </div>
-  <div class="arrow-down">↓</div>
-
-  <div class="grid-4" style="max-width:900px;margin:0 auto">
-    <div class="node"><div class="node-label">1. Client</div><div class="node-sub">Dropdown + inline "Add new"</div></div>
-    <div class="node"><div class="node-label">2. WhatsApp</div><div class="node-sub">Group dropdown</div></div>
-    <div class="node"><div class="node-label">3. Concept</div><div class="node-sub">DB-backed categories</div></div>
-    <div class="node"><div class="node-label">4. Fabric</div><div class="node-sub">DB-backed fabrics</div></div>
-    <div class="node"><div class="node-label">5. Qty + Mtr</div><div class="node-sub">Meters (required)</div></div>
-    <div class="node"><div class="node-label">6. Deadline</div><div class="node-sub">Date + time + start</div></div>
-    <div class="node"><div class="node-label">7. Priority</div><div class="node-sub">Normal / Urgent</div></div>
-    <div class="node"><div class="node-label">8. Assignee</div><div class="node-sub">Pool or designer</div></div>
-  </div>
-
-  <div class="arrow-down">↓</div>
-  <div class="node warning" style="min-width:400px">
-    <div class="node-label">Optional: Full Kitting</div>
-    <div class="node-sub">Toggle → drag-drop upload (100 MB) + remarks (1000 chars)</div>
-  </div>
-  <div class="arrow-down">↓</div>
-  <div class="node primary" style="min-width:400px">
-    <div class="node-label">validate() → createTask()</div>
-    <div class="node-sub">INSERT → trigger generates ORD code → extract seq → build DF code → UPDATE</div>
-  </div>
-  <div class="arrow-down">↓</div>
-  <div class="node success" style="min-width:400px">
-    <div class="node-label">Success Screen</div>
-    <div class="node-sub">Task code + badges + "Create another" / "View dashboard"</div>
-  </div>
-</div>
-</div>
-
-<!-- ================================================================== -->
-<!-- SECTION 11: MIGRATION TIMELINE -->
-<!-- ================================================================== -->
-<div class="section">
-<h2>11. Migration Timeline</h2>
-
-<div class="flow-col" style="gap:8px">
-  <div class="node" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-blue">0001</span>
-      <span class="node-label" style="margin:0">Full schema — 7 tables, triggers, RLS, functions</span>
-    </div>
-  </div>
-  <div class="node" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-blue">0003</span>
-      <span class="node-label" style="margin:0">Storage buckets — task-files, sampling-proofs, avatars</span>
-    </div>
-  </div>
-  <div class="node" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-blue">0004</span>
-      <span class="node-label" style="margin:0">Design storage — design-files (50MB), proof-photos (10MB)</span>
-    </div>
-  </div>
-  <div class="node" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-blue">0005</span>
-      <span class="node-label" style="margin:0">Task additions — due_time, whatsapp, description, soft-delete</span>
-    </div>
-  </div>
-  <div class="node primary" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-red">0006</span>
-      <span class="node-label" style="margin:0">Role simplification — 4 roles → 2 (admin + designer)</span>
-    </div>
-  </div>
-  <div class="node teal" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-teal">0007</span>
-      <span class="node-label" style="margin:0">Designer codes — U/V/S/K letters for task code generation</span>
-    </div>
-  </div>
-  <div class="node purple" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-purple">0008</span>
-      <span class="node-label" style="margin:0">Design coordinator — enum value added (separate transaction)</span>
-    </div>
-  </div>
-  <div class="node purple" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-purple">0009</span>
-      <span class="node-label" style="margin:0">Coordinator policies — is_admin_or_coordinator(), RLS rewrites</span>
-    </div>
-  </div>
-  <div class="node warning" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-amber">0010</span>
-      <span class="node-label" style="margin:0">Workflow — samples, salvedge, full-kitting, sample-files bucket</span>
-    </div>
-  </div>
-  <div class="node" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-blue">0011</span>
-      <span class="node-label" style="margin:0">Lookup tables — concept_categories + fabrics (DB-backed dropdowns)</span>
-    </div>
-  </div>
-  <div class="node" style="min-width:500px;text-align:left;padding:10px 16px">
-    <div style="display:flex;gap:12px;align-items:center">
-      <span class="tag tag-blue">0012</span>
-      <span class="node-label" style="margin:0">Concept extensions — designer_id, client_id, final_approval, remarks</span>
-    </div>
-  </div>
-</div>
-</div>
-
-<!-- ================================================================== -->
-<!-- SECTION 12: TECH ARCHITECTURE -->
-<!-- ================================================================== -->
-<div class="section">
-<h2>12. Tech Architecture</h2>
-
+<h2>8. Tech Architecture</h2>
 <div class="flow-row" style="gap:24px">
   <div class="flow-col" style="gap:8px">
-    <div class="node primary" style="min-width:200px">
-      <div class="node-label">React 18</div>
-      <div class="node-sub">Vite 5 + TypeScript</div>
-    </div>
-    <div class="node" style="min-width:200px">
-      <div class="node-label">React Router v6</div>
-      <div class="node-sub">Role-gated routes</div>
-    </div>
-    <div class="node" style="min-width:200px">
-      <div class="node-label">Tailwind CSS</div>
-      <div class="node-sub">CSS vars + dual theme</div>
-    </div>
-    <div class="node" style="min-width:200px">
-      <div class="node-label">Radix UI</div>
-      <div class="node-sub">Dialog, Dropdown, Slot</div>
-    </div>
+    <div class="node primary"><div class="node-label">React 18 + Vite 5</div><div class="node-sub">TypeScript strict</div></div>
+    <div class="node"><div class="node-label">React Router v6</div><div class="node-sub">Role-gated routes</div></div>
+    <div class="node"><div class="node-label">Tailwind CSS</div><div class="node-sub">Dual theme (light/dark)</div></div>
+    <div class="node"><div class="node-label">Recharts</div><div class="node-sub">Sparklines, bar/area charts</div></div>
   </div>
-
   <div style="font-size:32px;color:var(--muted);align-self:center">⇄</div>
-
   <div class="flow-col" style="gap:8px">
-    <div class="node success" style="min-width:200px">
-      <div class="node-label">Supabase</div>
-      <div class="node-sub">PostgreSQL + Auth</div>
-    </div>
-    <div class="node success" style="min-width:200px">
-      <div class="node-label">PostgREST</div>
-      <div class="node-sub">Auto-generated API</div>
-    </div>
-    <div class="node success" style="min-width:200px">
-      <div class="node-label">Storage</div>
-      <div class="node-sub">5 buckets, signed URLs</div>
-    </div>
-    <div class="node success" style="min-width:200px">
-      <div class="node-label">RLS</div>
-      <div class="node-sub">40+ policies, 3 helpers</div>
-    </div>
+    <div class="node success"><div class="node-label">Supabase</div><div class="node-sub">PostgreSQL + Auth + Realtime</div></div>
+    <div class="node success"><div class="node-label">PostgREST API</div><div class="node-sub">Auto-generated, typed</div></div>
+    <div class="node success"><div class="node-label">Storage</div><div class="node-sub">5 buckets, 100 MB, all types</div></div>
+    <div class="node success"><div class="node-label">RLS + Triggers</div><div class="node-sub">40+ policies, auto-timestamps</div></div>
   </div>
 </div>
+</div>
+
+<!-- SECTION 9: USER ACCOUNTS -->
+<div class="section">
+<h2>9. User Accounts</h2>
+<table class="info-table">
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th></tr></thead>
+  <tbody>
+    <tr><td>Harshali Bhopale</td><td>harshali.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Harshali123</td></tr>
+    <tr><td>Mahesh Ghawane</td><td>maheshgavhane150@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Mahesh123</td></tr>
+    <tr><td>Aditya Lohar</td><td>aditya.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aditya123</td></tr>
+    <tr><td>Aman Ahmed</td><td>amandeolinkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aman123</td></tr>
+    <tr><td>Naushi Ma'am</td><td>naushi.linkdprints@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Naushi123</td></tr>
+    <tr><td>Supriya</td><td>designcoordinator.linkdprints@gmail.com</td><td><span class="tag tag-purple">Coordinator</span></td><td>Supriya123</td></tr>
+    <tr><td>Krupesh Late</td><td>krupeshlate12@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>krupesh123</td></tr>
+    <tr><td>Ketan Bhoir</td><td>bhoirketan07@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Ketan123</td></tr>
+    <tr><td>Kavita Rane</td><td>kavitarane80@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Kavita123</td></tr>
+    <tr><td>Nikita Sahu</td><td>nikita888sahu@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Nikita123</td></tr>
+    <tr><td>Manav Khandale</td><td>manavlinkd@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Manav123</td></tr>
+    <tr><td>Shadab Khan</td><td>sk8660081@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Shadab123</td></tr>
+  </tbody>
+</table>
 </div>
 
 <div class="divider"></div>
 <p style="text-align:center;color:var(--muted);font-size:12px">
-  Generated for LinkD FMS — Design Flow System<br>
-  12 tables &middot; 3 roles &middot; 11 views &middot; 11 hooks &middot; 12 migrations
+  LinkD FMS — Design Flow System<br>
+  14 tables &middot; 3 roles &middot; 18 views &middot; 19 hooks &middot; 64 components &middot; 16 migrations<br>
+  Updated: May 2026
 </p>
 
 </body>

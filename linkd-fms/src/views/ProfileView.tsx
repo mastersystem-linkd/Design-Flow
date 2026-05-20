@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
-import { Camera, Loader2, Lock, Save } from "lucide-react";
+import { Camera, Eye, EyeOff, Loader2, Lock, Monitor, Moon, Save, Sun, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/hooks/useTheme";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
 import {
   Card,
@@ -17,10 +18,32 @@ import {
   toast,
 } from "@/components/ui";
 import { ROLE_LABELS } from "@/lib/constants";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+
+const THEME_OPTIONS = [
+  {
+    value: "light" as const,
+    label: "Light",
+    description: "Bright & clean",
+    icon: Sun,
+  },
+  {
+    value: "dark" as const,
+    label: "Dark",
+    description: "Easy on eyes",
+    icon: Moon,
+  },
+  {
+    value: "system" as const,
+    label: "System",
+    description: "Match your OS",
+    icon: Monitor,
+  },
+];
 
 export function ProfileView() {
   const { user, profile, refreshProfile } = useAuth();
+  const { theme, setTheme } = useTheme();
   const { codesByProfile } = useDesignerCodes();
   const myCodes = profile ? (codesByProfile.get(profile.id) ?? []) : [];
 
@@ -32,10 +55,16 @@ export function ProfileView() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Password change state ──
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+
+  const pwTooShort = newPassword.length > 0 && newPassword.length < 8;
+  const pwMismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+  const canChangePassword = newPassword.length >= 8 && newPassword === confirmPassword && !changingPassword;
 
   async function handleSaveProfile() {
     if (!profile) return;
@@ -96,14 +125,7 @@ export function ProfileView() {
   }
 
   async function handlePasswordChange() {
-    if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("Passwords don't match");
-      return;
-    }
+    if (!canChangePassword) return;
 
     setChangingPassword(true);
     const { error } = await supabase.auth.updateUser({ password: newPassword });
@@ -114,7 +136,9 @@ export function ProfileView() {
       toast.success("Password updated");
       setNewPassword("");
       setConfirmPassword("");
-      setShowPassword(false);
+      setShowPasswordSection(false);
+      setShowNewPw(false);
+      setShowConfirmPw(false);
     }
     setChangingPassword(false);
   }
@@ -217,40 +241,84 @@ export function ProfileView() {
         <CardContent className="p-6">
           <button
             type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="flex items-center gap-2 text-sm font-medium text-foreground"
+            onClick={() => setShowPasswordSection(!showPasswordSection)}
+            className="flex w-full items-center justify-between text-sm font-medium text-foreground"
           >
-            <Lock className="h-4 w-4" />
-            Change Password
+            <span className="flex items-center gap-2">
+              <Lock className="h-4 w-4 text-muted-foreground" />
+              Change Password
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {showPasswordSection ? "Hide" : "Show"}
+            </span>
           </button>
 
-          {showPassword && (
+          {showPasswordSection && (
             <div className="mt-4 space-y-3 animate-fade-in">
-              <div>
-                <Label htmlFor="new-password" className="text-xs">New Password</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Min 6 characters"
-                  className="mt-1"
-                />
+              {/* New password */}
+              <div className="space-y-1.5">
+                <Label htmlFor="new-password" className="text-xs">
+                  New Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showNewPw ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Min 8 characters"
+                    className="h-10 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPw((s) => !s)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
+                    aria-label={showNewPw ? "Hide password" : "Show password"}
+                  >
+                    {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {pwTooShort && (
+                  <p className="text-[11px] text-warning">
+                    {8 - newPassword.length} more character{8 - newPassword.length > 1 ? "s" : ""} needed
+                  </p>
+                )}
+                {newPassword.length >= 8 && (
+                  <p className="text-[11px] text-success">Password length OK</p>
+                )}
               </div>
-              <div>
-                <Label htmlFor="confirm-password" className="text-xs">Confirm Password</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat password"
-                  className="mt-1"
-                />
+
+              {/* Confirm password */}
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm-password" className="text-xs">
+                  Confirm Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="confirm-password"
+                    type={showConfirmPw ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat password"
+                    className="h-10 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPw((s) => !s)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
+                    aria-label={showConfirmPw ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {pwMismatch && (
+                  <p className="text-[11px] text-destructive">Passwords don't match</p>
+                )}
               </div>
+
               <Button
                 onClick={() => void handlePasswordChange()}
-                disabled={changingPassword}
+                disabled={!canChangePassword}
                 className="gap-1.5"
               >
                 {changingPassword ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
@@ -258,6 +326,56 @@ export function ProfileView() {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Appearance ── */}
+      <Card>
+        <CardContent className="p-6">
+          <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Sun className="h-4 w-4 text-muted-foreground" />
+            Appearance
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Choose how the app looks for you.
+          </p>
+
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {THEME_OPTIONS.map((opt) => {
+              const active = theme === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setTheme(opt.value)}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
+                    active
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                      : "border-border bg-card hover:border-muted-foreground/30"
+                  )}
+                >
+                  <opt.icon
+                    className={cn(
+                      "h-6 w-6",
+                      active ? "text-primary" : "text-muted-foreground"
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "text-xs font-medium",
+                      active ? "text-primary" : "text-foreground"
+                    )}
+                  >
+                    {opt.label}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {opt.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
     </div>

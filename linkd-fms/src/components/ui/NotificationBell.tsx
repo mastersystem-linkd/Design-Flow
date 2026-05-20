@@ -47,12 +47,34 @@ export function NotificationBell() {
   const [pulse, setPulse] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Pulse animation when unreadCount increases (new notification arrived).
+  // Pulse animation + browser title flash when unreadCount increases.
   useEffect(() => {
     if (unreadCount > prevCount) {
       setPulse(true);
-      const t = setTimeout(() => setPulse(false), 1500);
-      return () => clearTimeout(t);
+      const t = setTimeout(() => setPulse(false), 2500);
+
+      // Flash the browser tab title to catch attention
+      const originalTitle = document.title;
+      let flash = true;
+      const titleInterval = setInterval(() => {
+        document.title = flash
+          ? `(${unreadCount}) New Notification!`
+          : originalTitle;
+        flash = !flash;
+      }, 1000);
+
+      // Stop flashing after 10 seconds
+      const stopFlash = setTimeout(() => {
+        clearInterval(titleInterval);
+        document.title = originalTitle;
+      }, 10_000);
+
+      return () => {
+        clearTimeout(t);
+        clearInterval(titleInterval);
+        clearTimeout(stopFlash);
+        document.title = originalTitle;
+      };
     }
     setPrevCount(unreadCount);
   }, [unreadCount, prevCount]);

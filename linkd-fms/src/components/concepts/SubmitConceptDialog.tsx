@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Image as ImageIcon, Loader2, Upload, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
@@ -103,8 +103,8 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       setError("Concept name is required");
       return;
     }
-    if (description.trim().length < 50) {
-      setError("Description must be at least 50 characters.");
+    if (description.trim().length < 30) {
+      setError("Description must be at least 30 characters.");
       return;
     }
     if (!file) {
@@ -215,18 +215,18 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
                 id="concept-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Mood, palette, references… (min 50 characters)"
+                placeholder="Mood, palette, references… (min 30 characters)"
                 rows={3}
                 disabled={uploading}
                 className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               />
               <p className={cn(
                 "text-right text-[11px]",
-                description.trim().length < 50
+                description.trim().length < 30
                   ? "text-destructive"
                   : "text-muted-foreground"
               )}>
-                {description.trim().length} / 50 min
+                {description.trim().length} / 30 min
               </p>
             </div>
 

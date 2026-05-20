@@ -28,5 +28,5 @@ export function useClients() {
     void refetch();
   }, [refetch]);
 
-  return { clients, isLoading, error, refetch };
+  return { clients, totalCount: clients.length, isLoading, error, refetch };
 }

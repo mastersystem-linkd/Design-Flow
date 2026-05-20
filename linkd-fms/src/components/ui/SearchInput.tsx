@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,16 +23,19 @@ export interface SearchInputProps {
  * `debounceMs` (default 300 ms) — keeps useTasks queries from firing on
  * every keystroke. Focus ring uses the gold accent.
  */
-export function SearchInput({
-  value,
-  onChange,
-  placeholder = "Search…",
-  debounceMs = 300,
-  className,
-  disabled,
-  autoFocus,
-  ariaLabel,
-}: SearchInputProps) {
+export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(function SearchInput(
+  {
+    value,
+    onChange,
+    placeholder = "Search…",
+    debounceMs = 300,
+    className,
+    disabled,
+    autoFocus,
+    ariaLabel,
+  },
+  ref
+) {
   const [internal, setInternal] = useState(value);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -65,6 +68,7 @@ export function SearchInput({
         aria-hidden
       />
       <input
+        ref={ref}
         type="text"
         value={internal}
         onChange={(e) => setInternal(e.target.value)}
@@ -91,4 +95,4 @@ export function SearchInput({
       )}
     </div>
   );
-}
+});

@@ -38,5 +38,5 @@ export function useProfiles({ roles }: Options = {}) {
     void refetch();
   }, [refetch]);
 
-  return { profiles, isLoading, error, refetch };
+  return { profiles, totalCount: profiles.length, isLoading, error, refetch };
 }

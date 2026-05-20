@@ -46,17 +46,26 @@ function getPageTitle(pathname: string, role: UserRole): RouteTitle {
   if (pathname.startsWith(ROUTES.system)) {
     return { title: "System" };
   }
+  if (pathname.startsWith(ROUTES.salvedge)) {
+    return { title: "Salvedge" };
+  }
   if (pathname.startsWith(ROUTES.sampling)) {
     return { title: "Sampling Queue" };
   }
   if (pathname.startsWith(ROUTES.team)) {
     return { title: "Team Management" };
   }
+  if (pathname.startsWith(ROUTES.scorecards)) {
+    return { title: "Scorecards" };
+  }
   if (pathname.startsWith(ROUTES.profile)) {
     return { title: "Profile" };
   }
   if (pathname.startsWith(ROUTES.notifications)) {
     return { title: "Notifications" };
+  }
+  if (pathname.startsWith(ROUTES.files)) {
+    return { title: "Files" };
   }
   return { title: "LinkD FMS" };
 }

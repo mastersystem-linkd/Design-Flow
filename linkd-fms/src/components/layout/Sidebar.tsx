@@ -8,11 +8,14 @@ import {
   BarChart3,
   ClipboardList,
   Factory,
+  Layers,
   Users,
   Bell,
   Settings,
   LogOut,
   ChevronUp,
+  Trophy,
+  FolderOpen,
   User as UserIcon,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -53,8 +56,10 @@ function getNavGroups(role: UserRole): NavGroup[] {
           items: [
             { to: ROUTES.taskDashboard, label: "Task Dashboard", icon: ClipboardList },
             { to: ROUTES.dashboard, label: "My Board", icon: LayoutGrid },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
             { to: ROUTES.analytics, label: "Concept Dashboard", icon: BarChart3 },
+            { to: ROUTES.files, label: "Files", icon: FolderOpen },
           ],
         },
       ];
@@ -72,7 +77,10 @@ function getNavGroups(role: UserRole): NavGroup[] {
           label: "Manage",
           items: [
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
+            { to: ROUTES.files, label: "Files", icon: FolderOpen },
             { to: ROUTES.team, label: "Team", icon: Users },
+            { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
             { to: ROUTES.system, label: "System", icon: Settings },
           ],
         },
@@ -91,6 +99,8 @@ function getNavGroups(role: UserRole): NavGroup[] {
           label: "Manage",
           items: [
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
+            { to: ROUTES.files, label: "Files", icon: FolderOpen },
             { to: ROUTES.team, label: "Team", icon: Users },
             { to: ROUTES.system, label: "System", icon: Settings },
           ],

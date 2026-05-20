@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { RefreshCw, Plus, X } from "lucide-react";
+import { RefreshCw, Plus, X, BarChart3 } from "lucide-react";
+import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
@@ -46,6 +47,9 @@ export function TeamView() {
   // Designer code delete state
   const [deleteCode, setDeleteCode] = useState<{ id: string; code: string; userName: string } | null>(null);
   const [deletingCode, setDeletingCode] = useState(false);
+
+  // Scorecard drawer
+  const [scorecardDesignerId, setScorecardDesignerId] = useState<string | null>(null);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -172,12 +176,14 @@ export function TeamView() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
+                <caption className="sr-only">Team members and roles</caption>
                 <thead className="border-y border-border bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2 font-medium">Name</th>
                     <th className="px-4 py-2 font-medium">Role</th>
                     <th className="px-4 py-2 font-medium">Designer codes</th>
                     <th className="px-4 py-2 font-medium">Joined</th>
+                    {isAdmin && <th className="px-4 py-2 font-medium text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -295,6 +301,26 @@ export function TeamView() {
                         <td className="px-4 py-3 text-muted-foreground">
                           {formatDate(p.created_at)}
                         </td>
+
+                        {/* Actions (admin only) */}
+                        {isAdmin && (
+                          <td className="px-4 py-3 text-right">
+                            {p.role === "designer" ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setScorecardDesignerId(p.id)}
+                                title="View scorecard"
+                                className="gap-1"
+                              >
+                                <BarChart3 className="h-3.5 w-3.5" />
+                                <span className="hidden sm:inline">Scorecard</span>
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/50">—</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -333,6 +359,12 @@ export function TeamView() {
         confirmLabel={deletingCode ? "Removing…" : "Remove"}
         onConfirm={() => void confirmDeleteCode()}
         onCancel={() => setDeleteCode(null)}
+      />
+
+      {/* Designer scorecard drawer (admin only) */}
+      <DesignerScorecardDrawer
+        designerId={scorecardDesignerId}
+        onClose={() => setScorecardDesignerId(null)}
       />
     </div>
   );

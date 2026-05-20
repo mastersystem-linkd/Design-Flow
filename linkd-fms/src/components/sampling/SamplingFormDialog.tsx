@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Loader2, Upload, X, FileIcon } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";

@@ -109,6 +109,7 @@ export interface ConceptDashboardMetrics {
   conversionRates: ConversionRates;
   mdReview: MdReviewStats;
   targetRace: TargetRaceEntry[];
+  sparklines: { submitted: number[]; approved: number[] };
   periodStart: Date;
   periodEnd: Date;
   periodLabel: string;
@@ -455,6 +456,26 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
       .sort((a, b) => b.approvedCount - a.approvedCount || a.name.localeCompare(b.name));
   }, [concepts, profiles, codesByProfile, start, end]);
 
+  // ── Sparkline data (7 points across current period) ──────────────
+  const sparklines = useMemo(() => {
+    const buckets = 7;
+    const span = end.getTime() - start.getTime();
+    const step = span / buckets;
+
+    const submitted: number[] = [];
+    const approved: number[] = [];
+
+    for (let i = 0; i < buckets; i++) {
+      const bStart = new Date(start.getTime() + i * step);
+      const bEnd = new Date(start.getTime() + (i + 1) * step);
+
+      submitted.push(concepts.filter((c) => inRange(c.created_at, bStart, bEnd)).length);
+      approved.push(concepts.filter((c) => c.md_status === "approved" && inRange(c.md_reviewed_at ?? c.md_actual_date, bStart, bEnd)).length);
+    }
+
+    return { submitted, approved };
+  }, [concepts, start, end]);
+
   return {
     kpis,
     statusDistribution,
@@ -465,6 +486,7 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
     conversionRates,
     mdReview,
     targetRace,
+    sparklines,
     periodStart: start,
     periodEnd: end,
     periodLabel,

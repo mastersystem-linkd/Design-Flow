@@ -18,7 +18,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { toast } from "sonner";
+import { toast } from "@/components/ui";
 import {
   Sheet,
   SheetContent,
@@ -1972,7 +1972,7 @@ function ActionFooter({
       );
       return;
     }
-    void advance("full_kitting", "Submitted for review ✓");
+    void advance("full_kitting", "Marked completed ✓");
   }
 
   // ----------------- DONE: completion badge -----------------
@@ -2022,7 +2022,7 @@ function ActionFooter({
     );
   }
 
-  // ----------------- IN_PROGRESS: Submit for Review -----------------
+  // ----------------- IN_PROGRESS: Mark Completed -----------------
   if (task.status === "in_progress" && (isAssignee || isAdmin)) {
     return (
       <FooterShell>
@@ -2040,7 +2040,7 @@ function ActionFooter({
             size="lg"
           >
             <Send className="mr-1.5 h-4 w-4" />
-            Submit for Review
+            Mark Completed
           </LoadingButton>
         </div>
       </FooterShell>

@@ -13,6 +13,8 @@ import type { DesignerTaskStat } from "@/hooks/useTaskAnalytics";
 
 interface Props {
   data: DesignerTaskStat[];
+  /** When provided, designer names become clickable buttons that fire this. */
+  onDesignerClick?: (designerId: string) => void;
 }
 
 /**
@@ -22,7 +24,7 @@ interface Props {
  * bar by completed/in-progress/remaining so it doubles as a progress
  * indicator. Sorted by total assigned, descending.
  */
-export function WorkloadDistribution({ data }: Props) {
+export function WorkloadDistribution({ data, onDesignerClick }: Props) {
   const filtered = data.filter((d) => d.assigned > 0);
   const max = Math.max(1, ...filtered.map((d) => d.assigned));
   const teamAvg =
@@ -76,7 +78,16 @@ export function WorkloadDistribution({ data }: Props) {
             return (
               <div key={d.id} className="flex items-center gap-3">
                 {/* Avatar block */}
-                <div className="flex w-[150px] shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onDesignerClick?.(d.id)}
+                  disabled={!onDesignerClick}
+                  className={cn(
+                    "flex w-[150px] shrink-0 items-center gap-2 rounded-md text-left",
+                    onDesignerClick && "cursor-pointer hover:opacity-80"
+                  )}
+                  title={onDesignerClick ? "View scorecard" : undefined}
+                >
                   <Avatar className="h-7 w-7">
                     {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
                     <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
@@ -84,14 +95,19 @@ export function WorkloadDistribution({ data }: Props) {
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-foreground">
+                    <p
+                      className={cn(
+                        "truncate text-xs font-medium text-foreground",
+                        onDesignerClick && "hover:text-primary hover:underline"
+                      )}
+                    >
                       {d.full_name}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
                       {d.designerCode} · {d.assigned} task{d.assigned !== 1 ? "s" : ""}
                     </p>
                   </div>
-                </div>
+                </button>
 
                 {/* Stacked bar */}
                 <div className="relative flex-1">

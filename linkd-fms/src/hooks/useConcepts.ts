@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { sendNotification, sendNotificationToRole } from "@/lib/notifications";
+import { differenceInDays, parseISO } from "date-fns";
 import type {
   Concept,
   ConceptStatus,
   ConceptWithRelations,
+  CompletionHistoryEntry,
   TaskPriority,
 } from "@/types/database";
 
@@ -75,8 +77,14 @@ export interface ReviewInput {
   notes?: string | null;
 }
 
+export interface FinalApproveInput {
+  notes?: string | null;
+  approved_designs_count?: number | null;
+}
+
 export interface UseConcepts {
   concepts: ConceptWithRelations[];
+  totalCount: number;
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -86,6 +94,17 @@ export interface UseConcepts {
     input: ReviewInput
   ) => Promise<MutationResult<Concept>>;
   finalizeConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
+  finalApproveConcept: (
+    conceptId: string,
+    input?: FinalApproveInput
+  ) => Promise<MutationResult<Concept>>;
+  /** Send concept back from final approval stage to designer for revision. */
+  finalReviseConcept: (
+    conceptId: string,
+    notes?: string | null
+  ) => Promise<MutationResult<Concept>>;
+  /** Designer re-submits after addressing revision feedback — clears notes so MD sees "Pending". */
+  resubmitConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
 }
 
 export function useConcepts(filters?: ConceptFilters): UseConcepts {
@@ -278,11 +297,57 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
     [user, refetch]
   );
 
+  // ── History helper: fetch current history, append entry, return updated ──
+  async function appendHistory(
+    conceptId: string,
+    entry: CompletionHistoryEntry
+  ): Promise<CompletionHistoryEntry[]> {
+    const { data: row } = await supabase
+      .from("concepts")
+      .select("completion_history")
+      .eq("id", conceptId)
+      .single();
+    const existing: CompletionHistoryEntry[] =
+      Array.isArray(row?.completion_history) ? row.completion_history : [];
+    return [...existing, entry];
+  }
+
+  // ── Designer marks concept as Done (first time) ──
   const finalizeConcept = useCallback<UseConcepts["finalizeConcept"]>(
     async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      const now = new Date().toISOString().slice(0, 10);
+
+      // Fetch concept to calculate delay
+      const { data: concept } = await supabase
+        .from("concepts")
+        .select("designer_planned_date, designer_actual_date")
+        .eq("id", conceptId)
+        .single();
+
+      // Don't overwrite if already done (re-submit uses resubmitConcept)
+      if (concept?.designer_actual_date) {
+        return { data: null, error: "Already marked as done. Use Re-submit instead." };
+      }
+
+      const delay = concept?.designer_planned_date
+        ? differenceInDays(parseISO(now), parseISO(concept.designer_planned_date))
+        : 0;
+
+      const history = await appendHistory(conceptId, {
+        type: "done",
+        date: now,
+        by: user.user_metadata?.full_name || "Designer",
+        delay_days: delay,
+      });
+
       const { data, error: err } = await supabase
         .from("concepts")
-        .update({ designer_actual_date: new Date().toISOString().slice(0, 10) })
+        .update({
+          designer_actual_date: now,
+          completion_history: history as unknown as any,
+        })
         .eq("id", conceptId)
         .select("*")
         .single();
@@ -290,16 +355,160 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       await refetch();
       return { data, error: null };
     },
-    [refetch]
+    [user, refetch]
+  );
+
+  // ── MD grants Final Approval ──
+  const finalApproveConcept = useCallback<UseConcepts["finalApproveConcept"]>(
+    async (conceptId, input) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      const now = new Date().toISOString();
+
+      const history = await appendHistory(conceptId, {
+        type: "approved",
+        date: now.slice(0, 10),
+        by: user.user_metadata?.full_name || "Admin",
+      });
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          final_approved_at: now,
+          final_approval_actual_date: now.slice(0, 10),
+          final_approval_notes: input?.notes?.trim() || null,
+          approved_designs_count: input?.approved_designs_count ?? null,
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .select("*")
+        .single();
+
+      if (err) return { data: null, error: err.message };
+
+      if (data) {
+        void sendNotification(
+          data.submitted_by,
+          "Final Approval Granted",
+          `Your concept "${data.title}" has received final approval.`,
+          "success",
+          "/concepts"
+        );
+      }
+
+      await refetch();
+      return { data, error: null };
+    },
+    [user, refetch]
+  );
+
+  // ── MD requests revision (with mandatory feedback) ──
+  const finalReviseConcept = useCallback<UseConcepts["finalReviseConcept"]>(
+    async (conceptId, notes) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      if (!notes?.trim()) return { data: null, error: "Revision feedback is required" };
+
+      const now = new Date().toISOString().slice(0, 10);
+
+      const history = await appendHistory(conceptId, {
+        type: "revision",
+        date: now,
+        by: user.user_metadata?.full_name || "Admin",
+        feedback: notes.trim(),
+      });
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          final_approval_notes: notes.trim(),
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .select("*")
+        .single();
+
+      if (err) return { data: null, error: err.message };
+
+      if (data) {
+        void sendNotification(
+          data.submitted_by,
+          "Revision Feedback",
+          `Your concept "${data.title}" received feedback: ${notes.trim()}`,
+          "warning",
+          "/concepts"
+        );
+      }
+
+      await refetch();
+      return { data, error: null };
+    },
+    [user, refetch]
+  );
+
+  // ── Designer re-submits after revision ──
+  const resubmitConcept = useCallback<UseConcepts["resubmitConcept"]>(
+    async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      const now = new Date().toISOString().slice(0, 10);
+
+      // Calculate delay from original done date
+      const { data: concept } = await supabase
+        .from("concepts")
+        .select("designer_actual_date")
+        .eq("id", conceptId)
+        .single();
+      const delay = concept?.designer_actual_date
+        ? differenceInDays(parseISO(now), parseISO(concept.designer_actual_date))
+        : 0;
+
+      const history = await appendHistory(conceptId, {
+        type: "resubmit",
+        date: now,
+        by: user.user_metadata?.full_name || "Designer",
+        delay_days: delay,
+      });
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          final_approval_notes: null,
+          final_approval_planned_date: now,
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .select("*")
+        .single();
+
+      if (err) return { data: null, error: err.message };
+
+      if (data) {
+        void sendNotificationToRole(
+          "admin",
+          "Concept Re-submitted",
+          `"${data.title}" has been re-submitted after revision.`,
+          "info",
+          "/concepts"
+        );
+      }
+
+      await refetch();
+      return { data, error: null };
+    },
+    [user, refetch]
   );
 
   return {
     concepts,
+    totalCount: concepts.length,
     isLoading,
     error,
     refetch,
     submitConcept,
     reviewConcept,
     finalizeConcept,
+    finalApproveConcept,
+    finalReviseConcept,
+    resubmitConcept,
   };
 }

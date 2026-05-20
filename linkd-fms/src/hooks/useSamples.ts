@@ -20,6 +20,7 @@ export interface SampleFilters {
 
 export interface UseSamples {
   samples: Sample[];
+  totalCount: number;
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -35,13 +36,18 @@ export interface UseSamples {
 // Hook
 // ============================================================================
 
-export function useSamples(filters?: SampleFilters): UseSamples {
+export function useSamples(
+  filters?: SampleFilters,
+  pagination?: { from: number; to: number }
+): UseSamples {
   const { user } = useAuth();
   const [samples, setSamples] = useState<Sample[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const filterKey = JSON.stringify(filters ?? {});
+  const pageKey = pagination ? `${pagination.from}-${pagination.to}` : "";
 
   const refetch = useCallback(async () => {
     setIsLoading(true);
@@ -49,7 +55,7 @@ export function useSamples(filters?: SampleFilters): UseSamples {
 
     let q = supabase
       .from("samples")
-      .select("*")
+      .select("*", { count: "exact" })
       .order("created_at", { ascending: false });
 
     if (filters?.dateRange) {
@@ -66,18 +72,24 @@ export function useSamples(filters?: SampleFilters): UseSamples {
       q = q.eq("is_completed", true);
     }
 
-    const { data, error: err } = await q;
+    if (pagination) {
+      q = q.range(pagination.from, pagination.to);
+    }
+
+    const { data, error: err, count } = await q;
 
     if (err) {
       console.error("[useSamples] query error", err);
       setError(err.message);
       setSamples([]);
+      setTotalCount(0);
     } else {
       setSamples((data ?? []) as Sample[]);
+      setTotalCount(count ?? (data ?? []).length);
     }
     setIsLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey]);
+  }, [filterKey, pageKey]);
 
   useEffect(() => {
     void refetch();
@@ -150,6 +162,7 @@ export function useSamples(filters?: SampleFilters): UseSamples {
 
   return {
     samples,
+    totalCount,
     isLoading,
     error,
     refetch,

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
@@ -18,8 +18,20 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
   const { unreadCount } = useNotifications();
   useDeadlineAlerts();
 
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true });
+  }, [location.pathname]);
+
   return (
     <div className="min-h-screen bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-4 focus:left-4 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-md focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       <Sidebar
         profile={profile}
         mobileOpen={mobileOpen}
@@ -33,8 +45,11 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
           onMobileMenuClick={() => setMobileOpen(true)}
         />
         <main
+          ref={mainRef}
+          id="main-content"
+          tabIndex={-1}
           key={location.pathname}
-          className="animate-fade-in px-4 pb-24 pt-20 sm:px-6 md:px-8 md:pb-10"
+          className="animate-fade-in px-4 pb-24 pt-20 sm:px-6 md:px-8 md:pb-10 outline-none"
         >
           {children}
         </main>
@@ -46,6 +61,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
         unreadCount={unreadCount}
         onMoreClick={() => setMobileOpen(true)}
       />
+
     </div>
   );
 }

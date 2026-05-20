@@ -1,8 +1,11 @@
 import { useRef, useState } from "react";
 import { Loader2, Plus, Upload, X, FileIcon } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { useClients } from "@/hooks/useClients";
+import { useFabrics } from "@/hooks/useFabrics";
+import { ASSIGNED_BY_OPTIONS } from "@/lib/constants";
 import {
   Sheet,
   SheetContent,
@@ -35,6 +38,8 @@ export function SamplingFormDrawer({
   onUpdate,
 }: Props) {
   const { user } = useAuth();
+  const { clients } = useClients();
+  const { fabrics } = useFabrics();
   const isEdit = !!editSample;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -222,12 +227,17 @@ export function SamplingFormDrawer({
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Party Name <span className="text-destructive">*</span>
             </Label>
-            <Input
+            <select
               value={partyName}
               onChange={(e) => setPartyName(e.target.value)}
-              placeholder="Customer / party name"
               disabled={saving}
-            />
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            >
+              <option value="">— Choose party —</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.party_name}>{c.party_name}</option>
+              ))}
+            </select>
           </div>
 
           {/* Total Fabrics + Printed Mtr (always visible) */}
@@ -292,12 +302,17 @@ export function SamplingFormDrawer({
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Quality
                 </Label>
-                <Input
+                <select
                   value={quality}
                   onChange={(e) => setQuality(e.target.value)}
-                  placeholder='e.g. Georgette 60"'
                   disabled={saving}
-                />
+                  className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                >
+                  <option value="">— Choose fabric —</option>
+                  {fabrics.map((f) => (
+                    <option key={f.id} value={f.name}>{f.name}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1">
@@ -318,11 +333,17 @@ export function SamplingFormDrawer({
                   <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     Assigned By
                   </Label>
-                  <Input
+                  <select
                     value={assignedBy}
                     onChange={(e) => setAssignedBy(e.target.value)}
                     disabled={saving}
-                  />
+                    className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  >
+                    <option value="">— Select —</option>
+                    {ASSIGNED_BY_OPTIONS.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">

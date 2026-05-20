@@ -62,6 +62,9 @@ export interface TaskDashboardMetrics {
   pipeline: PipelineItem[];
   volumeData: VolumePoint[];
   designerStats: DesignerTaskStat[];
+  sparklines: { completed: number[]; onTime: number[]; created: number[] };
+  /** Raw tasks list, re-exported so consumers don't double-fetch via useTasks. */
+  tasks: TaskWithRelations[];
   periodStart: Date;
   periodEnd: Date;
   periodLabel: string;
@@ -251,5 +254,28 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     return stats;
   }, [tasks, profiles, codesByProfile, start, end]);
 
-  return { kpis, pipeline, volumeData, designerStats, periodStart: start, periodEnd: end, periodLabel, isLoading, error };
+  // ── Sparkline data (7 points across current period) ──────────────
+  const sparklines = useMemo(() => {
+    const buckets = 7;
+    const span = end.getTime() - start.getTime();
+    const step = span / buckets;
+
+    const completed: number[] = [];
+    const onTime: number[] = [];
+    const created: number[] = [];
+
+    for (let i = 0; i < buckets; i++) {
+      const bStart = new Date(start.getTime() + i * step);
+      const bEnd = new Date(start.getTime() + (i + 1) * step);
+
+      const comp = tasks.filter((t) => inRange(completionDate(t), bStart, bEnd));
+      completed.push(comp.length);
+      onTime.push(comp.filter((t) => (t.delay_days ?? 999) <= 1).length);
+      created.push(tasks.filter((t) => inRange(t.created_at, bStart, bEnd)).length);
+    }
+
+    return { completed, onTime, created };
+  }, [tasks, start, end]);
+
+  return { kpis, pipeline, volumeData, designerStats, sparklines, tasks, periodStart: start, periodEnd: end, periodLabel, isLoading, error };
 }

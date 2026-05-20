@@ -35,6 +35,15 @@ export type ConceptStatus =
 
 export type MdStatus = ConceptStatus;
 
+/** A single entry in the concept completion history log. */
+export interface CompletionHistoryEntry {
+  type: "done" | "revision" | "resubmit" | "approved";
+  date: string;
+  by?: string;           // user full_name
+  feedback?: string;     // MD's revision notes
+  delay_days?: number;   // days late vs planned
+}
+
 // ============================================================================
 // Database — matches supabase/migrations/0001_full_schema.sql
 // ============================================================================
@@ -178,6 +187,7 @@ export type Database = {
           final_approved_at: string | null;
           approved_designs_count: number | null;
           remarks: string | null;
+          completion_history: CompletionHistoryEntry[];
         };
         Insert: {
           id?: string;
@@ -208,6 +218,7 @@ export type Database = {
           final_approved_at?: string | null;
           approved_designs_count?: number | null;
           remarks?: string | null;
+          completion_history?: CompletionHistoryEntry[];
         };
         Update: {
           id?: string;
@@ -238,6 +249,7 @@ export type Database = {
           final_approved_at?: string | null;
           approved_designs_count?: number | null;
           remarks?: string | null;
+          completion_history?: CompletionHistoryEntry[];
         };
         Relationships: [
           {
