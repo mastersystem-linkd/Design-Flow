@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   FileText,
   Download,
+  PackageCheck,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAnalytics, type Period } from "@/hooks/useAnalytics";
@@ -255,15 +256,15 @@ export function AnalyticsView() {
       ) : (
         /* ── ADMIN / COORDINATOR VIEW ── */
         <>
-          {/* KPI cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* KPI cards — 5 tiles, collapses to 2-col on tablet / 1-col on mobile */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <KpiCard
               icon={<FileText className="h-4 w-4 text-primary" />}
               label="Concepts Submitted"
               value={a.kpis.totalSubmitted.current}
               metric={a.kpis.totalSubmitted}
               tintClass="bg-primary/10"
-              to={ROUTES.concepts}
+              to={`${ROUTES.concepts}?tab=all`}
               animateValue
               sparklineData={a.sparklines.submitted}
               sub={`by ${a.designerStats.filter(d => d.submitted > 0).length} designer${a.designerStats.filter(d => d.submitted > 0).length !== 1 ? "s" : ""}`}
@@ -274,10 +275,28 @@ export function AnalyticsView() {
               value={a.kpis.totalApproved.current}
               metric={a.kpis.totalApproved}
               tintClass="bg-success/10"
-              to={ROUTES.concepts}
+              to={`${ROUTES.concepts}?tab=approved`}
               animateValue
               sparklineData={a.sparklines.approved}
               sub={`${a.kpis.totalApproved.current + (a.statusDistribution.find(s => s.status === "rejected")?.count ?? 0)} reviewed`}
+            />
+            <KpiCard
+              icon={<PackageCheck className="h-4 w-4 text-success" />}
+              label="Completed"
+              value={a.kpis.totalCompleted.current}
+              metric={a.kpis.totalCompleted}
+              tintClass="bg-success/10"
+              to={`${ROUTES.concepts}?tab=completed`}
+              animateValue
+              valueColor={
+                a.kpis.completionRate.current >= 70 ? "text-success" :
+                a.kpis.completionRate.current >= 40 ? "text-warning" : undefined
+              }
+              sub={
+                a.kpis.totalApproved.current > 0
+                  ? `${a.kpis.completionRate.current}% of approved shipped`
+                  : "No approved concepts yet"
+              }
             />
             <KpiCard
               icon={<Clock className="h-4 w-4 text-primary" />}
@@ -288,7 +307,7 @@ export function AnalyticsView() {
               valueColor={
                 a.kpis.approvalRate.current > 80 ? "text-success" : a.kpis.approvalRate.current < 50 ? "text-destructive" : "text-warning"
               }
-              to={ROUTES.concepts}
+              to={`${ROUTES.concepts}?tab=approved`}
               sub={`${a.kpis.totalApproved.current}/${a.kpis.totalSubmitted.current} approved`}
             />
             <KpiCard
@@ -303,11 +322,12 @@ export function AnalyticsView() {
                 a.kpis.avgApprovalHours.current < 24 ? "text-success" :
                 a.kpis.avgApprovalHours.current < 48 ? "text-warning" : "text-destructive"
               }
+              to={`${ROUTES.concepts}?tab=pending`}
               sub="Target: < 24 hours"
             />
           </div>
 
-          {/* Status badges — clickable, ordered by urgency */}
+          {/* Status badges — each deep-links into the matching ConceptsView tab */}
           <div className="flex flex-wrap gap-2">
             <Badge
               className={cn(
@@ -317,25 +337,25 @@ export function AnalyticsView() {
                   : "bg-warning/10 text-warning border-warning/20",
                 a.kpis.pendingReview > 0 && "animate-pulse"
               )}
-              onClick={() => window.location.href = ROUTES.concepts}
+              onClick={() => window.location.href = `${ROUTES.concepts}?tab=pending`}
             >
               {a.kpis.pendingReview} pending review
             </Badge>
             <Badge
               className="cursor-pointer bg-primary/10 text-primary border border-primary/20 hover:opacity-80"
-              onClick={() => window.location.href = ROUTES.concepts}
+              onClick={() => window.location.href = `${ROUTES.concepts}?tab=revision_requested`}
             >
               {a.kpis.revisionRequested} in revision
             </Badge>
             <Badge
               className="cursor-pointer bg-success/10 text-success border border-success/20 hover:opacity-80"
-              onClick={() => window.location.href = ROUTES.concepts}
+              onClick={() => window.location.href = `${ROUTES.concepts}?tab=approved`}
             >
               {a.funnel.approved} approved
             </Badge>
             <Badge
               className="cursor-pointer bg-secondary text-muted-foreground border border-border hover:opacity-80"
-              onClick={() => window.location.href = ROUTES.concepts}
+              onClick={() => window.location.href = `${ROUTES.concepts}?tab=approved`}
             >
               {a.funnel.finalization} awaiting finalization
             </Badge>

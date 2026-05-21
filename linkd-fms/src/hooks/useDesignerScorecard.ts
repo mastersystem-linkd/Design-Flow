@@ -23,6 +23,10 @@ import { useConcepts } from "@/hooks/useConcepts";
 import { useTasks } from "@/hooks/useTasks";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
+import {
+  isCompleted as conceptIsCompleted,
+  countRevisionCycles,
+} from "@/lib/conceptStatus";
 import type {
   Profile,
   ConceptWithRelations,
@@ -89,9 +93,23 @@ export interface DesignerScorecardData {
     submitted: number;
     approved: number;
     rejected: number;
+    /** Live `md_status === 'revision_requested'` count. */
     revisions: number;
+    /**
+     * Total revision cycles absorbed by this designer's submissions in the
+     * period, from `completion_history`. A concept revised twice contributes
+     * 2 cycles. More accurate than `revisions` for true rework volume.
+     */
+    revisionCycles: number;
     pending: number;
     approvalRate: number;
+    /**
+     * Concepts that finished the loop (approved + designer_actual_date +
+     * final_approved_at). Subset of `approved`.
+     */
+    completed: number;
+    /** approved → completed conversion (0–100). */
+    completionRate: number;
     avgReviewHours: number;
     score: number;
     monthlyTargetProgress: number;
@@ -102,8 +120,13 @@ export interface DesignerScorecardData {
     assigned: number;
     completed: number;
     onTime: number;
+    /** Late = delay_days > 1 day. */
+    late: number;
     inProgress: number;
+    /** Avg days late (lower = better, 0 = on time). */
     avgDays: number;
+    /** True cycle time in days (assigned_at → completed_at). */
+    avgCycleDays: number;
     score: number;
     breakdown: TaskScoreBreakdown;
     teamAvgDays: number;
@@ -185,6 +208,15 @@ function completionDate(t: TaskWithRelations): string | null {
   return null;
 }
 
+function cycleDays(t: TaskWithRelations): number | null {
+  const done = t.completed_at ?? (t.status === "done" ? t.updated_at : null);
+  const started = t.assigned_at ?? t.created_at;
+  if (!done || !started) return null;
+  const ms = parseISO(done).getTime() - parseISO(started).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.round((ms / 86_400_000) * 10) / 10;
+}
+
 // ── Score calculators (mirrors useAnalytics + useTaskAnalytics) ──
 
 function computeConceptBreakdown(
@@ -251,6 +283,12 @@ function buildInsights(args: {
       text: `High approval rate — ${concept.approvalRate}% of concepts approved`,
     });
   }
+  if (concept.completionRate >= 80 && concept.approved >= 2) {
+    strengths.push({
+      kind: "strength",
+      text: `Strong follow-through — ${concept.completionRate}% of approved concepts shipped`,
+    });
+  }
   if (concept.avgReviewHours > 0 && concept.avgReviewHours < 24) {
     strengths.push({
       kind: "strength",
@@ -272,6 +310,15 @@ function buildInsights(args: {
       text: `Quick turnaround — averaging ${task.avgDays}d per task`,
     });
   }
+  if (
+    concept.submitted >= 3 &&
+    concept.revisionCycles === 0
+  ) {
+    strengths.push({
+      kind: "strength",
+      text: "Clean first drafts — no revisions requested this period",
+    });
+  }
   if (compositeScore > 80) {
     strengths.push({
       kind: "strength",
@@ -280,11 +327,28 @@ function buildInsights(args: {
   }
 
   // ── Watchouts ──
-  if (concept.submitted > 0 && concept.revisions / concept.submitted > 0.3) {
+  // Use truer revisionCycles for rework signal (md_status only catches "in
+  // revision right now"; a concept revised twice and approved would show 0).
+  if (concept.submitted > 0 && concept.revisionCycles / concept.submitted > 0.5) {
+    const ratio = (concept.revisionCycles / concept.submitted).toFixed(1);
+    watchouts.push({
+      kind: "watchout",
+      text: `Heavy rework — ${ratio} revision cycles per submission`,
+    });
+  } else if (concept.submitted > 0 && concept.revisions / concept.submitted > 0.3) {
     const pct = Math.round((concept.revisions / concept.submitted) * 100);
     watchouts.push({
       kind: "watchout",
-      text: `High revision rate — ${pct}% of submissions revised`,
+      text: `High revision rate — ${pct}% of submissions awaiting redo`,
+    });
+  }
+  // New: completion-gap. Approved concepts piling up unshipped means designer
+  // is starting strong but losing the finalisation handoff.
+  const finalisationGap = concept.approved - concept.completed;
+  if (finalisationGap >= 3 && concept.approved >= 4) {
+    watchouts.push({
+      kind: "watchout",
+      text: `${finalisationGap} approved concepts awaiting finalisation`,
     });
   }
   if (task.completed > 0) {
@@ -487,8 +551,11 @@ export function useDesignerScorecard(
         approved: 0,
         rejected: 0,
         revisions: 0,
+        revisionCycles: 0,
         pending: 0,
         approvalRate: 0,
+        completed: 0,
+        completionRate: 0,
         avgReviewHours: 0,
         score: 0,
         monthlyTargetProgress: 0,
@@ -505,10 +572,17 @@ export function useDesignerScorecard(
     const revisions = mine.filter(
       (c) => c.md_status === "revision_requested"
     ).length;
+    const revisionCycles = mine.reduce(
+      (sum, c) => sum + countRevisionCycles(c),
+      0
+    );
     const pending = mine.filter((c) => c.md_status === "pending").length;
     const reviewed = approved + rejected + revisions;
     const approvalRate =
       reviewed > 0 ? Math.round((approved / reviewed) * 100) : 0;
+    const completed = mine.filter(conceptIsCompleted).length;
+    const completionRate = approved > 0
+      ? Math.round((completed / approved) * 100) : 0;
     const hours = mine.map(approvalHours).filter((h): h is number => h !== null);
     const avgReviewHours = safeAvg(hours);
 
@@ -537,8 +611,11 @@ export function useDesignerScorecard(
       approved,
       rejected,
       revisions,
+      revisionCycles,
       pending,
       approvalRate,
+      completed,
+      completionRate,
       avgReviewHours,
       score,
       monthlyTargetProgress,
@@ -553,8 +630,10 @@ export function useDesignerScorecard(
         assigned: 0,
         completed: 0,
         onTime: 0,
+        late: 0,
         inProgress: 0,
         avgDays: 0,
+        avgCycleDays: 0,
         score: 0,
         breakdown: { volume: 0, onTime: 0, speed: 0, active: 0 },
         teamAvgDays: teamStats.teamAvgDays,
@@ -570,7 +649,11 @@ export function useDesignerScorecard(
       inRange(completionDate(t), start, end)
     );
     const onTime = completed.filter((t) => (t.delay_days ?? 999) <= 1).length;
+    const late = completed.length - onTime;
     const avgDays = safeAvg(completed.map((t) => t.delay_days ?? 0));
+    const avgCycleDays = safeAvg(
+      completed.map(cycleDays).filter((n): n is number => n !== null)
+    );
     const inProgress = myTasks.filter((t) => t.status === "in_progress").length;
 
     const breakdown = computeTaskBreakdown(
@@ -587,8 +670,10 @@ export function useDesignerScorecard(
       assigned,
       completed: completed.length,
       onTime,
+      late,
       inProgress,
       avgDays,
+      avgCycleDays,
       score,
       breakdown,
       teamAvgDays: teamStats.teamAvgDays,

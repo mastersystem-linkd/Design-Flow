@@ -105,38 +105,126 @@ export function useNotifications(): UseNotifications {
     void refetch();
   }, [refetch]);
 
-  // ── Notification sound ────────────────────────────────────────────────
-  // We use the Web Audio API to generate a short chime sound — no external
-  // audio file needed. The sound is created once and reused.
+  // ── Notification sound + tab flash ───────────────────────────────────
+  // Two complementary cues for a fresh Realtime INSERT:
+  //
+  //   • Tab is VISIBLE  → play a short A5 chime (Web Audio, debounced 10s)
+  //   • Tab is HIDDEN   → flash the browser tab title for 10s
+  //
+  // These are mutually exclusive — we never play sound to a backgrounded
+  // tab (most browsers throttle that anyway) and never flash the title of
+  // a tab the user is already looking at (visual noise).
+  //
+  // Both fire only on the realtime INSERT moment. The initial fetch on
+  // mount never plays sound or flashes — that would be annoying every page
+  // load for users who haven't checked their unread queue.
+
+  const lastSoundTime = useRef<number>(0);
+  const titleFlashIntervalRef = useRef<number | null>(null);
+  const titleFlashTimeoutRef = useRef<number | null>(null);
+  const originalTitleRef = useRef<string>("");
 
   const playNotificationSound = useCallback(() => {
+    if (typeof document === "undefined") return;
+    if (document.visibilityState !== "visible") return;
+
+    // Debounce: don't fire if we played in the last 10s. Prevents a burst
+    // of inserts (e.g. a batch send) from machine-gunning the user.
+    const now = Date.now();
+    if (now - lastSoundTime.current < 10_000) return;
+    lastSoundTime.current = now;
+
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctx) return; // Safari < 14.1 / no Web Audio
+      const ctx = new Ctx();
 
-      // Play two tones for a pleasant "ding-ding" chime
-      const playTone = (freq: number, startTime: number, duration: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = freq;
-        osc.type = "sine";
-        gain.gain.setValueAtTime(0.3, startTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
-        osc.start(startTime);
-        osc.stop(startTime + duration);
-      };
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.value = 880; // A5
 
-      const now = ctx.currentTime;
-      playTone(880, now, 0.15);        // A5
-      playTone(1174.66, now + 0.15, 0.2); // D6
+      const start = ctx.currentTime;
+      gain.gain.setValueAtTime(0.3, start);
+      // 200ms total: hold for 100ms, then exponential fade to silence.
+      gain.gain.setValueAtTime(0.3, start + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
 
-      // Close context after sounds finish
-      setTimeout(() => void ctx.close(), 500);
+      osc.start(start);
+      osc.stop(start + 0.2);
+
+      // Close context once the tone finishes so we don't leak audio nodes.
+      window.setTimeout(() => {
+        ctx.close().catch(() => { /* already closed */ });
+      }, 400);
     } catch {
-      // AudioContext not available — fail silently
+      // AudioContext blocked (no user gesture yet) / browser unsupported —
+      // silent failure is the right behaviour, not a thrown error.
     }
   }, []);
+
+  // Clear any in-flight title flash and restore the original tab title.
+  const stopTitleFlash = useCallback(() => {
+    if (titleFlashIntervalRef.current !== null) {
+      window.clearInterval(titleFlashIntervalRef.current);
+      titleFlashIntervalRef.current = null;
+    }
+    if (titleFlashTimeoutRef.current !== null) {
+      window.clearTimeout(titleFlashTimeoutRef.current);
+      titleFlashTimeoutRef.current = null;
+    }
+    if (originalTitleRef.current && typeof document !== "undefined") {
+      document.title = originalTitleRef.current;
+    }
+  }, []);
+
+  const startTitleFlash = useCallback(() => {
+    if (typeof document === "undefined") return;
+    if (document.visibilityState !== "hidden") return;
+
+    // Don't start a second flash if one is already running — the user
+    // already knows something arrived; replacing the interval would just
+    // reset the 10s countdown unnecessarily.
+    if (titleFlashIntervalRef.current !== null) return;
+
+    if (!originalTitleRef.current) {
+      originalTitleRef.current = document.title;
+    }
+    const original = originalTitleRef.current;
+    let showing = true;
+
+    titleFlashIntervalRef.current = window.setInterval(() => {
+      document.title = showing ? "🔔 New Notification" : original;
+      showing = !showing;
+    }, 2_000);
+    // Initial tick — start with the alert state immediately, the interval
+    // alternates from there.
+    document.title = "🔔 New Notification";
+
+    titleFlashTimeoutRef.current = window.setTimeout(() => {
+      stopTitleFlash();
+    }, 10_000);
+  }, [stopTitleFlash]);
+
+  // When the user returns to the tab, cancel any flash mid-cycle.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    function onVis() {
+      if (document.visibilityState === "visible") {
+        stopTitleFlash();
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      stopTitleFlash();
+    };
+  }, [stopTitleFlash]);
 
   // ── Realtime subscription ────────────────────────────────────────────
 
@@ -157,8 +245,12 @@ export function useNotifications(): UseNotifications {
           const newRow = payload.new;
           // Prepend — newest first.
           setNotifications((prev) => [newRow, ...prev]);
-          // Play notification sound
-          playNotificationSound();
+          // Pick exactly one cue based on tab visibility.
+          if (typeof document !== "undefined" && document.visibilityState === "visible") {
+            playNotificationSound();
+          } else {
+            startTitleFlash();
+          }
         }
       )
       .subscribe();
@@ -169,7 +261,7 @@ export function useNotifications(): UseNotifications {
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [userId, playNotificationSound]);
+  }, [userId, playNotificationSound, startTitleFlash]);
 
   // ── Derived state ────────────────────────────────────────────────────
 

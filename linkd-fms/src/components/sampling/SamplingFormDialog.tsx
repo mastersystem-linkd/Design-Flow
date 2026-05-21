@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Loader2, Upload, X, FileIcon } from "lucide-react";
 import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
 import { useProfiles } from "@/hooks/useProfiles";
@@ -128,13 +129,15 @@ export function SamplingFormDialog({ open, onOpenChange, onSubmit }: Props) {
     const uploaded: UploadedFile[] = [];
 
     for (const f of toUpload) {
-      const safe = sanitizeName(f.name);
+      // Shrink large JPEG/PNG/WebP photos before upload.
+      const processed = await compressImage(f);
+      const safe = sanitizeName(processed.name);
       const path = `${user.id}/samples/${Date.now()}-${safe}`;
 
       const { error: upErr } = await supabase.storage
         .from(FK_BUCKET)
-        .upload(path, f, {
-          contentType: f.type || "application/octet-stream",
+        .upload(path, processed, {
+          contentType: processed.type || "application/octet-stream",
           upsert: false,
         });
 

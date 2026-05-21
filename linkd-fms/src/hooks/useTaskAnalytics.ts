@@ -5,7 +5,6 @@ import {
   startOfDay, endOfDay, addDays, addWeeks,
   subWeeks, subMonths, subQuarters,
   format, isWithinInterval, parseISO,
-  differenceInDays,
 } from "date-fns";
 import { useTasks } from "@/hooks/useTasks";
 import { useProfiles } from "@/hooks/useProfiles";
@@ -44,16 +43,73 @@ export interface DesignerTaskStat {
   assigned: number;
   completed: number;
   onTime: number;
+  /**
+   * Average days late on this designer's completed tasks in the period.
+   * Named `avgDays` for backwards compat — semantically this is "average
+   * delay relative to planned_deadline", NOT cycle time. See `avgCycleDays`
+   * for the true assigned→completed duration.
+   */
   avgDays: number;
+  /**
+   * Average actual cycle time (days between `assigned_at` and `completed_at`)
+   * for tasks completed in the period. Reflects effort, not punctuality.
+   * 0 when no completion has both stamps.
+   */
+  avgCycleDays: number;
   inProgress: number;
   score: number;
+}
+
+/** Full-kitting workload split — how much of the pipeline needs the kitting form. */
+export interface KittingMix {
+  withKitting: number;
+  withoutKitting: number;
+  /** % of in-window tasks that require kitting (0 if no tasks). */
+  pct: number;
+  /** Kitting forms that were actually submitted in the window. */
+  kittingSubmitted: number;
+  /** Kitting tasks where the form is still missing. */
+  kittingPending: number;
+}
+
+/** Distribution of tasks by priority across the active pipeline. */
+export interface PriorityMix {
+  urgent: number;
+  high: number;
+  normal: number;
+  low: number;
+}
+
+/** Buckets of completed-task cycle times (days between assigned and done). */
+export interface CycleTimeBucket {
+  label: string;
+  count: number;
+}
+
+/** One row in the per-client task volume list. */
+export interface TopClient {
+  client_id: string;
+  party_name: string;
+  total: number;
+  completed: number;
+  active: number;
 }
 
 export interface TaskDashboardMetrics {
   kpis: {
     totalCompleted: KpiMetric;
     onTimeRate: KpiMetric;
+    /**
+     * Average days late on completed tasks (0 = on time, positive = late).
+     * Field is named `avgCompletionDays` for backwards compat — semantically
+     * this is "avg delay", not "avg duration". Use `avgCycleDays` for
+     * cycle time. Lower is better.
+     */
     avgCompletionDays: KpiMetric;
+    /** Average cycle time (assigned → completed) for the period, in days. */
+    avgCycleDays: KpiMetric;
+    /** Late completions in the period (delay_days > 1). */
+    lateCompletions: KpiMetric;
     totalCreated: KpiMetric;
     activePipeline: number;
     urgentCount: number;
@@ -62,6 +118,25 @@ export interface TaskDashboardMetrics {
   pipeline: PipelineItem[];
   volumeData: VolumePoint[];
   designerStats: DesignerTaskStat[];
+  /**
+   * Full-kitting mix across in-window tasks. Kitting is the structured form
+   * coordinators need to complete on FK-required jobs — knowing what fraction
+   * of the pipeline needs it tells admins whether to staff up at that stage.
+   */
+  kittingMix: KittingMix;
+  /** Priority breakdown of the active (non-done) pipeline. */
+  priorityMix: PriorityMix;
+  /**
+   * Completed-task durations bucketed by cycle-time (assigned_at → completed_at).
+   * Same buckets the scorecard uses, scoped to in-window completions.
+   */
+  cycleTimeDist: CycleTimeBucket[];
+  /**
+   * Every client touched by in-window tasks, sorted by total task count DESC.
+   * UI is expected to slice for previews (e.g. top 5 on the card) and show
+   * the full list inside a "View all" dialog.
+   */
+  topClients: TopClient[];
   sparklines: { completed: number[]; onTime: number[]; created: number[] };
   /** Raw tasks list, re-exported so consumers don't double-fetch via useTasks. */
   tasks: TaskWithRelations[];
@@ -114,6 +189,20 @@ function completionDate(t: TaskWithRelations): string | null {
   return null;
 }
 
+/**
+ * Actual cycle time in days = completed_at − assigned_at. Returns null when
+ * either stamp is missing (e.g. legacy tasks completed pre-0014, or tasks
+ * still in flight). The dashboard avgs ignore null entries.
+ */
+function cycleDays(t: TaskWithRelations): number | null {
+  const done = t.completed_at ?? (t.status === "done" ? t.updated_at : null);
+  const started = t.assigned_at ?? t.created_at;
+  if (!done || !started) return null;
+  const ms = parseISO(done).getTime() - parseISO(started).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.round((ms / 86_400_000) * 10) / 10;
+}
+
 function calcTrend(current: number, previous: number): number {
   if (previous === 0) return current > 0 ? 999 : 0;
   return Math.max(-999, Math.min(999, Math.round(((current - previous) / previous) * 100)));
@@ -153,10 +242,22 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     const currAvg = safeAvg(currCompleted.map((t) => t.delay_days ?? 0));
     const prevAvg = safeAvg(prevCompleted.map((t) => t.delay_days ?? 0));
 
+    const currCycle = safeAvg(
+      currCompleted.map(cycleDays).filter((n): n is number => n !== null)
+    );
+    const prevCycle = safeAvg(
+      prevCompleted.map(cycleDays).filter((n): n is number => n !== null)
+    );
+
+    const currLate = currCompleted.filter((t) => (t.delay_days ?? 0) > 1).length;
+    const prevLate = prevCompleted.filter((t) => (t.delay_days ?? 0) > 1).length;
+
     return {
       totalCompleted: { current: currCompleted.length, previous: prevCompleted.length, trend: calcTrend(currCompleted.length, prevCompleted.length) },
       onTimeRate: { current: currOnTimeRate, previous: prevOnTimeRate, trend: calcTrend(currOnTimeRate, prevOnTimeRate) },
       avgCompletionDays: { current: currAvg, previous: prevAvg, trend: calcTrend(currAvg, prevAvg) },
+      avgCycleDays: { current: currCycle, previous: prevCycle, trend: calcTrend(currCycle, prevCycle) },
+      lateCompletions: { current: currLate, previous: prevLate, trend: calcTrend(currLate, prevLate) },
       totalCreated: { current: currCreated.length, previous: prevCreated.length, trend: calcTrend(currCreated.length, prevCreated.length) },
       activePipeline: tasks.filter((t) => t.status !== "done").length,
       urgentCount: tasks.filter((t) => t.priority === "urgent" && t.status !== "done").length,
@@ -233,12 +334,15 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
       const completed = myTasks.filter((t) => inRange(completionDate(t), start, end));
       const onTime = completed.filter((t) => (t.delay_days ?? 999) <= 1).length;
       const avgDays = safeAvg(completed.map((t) => t.delay_days ?? 0));
+      const avgCycleDays = safeAvg(
+        completed.map(cycleDays).filter((n): n is number => n !== null)
+      );
       const inProgress = myTasks.filter((t) => t.status === "in_progress").length;
 
       const codes = codesByProfile.get(p.id);
       const designerCode = codes?.[0]?.code?.slice(0, 1) ?? "—";
 
-      return { id: p.id, full_name: p.full_name, avatar_url: p.avatar_url, designerCode, assigned, completed: completed.length, onTime, avgDays, inProgress, score: 0 };
+      return { id: p.id, full_name: p.full_name, avatar_url: p.avatar_url, designerCode, assigned, completed: completed.length, onTime, avgDays, avgCycleDays, inProgress, score: 0 };
     });
 
     const maxCompleted = Math.max(1, ...stats.map((s) => s.completed));
@@ -253,6 +357,105 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     stats.sort((a, b) => b.score - a.score);
     return stats;
   }, [tasks, profiles, codesByProfile, start, end]);
+
+  // ── Kitting mix ─────────────────────────────────────────────────────
+  // Window = tasks created in the current period. The dashboard shows what
+  // fraction of recently briefed work needs the full-kitting handoff, so
+  // staffing can be planned. Submission status uses `full_kitting_submitted_at`
+  // which `useFullKitting.submitKitting` stamps on task completion.
+  const kittingMix = useMemo<KittingMix>(() => {
+    const inWindow = tasks.filter((t) => inRange(t.created_at, start, end));
+    let withKitting = 0;
+    let submitted = 0;
+    for (const t of inWindow) {
+      if (t.requires_full_kitting) {
+        withKitting++;
+        if (t.full_kitting_submitted_at) submitted++;
+      }
+    }
+    const withoutKitting = inWindow.length - withKitting;
+    const pct = inWindow.length > 0 ? Math.round((withKitting / inWindow.length) * 100) : 0;
+    return {
+      withKitting,
+      withoutKitting,
+      pct,
+      kittingSubmitted: submitted,
+      kittingPending: withKitting - submitted,
+    };
+  }, [tasks, start, end]);
+
+  // ── Priority distribution (active pipeline) ─────────────────────────
+  // Counted over non-done tasks so the dashboard reflects "what's in front
+  // of us right now", not historical priority trends.
+  const priorityMix = useMemo<PriorityMix>(() => {
+    const active = tasks.filter((t) => t.status !== "done");
+    const out: PriorityMix = { urgent: 0, high: 0, normal: 0, low: 0 };
+    for (const t of active) {
+      const p = t.priority as keyof PriorityMix;
+      if (p in out) out[p]++;
+    }
+    return out;
+  }, [tasks]);
+
+  // ── Cycle-time histogram ────────────────────────────────────────────
+  // Same buckets used by the scorecard so the language stays consistent
+  // ("delivered in 0-1 days", etc.). Scoped to in-window completions.
+  const cycleTimeDist = useMemo<CycleTimeBucket[]>(() => {
+    const buckets: CycleTimeBucket[] = [
+      { label: "Same day", count: 0 },
+      { label: "1–2 days", count: 0 },
+      { label: "3–5 days", count: 0 },
+      { label: "6–10 days", count: 0 },
+      { label: "10+ days", count: 0 },
+    ];
+    for (const t of tasks) {
+      if (!inRange(completionDate(t), start, end)) continue;
+      const days = cycleDays(t);
+      if (days == null) continue;
+      let idx: number;
+      if (days < 1) idx = 0;
+      else if (days <= 2) idx = 1;
+      else if (days <= 5) idx = 2;
+      else if (days <= 10) idx = 3;
+      else idx = 4;
+      buckets[idx].count++;
+    }
+    return buckets;
+  }, [tasks, start, end]);
+
+  // ── Top clients ────────────────────────────────────────────────────
+  // Aggregate by client_id within the in-window task set (created OR
+  // completed in window). Surfaces who's pulling on the team this period.
+  const topClients = useMemo<TopClient[]>(() => {
+    const inWindow = tasks.filter(
+      (t) =>
+        inRange(t.created_at, start, end) ||
+        inRange(completionDate(t), start, end)
+    );
+    const byClient = new Map<
+      string,
+      { party_name: string; total: number; completed: number; active: number }
+    >();
+    for (const t of inWindow) {
+      if (!t.client_id || !t.client) continue;
+      const entry = byClient.get(t.client_id) ?? {
+        party_name: t.client.party_name,
+        total: 0,
+        completed: 0,
+        active: 0,
+      };
+      entry.total++;
+      if (t.status === "done") entry.completed++;
+      else entry.active++;
+      byClient.set(t.client_id, entry);
+    }
+    // Return the full sorted list — consumers (TopClientsCard) slice to
+    // their preview window and use the rest for the expanded "View all"
+    // dialog so they don't recompute the same map.
+    return Array.from(byClient.entries())
+      .map(([client_id, v]) => ({ client_id, ...v }))
+      .sort((a, b) => b.total - a.total);
+  }, [tasks, start, end]);
 
   // ── Sparkline data (7 points across current period) ──────────────
   const sparklines = useMemo(() => {
@@ -277,5 +480,21 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     return { completed, onTime, created };
   }, [tasks, start, end]);
 
-  return { kpis, pipeline, volumeData, designerStats, sparklines, tasks, periodStart: start, periodEnd: end, periodLabel, isLoading, error };
+  return {
+    kpis,
+    pipeline,
+    volumeData,
+    designerStats,
+    kittingMix,
+    priorityMix,
+    cycleTimeDist,
+    topClients,
+    sparklines,
+    tasks,
+    periodStart: start,
+    periodEnd: end,
+    periodLabel,
+    isLoading,
+    error,
+  };
 }

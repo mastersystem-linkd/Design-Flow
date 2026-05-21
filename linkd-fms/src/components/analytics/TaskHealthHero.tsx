@@ -25,6 +25,11 @@ interface Props {
   overdueCount: number;
   activePipeline: number;
   totalDesigners: number;
+  /** Optional click handlers for the right-side risk dock. When provided, the
+   *  corresponding stat renders as a button that deep-links into /dashboard. */
+  onActiveClick?: () => void;
+  onUrgentClick?: () => void;
+  onOverdueClick?: () => void;
 }
 
 /**
@@ -42,6 +47,9 @@ export function TaskHealthHero({
   overdueCount,
   activePipeline,
   totalDesigners,
+  onActiveClick,
+  onUrgentClick,
+  onOverdueClick,
 }: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -187,6 +195,7 @@ export function TaskHealthHero({
               value={activePipeline}
               hint={`${wipPerDesigner}/dev`}
               tone="primary"
+              onClick={onActiveClick}
             />
             <DockStat
               icon={<Zap className="h-3.5 w-3.5" />}
@@ -194,6 +203,7 @@ export function TaskHealthHero({
               value={urgentCount}
               tone={urgentCount > 0 ? "destructive" : "muted"}
               pulse={urgentCount > 0}
+              onClick={onUrgentClick}
             />
             <DockStat
               icon={<Flame className="h-3.5 w-3.5" />}
@@ -201,6 +211,7 @@ export function TaskHealthHero({
               value={overdueCount}
               tone={overdueCount > 0 ? "warning" : "muted"}
               pulse={overdueCount > 3}
+              onClick={onOverdueClick}
             />
           </div>
         </div>
@@ -267,6 +278,7 @@ function DockStat({
   hint,
   tone,
   pulse,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -274,6 +286,7 @@ function DockStat({
   hint?: string;
   tone: "primary" | "destructive" | "warning" | "muted";
   pulse?: boolean;
+  onClick?: () => void;
 }) {
   const toneClass: Record<typeof tone, string> = {
     primary: "border-primary/20 text-primary bg-primary/[0.05]",
@@ -282,12 +295,18 @@ function DockStat({
     muted: "border-border text-muted-foreground bg-secondary/40",
   };
 
+  // Promote to <button> when a click handler is provided so the cell is
+  // keyboard-navigable and announces its role. The visual stays identical.
+  const Tag = (onClick ? "button" : "div") as "button" | "div";
   return (
-    <div
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
       className={cn(
         "flex min-w-[72px] flex-col items-center justify-center rounded-xl border px-3 py-2",
         toneClass[tone],
-        pulse && "animate-pulse"
+        pulse && "animate-pulse",
+        onClick && "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-sm"
       )}
     >
       <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider opacity-80">
@@ -298,7 +317,7 @@ function DockStat({
       {hint && (
         <p className="text-[9px] text-muted-foreground leading-none">{hint}</p>
       )}
-    </div>
+    </Tag>
   );
 }
 

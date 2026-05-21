@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Plus, Upload, X, FileIcon } from "lucide-react";
 import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
 import { useFabrics } from "@/hooks/useFabrics";
@@ -16,6 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { cn } from "@/lib/utils";
+import {
+  TaskPicker,
+  type TaskSummary,
+} from "@/components/sampling/TaskPicker";
 import type { Sample, SampleInsert, SampleUpdate } from "@/types/database";
 
 const FK_BUCKET = "sample-files";
@@ -62,6 +67,44 @@ export function SamplingFormDrawer({
   const [notes, setNotes] = useState(editSample?.additional_comments ?? "");
   const [quickMode, setQuickMode] = useState(!isEdit);
 
+  // ── Linked task (TaskPicker) ──
+  // `taskId` is what we persist; `linkedTask` is a UI-only summary that the
+  // picker hands us on selection so we can show a preview card + auto-fill
+  // sibling fields without re-fetching.
+  const [taskId, setTaskId] = useState<string | null>(
+    editSample?.task_id ?? null
+  );
+  const [linkedTask, setLinkedTask] = useState<TaskSummary | null>(null);
+
+  // When opening in edit mode against a sample that has task_id but the
+  // picker hasn't loaded yet, we don't have a summary on first paint. The
+  // picker resolves the chip from its own data on next render, so this
+  // only matters for the preview card below it.
+  useEffect(() => {
+    if (!isEdit) return;
+    if (editSample?.task_id && !linkedTask) {
+      // No-op — the picker will populate `linkedTask` once the user opens it
+      // or via its internal lookup. We deliberately don't fetch here to keep
+      // the drawer's open cost zero.
+    }
+  }, [isEdit, editSample?.task_id, linkedTask]);
+
+  // If the party name changes while a task is linked AND the linked task's
+  // client doesn't match the new party, clear the task selection. Prevents a
+  // silent mismatch where the form shows "Party: A" but task belongs to B.
+  useEffect(() => {
+    if (!linkedTask) return;
+    if (!partyName.trim()) return;
+    const linkedParty = (linkedTask.client_party_name ?? "").toLowerCase();
+    if (linkedParty && linkedParty !== partyName.trim().toLowerCase()) {
+      setTaskId(null);
+      setLinkedTask(null);
+    }
+    // We intentionally only re-evaluate when party changes, not on linkedTask
+    // updates — picking a new task should never trigger this branch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partyName]);
+
   // File uploads
   const [uploadedPaths, setUploadedPaths] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -75,7 +118,9 @@ export function SamplingFormDrawer({
   const pending = Math.max(0, totalNum - printedNum);
 
   function resetForAnother() {
-    // Keep party_name for batch entry, clear the rest
+    // Keep party_name for batch entry, clear the rest. The linked task also
+    // clears so the next sample in the batch starts fresh — coordinator
+    // typically logs samples for different tasks of the same party.
     setQuality("");
     setTotalFabrics("");
     setPrintedMtr("0");
@@ -84,6 +129,8 @@ export function SamplingFormDrawer({
     setNotes("");
     setOrderOrSample("");
     setUploadedPaths([]);
+    setTaskId(null);
+    setLinkedTask(null);
     setError(null);
   }
 
@@ -114,11 +161,13 @@ export function SamplingFormDrawer({
         setError(`${f.name} too large. Max 100 MB.`);
         break;
       }
-      const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      // Shrink large JPEG/PNG/WebP photos before upload.
+      const processed = await compressImage(f);
+      const safe = processed.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `${user.id}/samples/${Date.now()}-${safe}`;
       const { error: upErr } = await supabase.storage
         .from(FK_BUCKET)
-        .upload(path, f, { contentType: f.type, upsert: false });
+        .upload(path, processed, { contentType: processed.type, upsert: false });
       if (upErr) {
         setError(`Upload failed: ${upErr.message}`);
         break;
@@ -143,12 +192,19 @@ export function SamplingFormDrawer({
     setSaving(true);
     setError(null);
 
+    // When a task is linked, prefer its code as the UID. The user can still
+    // type a different UID manually — explicit input wins over auto-fill.
+    const resolvedUid =
+      uid.trim() ||
+      (linkedTask?.task_code ?? null);
+
     const base: SampleInsert = {
       party_name: partyName.trim(),
       quality: quality.trim() || null,
       total_fabrics_received: totalNum || null,
       printed_mtr: printedNum,
-      uid: uid.trim() || null,
+      uid: resolvedUid,
+      task_id: taskId,
       requirement: requirement.trim() || null,
       assigned_by: assignedBy.trim() || null,
       sampling_done_by: samplingDoneBy.trim() || null,
@@ -282,17 +338,78 @@ export function SamplingFormDrawer({
             </span>
           </div>
 
-          {/* UID */}
+          {/* Linked task — searchable picker. Auto-fills the UID below and,
+              if the form has no party set yet, the party name too. The party
+              filter narrows the dropdown so the user only sees relevant tasks. */}
+          <TaskPicker
+            value={taskId}
+            onChange={(nextId, task) => {
+              setTaskId(nextId);
+              setLinkedTask(task);
+              if (task) {
+                // Auto-fill party from the task's client when the form is empty
+                // — keeps the two dropdowns in sync without overriding manual
+                // changes.
+                if (task.client_party_name && !partyName.trim()) {
+                  setPartyName(task.client_party_name);
+                }
+                // Clear any stale custom UID so the auto-filled task_code wins.
+                setUid("");
+              }
+            }}
+            clientFilter={partyName.trim() || undefined}
+            disabled={saving}
+          />
+
+          {/* Linked-task preview card. Shows only when a task is selected
+              AND the picker handed us the full summary (i.e. user just picked
+              or the picker found a match on its first render). */}
+          {linkedTask && (
+            <div className="rounded-lg border border-primary/30 bg-primary/[0.04] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-medium text-primary">
+                  {linkedTask.task_code ?? "—"}
+                </span>
+                <Badge className="px-1.5 py-0 text-[9px]">
+                  {linkedTask.status}
+                </Badge>
+              </div>
+              <p className="mt-1 truncate text-sm font-medium text-foreground">
+                {linkedTask.concept ?? "No concept"}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {[
+                  linkedTask.client_party_name,
+                  linkedTask.assignee_name,
+                  linkedTask.qty != null ? `${linkedTask.qty}m` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            </div>
+          )}
+
+          {/* UID — read-only when a task is linked (the task_code is the UID).
+              Editable when no task is linked, for walk-in/custom-UID samples. */}
           <div className="space-y-1">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
               UID
             </Label>
-            <Input
-              value={uid}
-              onChange={(e) => setUid(e.target.value)}
-              placeholder="e.g. SM-042"
-              disabled={saving}
-            />
+            {taskId && linkedTask?.task_code ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-secondary/40 px-3 py-2 font-mono text-xs text-primary">
+                <span className="truncate">{linkedTask.task_code}</span>
+                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0 text-[9px] uppercase tracking-wider text-primary">
+                  auto
+                </span>
+              </div>
+            ) : (
+              <Input
+                value={uid}
+                onChange={(e) => setUid(e.target.value)}
+                placeholder="Custom UID (optional, e.g. SM-042)"
+                disabled={saving}
+              />
+            )}
           </div>
 
           {/* ── Extended fields (hidden in quick mode) ── */}

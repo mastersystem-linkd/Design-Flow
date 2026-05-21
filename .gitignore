@@ -27,3 +27,6 @@ yarn-error.log*
 
 # backup folders
 types.bak/
+
+# Supabase CLI local cache — auth tokens + project link
+supabase/.temp/

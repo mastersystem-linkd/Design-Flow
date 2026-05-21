@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryKeys } from "@/lib/queryKeys";
 import type { DesignerCode, Profile } from "@/types/database";
 
 type ProfileLite = Pick<Profile, "id" | "full_name" | "role" | "avatar_url">;
@@ -15,7 +17,21 @@ export interface UseDesignerCodesResult {
   codesByProfile: Map<string, DesignerCodeWithProfile[]>;
   isLoading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: () => unknown;
+}
+
+async function fetchDesignerCodes(): Promise<DesignerCodeWithProfile[]> {
+  const { data, error } = await supabase
+    .from("designer_codes")
+    .select(
+      "*, profile:profiles!designer_codes_profile_id_fkey(id, full_name, role, avatar_url)"
+    )
+    .order("joining_date", { ascending: true });
+  if (error) {
+    console.error("[useDesignerCodes] query error", error);
+    throw error;
+  }
+  return (data ?? []) as unknown as DesignerCodeWithProfile[];
 }
 
 /**
@@ -23,32 +39,11 @@ export interface UseDesignerCodesResult {
  * flat array and a `Map<profile_id, codes[]>` for convenience.
  */
 export function useDesignerCodes(): UseDesignerCodesResult {
-  const [codes, setCodes] = useState<DesignerCodeWithProfile[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    const { data, error: err } = await supabase
-      .from("designer_codes")
-      .select(
-        "*, profile:profiles!designer_codes_profile_id_fkey(id, full_name, role, avatar_url)"
-      )
-      .order("joining_date", { ascending: true });
-    if (err) {
-      console.error("[useDesignerCodes] query error", err);
-      setError(err.message);
-      setCodes([]);
-    } else {
-      setCodes((data ?? []) as unknown as DesignerCodeWithProfile[]);
-    }
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: queryKeys.designerCodes.all,
+    queryFn: fetchDesignerCodes,
+  });
+  const codes = data ?? [];
 
   const codesByProfile = useMemo(() => {
     const map = new Map<string, DesignerCodeWithProfile[]>();
@@ -60,5 +55,11 @@ export function useDesignerCodes(): UseDesignerCodesResult {
     return map;
   }, [codes]);
 
-  return { codes, codesByProfile, isLoading, error, refetch };
+  return {
+    codes,
+    codesByProfile,
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+    refetch,
+  };
 }

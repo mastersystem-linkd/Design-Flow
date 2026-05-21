@@ -178,6 +178,11 @@
   100% { transform: scale(1);    box-shadow: 0 0 0 0   rgb(var(--destructive) / 0); }
 }
 
+@keyframes slideUp {
+  from { opacity: 0; transform: translate(-50%, 16px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
 .animate-slide-in-right   { animation: slideInRight 0.25s ease-out both; }
 .animate-slide-out-right  { animation: slideOutRight 0.2s ease-in  both; }
 .animate-fade-in          { animation: fadeIn 0.25s ease-out both; }
@@ -185,6 +190,7 @@
 .animate-card-enter       { animation: cardEnter 0.3s ease-out both; }
 .animate-highlight-pulse  { animation: highlightPulse 1.8s ease-out 1; }
 .animate-urgent-pulse     { animation: urgentBadgePulse 1.2s ease-out 1; }
+.animate-slide-up         { animation: slideUp 0.2s ease-out both; }
 
 /* ── Login page animations ── */
 @keyframes login-float-1 { from { transform: translate(0, 0); } to { transform: translate(20px, -30px); } }

@@ -630,7 +630,6 @@ export function useTaskMutations(): UseTaskMutations {
         // Best-effort: notify previous assignee if there was one
         if (previousAssignee && previousAssignee !== profile.id) {
           try {
-            const { sendNotification } = await import("@/lib/notifications");
             void sendNotification(
               previousAssignee,
               "Task reassigned",
@@ -642,6 +641,16 @@ export function useTaskMutations(): UseTaskMutations {
             // Non-critical — don't fail the mutation
           }
         }
+
+        // Inform admins + coordinators that the pool just shrunk by one —
+        // gives them visibility into who's pulling work without polling.
+        void sendNotificationToRole(
+          ["admin", "design_coordinator"],
+          "Task Claimed from Pool",
+          `${profile.full_name} claimed ${newCode} from the pool`,
+          "info",
+          "/dashboard"
+        );
 
         return { data, error: null };
       } finally {
@@ -694,11 +703,11 @@ export function useTaskMutations(): UseTaskMutations {
 
         if (error) return { data: null, error: error.message };
 
-        // Notify coordinators that task is done
+        // Notify admins + coordinators that a task crossed the finish line.
         void sendNotificationToRole(
-          "design_coordinator",
+          ["admin", "design_coordinator"],
           "Task Completed",
-          `${data.task_code ?? taskId} has been marked done by ${profile.full_name}.`,
+          `${profile.full_name} completed ${data.task_code ?? taskId}`,
           "success",
           "/dashboard"
         );
@@ -721,13 +730,24 @@ export function useTaskMutations(): UseTaskMutations {
       const key = `updateTask:${taskId}`;
       setOpPending(key, true);
       try {
+        // .maybeSingle() instead of .single() — when RLS hides the row from
+        // SELECT (e.g. a designer tries to update a task they don't own),
+        // PostgREST returns the "Cannot coerce the result to a single JSON
+        // object" error from .single(). maybeSingle returns null without
+        // throwing, and we surface a clear permission message ourselves.
         const { data, error } = await supabase
           .from("tasks")
           .update(fields)
           .eq("id", taskId)
           .select("*")
-          .single();
+          .maybeSingle();
         if (error) return { data: null, error: error.message };
+        if (!data) {
+          return {
+            data: null,
+            error: "You don't have permission to update this task.",
+          };
+        }
         return { data, error: null };
       } finally {
         setOpPending(key, false);

@@ -17,6 +17,13 @@ export interface StorageFile {
   updated_at: string;
   size: number;
   mimetype: string;
+  /**
+   * UUID extracted from the leading path segment. Storage paths are written
+   * by the upload code as `{user_id}/...`, so the first folder is always the
+   * uploader's profile id. Null if the path doesn't start with a uuid (e.g.
+   * legacy uploads or seed data).
+   */
+  uploaderId: string | null;
 }
 
 const BUCKETS: BucketName[] = ["design-files", "sample-files", "task-files"];
@@ -103,11 +110,22 @@ async function listAllInBucket(bucket: BucketName): Promise<StorageFile[]> {
   return results;
 }
 
+// uuid v4 regex — leading segment of every upload path that follows the
+// `{user_id}/...` convention. Used to derive the uploader from the path.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function toStorageFile(
   raw: { id: string; name: string; created_at: string; updated_at: string; metadata: any },
   bucket: BucketName,
   path: string
 ): StorageFile {
+  // First path segment is the user id when uploads follow our convention
+  // (every upload site in the codebase prefixes `${user.id}/`). If it's not
+  // a uuid (legacy / seeded data), fall back to null so consumers can show
+  // "Unknown".
+  const firstSeg = path.split("/")[0];
+  const uploaderId = UUID_RE.test(firstSeg) ? firstSeg : null;
   return {
     id: raw.id,
     name: raw.name,
@@ -117,6 +135,7 @@ function toStorageFile(
     updated_at: raw.updated_at,
     size: raw.metadata?.size ?? 0,
     mimetype: raw.metadata?.mimetype ?? "application/octet-stream",
+    uploaderId,
   };
 }
 

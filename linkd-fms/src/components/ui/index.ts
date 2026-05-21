@@ -80,3 +80,4 @@ export { ExportDialog } from "./ExportDialog";
 export { Pagination, type PaginationProps } from "./Pagination";
 export { Sparkline } from "./Sparkline";
 export { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
+export { LazyImage, type LazyImageProps } from "./LazyImage";

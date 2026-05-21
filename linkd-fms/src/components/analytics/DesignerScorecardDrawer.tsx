@@ -11,7 +11,14 @@ import {
   Users,
   Target,
   Send as SendIcon,
-  Sparkles,
+  Trophy,
+  Flame,
+  PackageCheck,
+  Timer,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+  Crown,
 } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import {
@@ -84,7 +91,7 @@ export function DesignerScorecardDrawer({
   if (designerId && !isAdmin && !isSelf) {
     return (
       <Sheet open={!!designerId} onOpenChange={(o) => !o && onClose()}>
-        <SheetContent className="w-[400px]">
+        <SheetContent className="w-full sm:w-[400px]">
           <div className="flex h-full items-center justify-center">
             <EmptyState
               icon={<AlertTriangle className="h-8 w-8" />}
@@ -100,7 +107,7 @@ export function DesignerScorecardDrawer({
   return (
     <Sheet open={!!designerId} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
-        className="w-[560px] max-w-[90vw] overflow-y-auto sm:w-[600px]"
+        className="w-full overflow-y-auto bg-gradient-to-b from-card via-card to-background p-0 sm:w-[640px] lg:w-[680px]"
       >
         {designerId && (
           <ScorecardBody
@@ -157,40 +164,11 @@ function ScorecardBody({
     );
   }
 
-  const compositeColor =
-    data.compositeScore >= 80
-      ? "text-success"
-      : data.compositeScore >= 50
-      ? "text-warning"
-      : "text-destructive";
-  const compositeBorder =
-    data.compositeScore >= 80
-      ? "border-b-success"
-      : data.compositeScore >= 50
-      ? "border-b-warning"
-      : "border-b-destructive";
-
   const concept = data.concept;
   const task = data.task;
 
-  const targetProgress = concept.monthlyTargetProgress;
-  const targetColor =
-    targetProgress >= 3
-      ? "text-success"
-      : targetProgress >= 1
-      ? "text-warning"
-      : "text-destructive";
-
   const onTimePct =
     task.completed > 0 ? Math.round((task.onTime / task.completed) * 100) : null;
-  const onTimeColor =
-    onTimePct === null
-      ? "text-muted-foreground"
-      : onTimePct > 85
-      ? "text-success"
-      : onTimePct >= 70
-      ? "text-warning"
-      : "text-destructive";
 
   async function handleSendFeedback() {
     const text = feedback.trim();
@@ -259,124 +237,78 @@ function ScorecardBody({
     exportToCSV(rows, `scorecard-${safeName}`, cols);
   }
 
-  return (
-    <div className="space-y-4 pb-6">
-      {/* ── SECTION 1: HEADER ── */}
-      <div className="flex items-center gap-4 border-b border-border pb-4">
-        <Avatar className="h-14 w-14">
-          {data.profile.avatar_url ? (
-            <AvatarImage src={data.profile.avatar_url} />
-          ) : null}
-          <AvatarFallback className="bg-primary/10 text-primary text-base font-bold">
-            {getInitials(data.profile.full_name)}
-          </AvatarFallback>
-        </Avatar>
+  const hasActivity = data.concept.submitted > 0 || data.task.assigned > 0;
 
-        <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-semibold text-foreground">
-            {data.profile.full_name}
-          </h2>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="text-[10px]">
-              {ROLE_LABELS[data.profile.role]}
-            </Badge>
-            {data.designerCodes.map((c) => (
-              <Badge
-                key={c}
-                variant="outline"
-                className="text-[10px] font-mono"
+  return (
+    <div className="pb-6">
+      {/* ── HERO ── Gradient banner with avatar halo, composite gauge,
+          verdict, rank medal. Built as one visual block instead of a flat
+          header so the drawer reads "judgment first" from the moment it opens. */}
+      <HeroBlock
+        profile={data.profile}
+        designerCodes={data.designerCodes}
+        isSelf={isSelf}
+        joinedDate={data.joinedDate}
+        compositeScore={data.compositeScore}
+        rank={data.rank}
+        hasActivity={hasActivity}
+      />
+
+      <div className="space-y-4 px-5">
+        {/* ── VITAL SIGNS ── compact 4-stat strip replacing the old flat
+            KPI boxes. Each cell carries a mini-visual (ring, sparkline-ish
+            bar) + delta against team / target so the number isn't bare. */}
+        <VitalSignsStrip
+          monthlyTargetProgress={concept.monthlyTargetProgress}
+          monthlyTarget={3}
+          completed={task.completed}
+          assigned={task.assigned}
+          onTimePct={onTimePct}
+          conceptsShipped={concept.completed}
+          conceptsApproved={concept.approved}
+          completionRate={concept.completionRate}
+          cycleDays={task.avgCycleDays}
+          teamAvgDays={task.teamAvgDays}
+        />
+
+        {/* ── Open full analysis ── */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            onClose();
+            navigate(scorecardDetailPath(designerId));
+          }}
+          className="w-full gap-1.5"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Open full scorecard analysis
+        </Button>
+
+        {/* ── PERIOD SELECTOR ── */}
+        <div className="flex items-center justify-between">
+          <div className="inline-flex rounded-lg bg-secondary/50 p-0.5">
+            {PERIODS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setPeriod(p.value)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                  period === p.value
+                    ? "bg-primary text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
               >
-                {c}
-              </Badge>
+                {p.label}
+              </button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {isSelf
-              ? "My Performance"
-              : `Joined ${
-                  data.joinedDate
-                    ? format(parseISO(data.joinedDate), "MMM yyyy")
-                    : "—"
-                }`}
+          <p className="text-xs text-muted-foreground">
+            {data.periodLabel}
           </p>
-
-          {/* Verdict pill — combined judgment from composite score */}
-          <div className="mt-2">
-            <VerdictPill
-              compositeScore={data.compositeScore}
-              hasActivity={data.concept.submitted > 0 || data.task.assigned > 0}
-            />
-          </div>
         </div>
 
-        {/* Rank pill — only for admin viewing other designers */}
-        {!isSelf && (
-          <RankPill
-            rank={data.rank.overallRank}
-            total={data.rank.totalDesigners}
-          />
-        )}
-      </div>
-
-      {/* ── SECTION 2: KPI STRIP ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <KpiBox
-          label="Composite Score"
-          value={`${data.compositeScore}/100`}
-          valueClass={compositeColor}
-          borderClass={cn("border-b-2", compositeBorder)}
-        />
-        <KpiBox
-          label="Monthly Concepts"
-          value={`${targetProgress} / 3`}
-          valueClass={targetColor}
-          extra={<TargetRing progress={targetProgress} target={3} />}
-        />
-        <KpiBox label="Tasks Done" value={String(task.completed)} />
-        <KpiBox
-          label="On-Time"
-          value={onTimePct === null ? "—" : `${onTimePct}%`}
-          valueClass={onTimeColor}
-        />
-      </div>
-
-      {/* ── Open full analysis ── */}
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => {
-          onClose();
-          navigate(scorecardDetailPath(designerId));
-        }}
-        className="w-full gap-1.5"
-      >
-        <ExternalLink className="h-3.5 w-3.5" />
-        Open full scorecard analysis
-      </Button>
-
-      {/* ── SECTION 3: PERIOD SELECTOR ── */}
-      <div>
-        <div className="inline-flex rounded-lg bg-secondary/50 p-0.5">
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => setPeriod(p.value)}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                period === p.value
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          {data.periodLabel}
-        </p>
-      </div>
 
       {/* ── SECTION 4: CONCEPT PERFORMANCE ── */}
       <Card className="border border-border">
@@ -451,6 +383,50 @@ function ScorecardBody({
             </span>
             <span className="ml-2 text-muted-foreground/70">target: &lt; 24h</span>
           </p>
+
+          {/* Shipped + revision-cycle footnote — exposes the gap between
+              "MD approved" and "actually shipped" + true rework volume. */}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <FootStat
+              icon={<PackageCheck className="h-3.5 w-3.5" />}
+              label="Shipped"
+              value={`${concept.completed}/${concept.approved}`}
+              hint={
+                concept.approved > 0
+                  ? `${concept.completionRate}% completion`
+                  : "No approvals yet"
+              }
+              tone={
+                concept.approved === 0
+                  ? "muted"
+                  : concept.completionRate >= 70
+                  ? "success"
+                  : concept.completionRate >= 40
+                  ? "warning"
+                  : "destructive"
+              }
+            />
+            <FootStat
+              icon={<Flame className="h-3.5 w-3.5" />}
+              label="Revision cycles"
+              value={String(concept.revisionCycles)}
+              hint={
+                concept.submitted > 0 && concept.revisionCycles > 0
+                  ? `${(concept.revisionCycles / concept.submitted).toFixed(1)} per submission`
+                  : concept.revisionCycles === 0
+                  ? "Clean first drafts"
+                  : undefined
+              }
+              tone={
+                concept.revisionCycles === 0
+                  ? "success"
+                  : concept.submitted > 0 &&
+                    concept.revisionCycles / concept.submitted > 0.5
+                  ? "destructive"
+                  : "muted"
+              }
+            />
+          </div>
         </div>
       </Card>
 
@@ -533,6 +509,40 @@ function ScorecardBody({
               </span>
             )}
           </p>
+
+          {/* Cycle-time + late footnote — splits "avg delay" from true effort. */}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <FootStat
+              icon={<Timer className="h-3.5 w-3.5" />}
+              label="Cycle time"
+              value={task.completed === 0 ? "—" : `${task.avgCycleDays}d`}
+              hint="assigned → done"
+              tone={
+                task.completed === 0
+                  ? "muted"
+                  : task.avgCycleDays <= 3
+                  ? "success"
+                  : task.avgCycleDays <= 6
+                  ? "warning"
+                  : "destructive"
+              }
+            />
+            <FootStat
+              icon={<AlertTriangle className="h-3.5 w-3.5" />}
+              label="Late"
+              value={String(task.late)}
+              hint={
+                task.completed > 0 ? `of ${task.completed} delivered` : undefined
+              }
+              tone={
+                task.late === 0
+                  ? "success"
+                  : task.late > task.onTime
+                  ? "destructive"
+                  : "warning"
+              }
+            />
+          </div>
         </div>
       </Card>
 
@@ -640,6 +650,7 @@ function ScorecardBody({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -667,141 +678,6 @@ function LoadingState() {
         <SkeletonCard key={i} />
       ))}
     </div>
-  );
-}
-
-function VerdictPill({
-  compositeScore,
-  hasActivity,
-}: {
-  compositeScore: number;
-  hasActivity: boolean;
-}) {
-  const { label, cls, icon } = (() => {
-    if (!hasActivity) {
-      return {
-        label: "No activity this period",
-        cls: "bg-secondary text-muted-foreground border-border",
-        icon: "·",
-      };
-    }
-    if (compositeScore >= 80) {
-      return {
-        label: "Top Performer",
-        cls: "bg-success/15 text-success border-success/30",
-        icon: "★",
-      };
-    }
-    if (compositeScore >= 60) {
-      return {
-        label: "Solid Contributor",
-        cls: "bg-primary/10 text-primary border-primary/30",
-        icon: "✓",
-      };
-    }
-    if (compositeScore >= 40) {
-      return {
-        label: "Developing",
-        cls: "bg-warning/15 text-warning border-warning/30",
-        icon: "↗",
-      };
-    }
-    return {
-      label: "Needs Support",
-      cls: "bg-destructive/15 text-destructive border-destructive/30",
-      icon: "!",
-    };
-  })();
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-        cls
-      )}
-      title={`Composite score ${compositeScore}/100`}
-    >
-      <span className="text-[10px]">{icon}</span>
-      {label}
-    </span>
-  );
-}
-
-function RankPill({ rank, total }: { rank: number; total: number }) {
-  const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
-  const isTop = rank <= 3;
-  return (
-    <div
-      className={cn(
-        "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
-        isTop
-          ? "bg-warning/10 text-warning"
-          : "bg-secondary text-muted-foreground"
-      )}
-      title={`Ranked #${rank} of ${total} by composite score`}
-    >
-      {medal ? <span className="mr-1">{medal}</span> : null}#{rank} of {total}
-    </div>
-  );
-}
-
-function KpiBox({
-  label,
-  value,
-  valueClass,
-  borderClass,
-  extra,
-}: {
-  label: string;
-  value: string;
-  valueClass?: string;
-  borderClass?: string;
-  extra?: React.ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl bg-secondary/30 p-3",
-        borderClass
-      )}
-    >
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <div className="mt-1 flex items-baseline justify-between gap-2">
-        <p className={cn("text-xl font-bold tabular-nums", valueClass ?? "text-foreground")}>
-          {value}
-        </p>
-        {extra}
-      </div>
-    </div>
-  );
-}
-
-function TargetRing({ progress, target }: { progress: number; target: number }) {
-  const pct = Math.min(100, (progress / target) * 100);
-  const r = 8;
-  const c = 2 * Math.PI * r;
-  const color =
-    progress >= target
-      ? "stroke-success"
-      : progress >= 1
-      ? "stroke-warning"
-      : "stroke-destructive";
-  return (
-    <svg viewBox="0 0 22 22" className="-rotate-90 h-5 w-5" aria-hidden>
-      <circle cx="11" cy="11" r={r} className="fill-none stroke-secondary" strokeWidth={2.5} />
-      <circle
-        cx="11"
-        cy="11"
-        r={r}
-        className={cn("fill-none", color)}
-        strokeWidth={2.5}
-        strokeDasharray={c}
-        strokeDashoffset={c - (pct / 100) * c}
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }
 
@@ -1121,6 +997,628 @@ function activityDotClass(ev: ScorecardActivity): string {
   if (ev.type === "task_completed") return "bg-success";
   if (ev.type === "revision_requested") return "bg-warning";
   return "bg-primary";
+}
+
+// ============================================================================
+// HERO BLOCK — gradient banner with halo'd avatar + composite gauge + verdict.
+// Replaces the old flat header. Reads as "judgment at a glance" instead of a
+// bio strip.
+// ============================================================================
+
+function HeroBlock({
+  profile,
+  designerCodes,
+  isSelf,
+  joinedDate,
+  compositeScore,
+  rank,
+  hasActivity,
+}: {
+  profile: { id: string; full_name: string; avatar_url: string | null; role: "admin" | "design_coordinator" | "designer" };
+  designerCodes: string[];
+  isSelf: boolean;
+  joinedDate: string;
+  compositeScore: number;
+  rank: { overallRank: number; totalDesigners: number };
+  hasActivity: boolean;
+}) {
+  // Composite tier — drives both the gauge color and the verdict copy.
+  const tier = compositeTier(compositeScore, hasActivity);
+
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden border-b border-border/60",
+        // Top-edge gradient bleed colored by tier — subtle, not loud.
+        "bg-gradient-to-br",
+        tier.gradient
+      )}
+    >
+      {/* Decorative dot grid — gives the banner texture without competing
+          with the data. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.06]"
+        style={{
+          backgroundImage:
+            "radial-gradient(rgb(var(--foreground)) 1px, transparent 1px)",
+          backgroundSize: "14px 14px",
+        }}
+      />
+      <div className="relative px-5 pb-5 pt-6">
+        <div className="flex items-start gap-4">
+          {/* Avatar halo — the colored ring is the at-a-glance tier signal. */}
+          <div className="relative shrink-0">
+            <div
+              className={cn(
+                "absolute -inset-1 rounded-full opacity-50 blur-sm",
+                tier.haloBg
+              )}
+            />
+            <Avatar
+              className={cn(
+                "relative h-16 w-16 ring-4 ring-card",
+                tier.ringClass
+              )}
+            >
+              {profile.avatar_url ? <AvatarImage src={profile.avatar_url} /> : null}
+              <AvatarFallback className="bg-card text-base font-bold text-foreground">
+                {getInitials(profile.full_name)}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+
+          {/* Name + meta */}
+          <div className="min-w-0 flex-1 pt-1">
+            <h2 className="truncate text-xl font-bold tracking-tight text-foreground">
+              {profile.full_name}
+            </h2>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge variant="secondary" className="text-[10px]">
+                {ROLE_LABELS[profile.role]}
+              </Badge>
+              {designerCodes.map((c) => (
+                <Badge
+                  key={c}
+                  variant="outline"
+                  className="font-mono text-[10px]"
+                >
+                  {c}
+                </Badge>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {isSelf
+                ? "Your performance dashboard"
+                : `Joined ${
+                    joinedDate ? format(parseISO(joinedDate), "MMM yyyy") : "—"
+                  }`}
+            </p>
+          </div>
+
+          {/* Rank medal (admin viewing others) */}
+          {!isSelf && rank.totalDesigners > 0 && (
+            <RankMedal rank={rank.overallRank} total={rank.totalDesigners} />
+          )}
+        </div>
+
+        {/* Composite gauge + verdict block */}
+        <div className="mt-5 flex items-center gap-5">
+          <CompositeGauge score={compositeScore} tier={tier} hasActivity={hasActivity} />
+          <div className="min-w-0 flex-1">
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider",
+                tier.pillClass
+              )}
+            >
+              <tier.IconComponent className="h-3.5 w-3.5" />
+              {tier.label}
+            </div>
+            <p className="mt-2 text-[13px] font-medium leading-snug text-foreground">
+              {tier.headline}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {tier.subhead}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Composite tier resolver ────────────────────────────────────────────
+function compositeTier(score: number, hasActivity: boolean) {
+  if (!hasActivity) {
+    return {
+      label: "Standby",
+      headline: "No activity in this period",
+      subhead: "Switch the period filter or check back later.",
+      gradient: "from-card to-card",
+      haloBg: "bg-muted/40",
+      ringClass: "ring-border",
+      gaugeColor: "stroke-muted",
+      pillClass: "border-border bg-secondary text-muted-foreground",
+      IconComponent: Activity,
+      scoreClass: "text-muted-foreground",
+    };
+  }
+  if (score >= 80) {
+    return {
+      label: "Top performer",
+      headline: "Crushing it across the board.",
+      subhead: "High volume, high approval, low rework.",
+      gradient: "from-success/[0.12] via-card to-card",
+      haloBg: "bg-success/40",
+      ringClass: "ring-success/40",
+      gaugeColor: "stroke-success",
+      pillClass: "border-success/30 bg-success/15 text-success",
+      IconComponent: Crown,
+      scoreClass: "text-success",
+    };
+  }
+  if (score >= 60) {
+    return {
+      label: "Solid contributor",
+      headline: "Reliable output with room to push.",
+      subhead: "Hitting the basics — eye the next tier next month.",
+      gradient: "from-primary/[0.10] via-card to-card",
+      haloBg: "bg-primary/40",
+      ringClass: "ring-primary/40",
+      gaugeColor: "stroke-primary",
+      pillClass: "border-primary/30 bg-primary/10 text-primary",
+      IconComponent: Trophy,
+      scoreClass: "text-primary",
+    };
+  }
+  if (score >= 40) {
+    return {
+      label: "Developing",
+      headline: "Building momentum — keep going.",
+      subhead: "A couple of metrics are below the team average.",
+      gradient: "from-warning/[0.12] via-card to-card",
+      haloBg: "bg-warning/40",
+      ringClass: "ring-warning/40",
+      gaugeColor: "stroke-warning",
+      pillClass: "border-warning/30 bg-warning/15 text-warning",
+      IconComponent: TrendingUp,
+      scoreClass: "text-warning",
+    };
+  }
+  return {
+    label: "Needs support",
+    headline: "Multiple signals are slipping.",
+    subhead: "Schedule a check-in — review pace + delivery.",
+    gradient: "from-destructive/[0.12] via-card to-card",
+    haloBg: "bg-destructive/40",
+    ringClass: "ring-destructive/40",
+    gaugeColor: "stroke-destructive",
+    pillClass: "border-destructive/30 bg-destructive/15 text-destructive",
+    IconComponent: AlertTriangle,
+    scoreClass: "text-destructive",
+  };
+}
+
+// ─── Composite gauge — 220° semicircular arc with score in the middle ───
+function CompositeGauge({
+  score,
+  tier,
+  hasActivity,
+}: {
+  score: number;
+  tier: ReturnType<typeof compositeTier>;
+  hasActivity: boolean;
+}) {
+  const size = 124;
+  const stroke = 10;
+  const r = (size - stroke) / 2;
+  // Sweep from 160° (lower-left) clockwise to 380° = 20° (lower-right) = 220°.
+  const startAngle = 160;
+  const endAngle = 380;
+  const sweep = endAngle - startAngle;
+  const pct = Math.max(0, Math.min(100, score)) / 100;
+
+  // Build an SVG arc path
+  const polar = (deg: number, radius: number) => {
+    const rad = (deg - 90) * (Math.PI / 180);
+    return {
+      x: size / 2 + radius * Math.cos(rad),
+      y: size / 2 + radius * Math.sin(rad),
+    };
+  };
+  const arcPath = (toDeg: number) => {
+    const s = polar(startAngle, r);
+    const e = polar(toDeg, r);
+    const large = toDeg - startAngle > 180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
+  };
+  const fullArc = arcPath(endAngle);
+  const filledArc = arcPath(startAngle + sweep * pct);
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size * 0.78 }}>
+      <svg viewBox={`0 0 ${size} ${size}`} className="absolute inset-0 h-full w-full overflow-visible">
+        <path
+          d={fullArc}
+          fill="none"
+          stroke="rgb(var(--secondary))"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+        />
+        <path
+          d={filledArc}
+          fill="none"
+          className={tier.gaugeColor}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          style={{
+            transition: "all 900ms cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">
+        <p className={cn("text-4xl font-bold leading-none tabular-nums", tier.scoreClass)}>
+          {hasActivity ? score : "—"}
+        </p>
+        <p className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+          / 100 composite
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Rank medal — distinct from the old pill, sits in the hero ───
+function RankMedal({ rank, total }: { rank: number; total: number }) {
+  const isTop3 = rank <= 3;
+  const medalColors: Record<number, string> = {
+    1: "from-amber-300 to-amber-500 text-amber-900",
+    2: "from-slate-300 to-slate-400 text-slate-900",
+    3: "from-orange-300 to-orange-500 text-orange-950",
+  };
+  return (
+    <div className="flex shrink-0 flex-col items-center">
+      <div
+        className={cn(
+          "flex h-12 w-12 items-center justify-center rounded-full text-sm font-bold shadow-md",
+          isTop3
+            ? `bg-gradient-to-br ${medalColors[rank]}`
+            : "bg-secondary text-foreground"
+        )}
+        title={`Ranked #${rank} of ${total}`}
+      >
+        #{rank}
+      </div>
+      <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground">
+        of {total}
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// VITAL SIGNS STRIP — 4 cells with mini-visual + delta context
+// ============================================================================
+
+function VitalSignsStrip({
+  monthlyTargetProgress,
+  monthlyTarget,
+  completed,
+  assigned,
+  onTimePct,
+  conceptsShipped,
+  conceptsApproved,
+  completionRate,
+  cycleDays,
+  teamAvgDays,
+}: {
+  monthlyTargetProgress: number;
+  monthlyTarget: number;
+  completed: number;
+  assigned: number;
+  onTimePct: number | null;
+  conceptsShipped: number;
+  conceptsApproved: number;
+  completionRate: number;
+  cycleDays: number;
+  teamAvgDays: number;
+}) {
+  const onTimeTone =
+    onTimePct === null
+      ? "muted"
+      : onTimePct > 85
+      ? "success"
+      : onTimePct >= 70
+      ? "warning"
+      : "destructive";
+  const targetTone =
+    monthlyTargetProgress >= monthlyTarget
+      ? "success"
+      : monthlyTargetProgress >= 1
+      ? "warning"
+      : "destructive";
+  const cycleTone =
+    cycleDays === 0
+      ? "muted"
+      : cycleDays <= 3
+      ? "success"
+      : cycleDays <= 6
+      ? "warning"
+      : "destructive";
+  const shipTone =
+    conceptsApproved === 0
+      ? "muted"
+      : completionRate >= 70
+      ? "success"
+      : completionRate >= 40
+      ? "warning"
+      : "destructive";
+
+  // Cycle delta vs team
+  const cycleDelta =
+    teamAvgDays > 0 && cycleDays > 0
+      ? Math.round((cycleDays - teamAvgDays) * 10) / 10
+      : null;
+
+  return (
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <VitalCell
+        icon={<Target className="h-3.5 w-3.5" />}
+        label="Monthly target"
+        value={`${monthlyTargetProgress}`}
+        suffix={`/${monthlyTarget}`}
+        tone={targetTone}
+        visual={
+          <ProgressDots
+            filled={monthlyTargetProgress}
+            total={monthlyTarget}
+            tone={targetTone}
+          />
+        }
+        hint={
+          monthlyTargetProgress >= monthlyTarget
+            ? "Target hit"
+            : `${monthlyTarget - monthlyTargetProgress} to go`
+        }
+      />
+      <VitalCell
+        icon={<PackageCheck className="h-3.5 w-3.5" />}
+        label="Concepts shipped"
+        value={`${conceptsShipped}`}
+        suffix={conceptsApproved > 0 ? `/${conceptsApproved}` : ""}
+        tone={shipTone}
+        visual={
+          <MiniBar
+            pct={
+              conceptsApproved > 0 ? (conceptsShipped / conceptsApproved) * 100 : 0
+            }
+            tone={shipTone}
+          />
+        }
+        hint={
+          conceptsApproved === 0
+            ? "No approvals yet"
+            : `${completionRate}% of approved`
+        }
+      />
+      <VitalCell
+        icon={<CheckCircle className="h-3.5 w-3.5" />}
+        label="On-time"
+        value={onTimePct === null ? "—" : `${onTimePct}`}
+        suffix={onTimePct === null ? "" : "%"}
+        tone={onTimeTone}
+        visual={
+          <MiniBar pct={onTimePct ?? 0} tone={onTimeTone} />
+        }
+        hint={
+          completed > 0
+            ? `${completed} of ${assigned} delivered`
+            : "Nothing delivered yet"
+        }
+      />
+      <VitalCell
+        icon={<Zap className="h-3.5 w-3.5" />}
+        label="Cycle time"
+        value={cycleDays === 0 ? "—" : `${cycleDays}`}
+        suffix={cycleDays === 0 ? "" : "d"}
+        tone={cycleTone}
+        visual={
+          cycleDelta === null ? null : (
+            <DeltaPill delta={cycleDelta} invert />
+          )
+        }
+        hint={
+          cycleDelta === null
+            ? "assigned → done"
+            : Math.abs(cycleDelta) < 0.1
+            ? "on team avg"
+            : cycleDelta > 0
+            ? `${cycleDelta}d slower than team`
+            : `${Math.abs(cycleDelta)}d faster than team`
+        }
+      />
+    </div>
+  );
+}
+
+type Tone = "success" | "warning" | "destructive" | "muted" | "primary";
+
+const TONE_VALUE: Record<Tone, string> = {
+  success: "text-success",
+  warning: "text-warning",
+  destructive: "text-destructive",
+  muted: "text-muted-foreground",
+  primary: "text-primary",
+};
+const TONE_ICON: Record<Tone, string> = {
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning",
+  destructive: "bg-destructive/10 text-destructive",
+  muted: "bg-secondary text-muted-foreground",
+  primary: "bg-primary/10 text-primary",
+};
+const TONE_BAR: Record<Tone, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  destructive: "bg-destructive",
+  muted: "bg-muted",
+  primary: "bg-primary",
+};
+
+function VitalCell({
+  icon,
+  label,
+  value,
+  suffix,
+  hint,
+  tone,
+  visual,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  suffix?: string;
+  hint?: string;
+  tone: Tone;
+  visual?: React.ReactNode;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:shadow-sm">
+      <div className="mb-1 flex items-center justify-between gap-1">
+        <span
+          className={cn(
+            "flex h-5 w-5 items-center justify-center rounded-md",
+            TONE_ICON[tone]
+          )}
+        >
+          {icon}
+        </span>
+        <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      <p
+        className={cn(
+          "text-2xl font-bold leading-none tabular-nums",
+          TONE_VALUE[tone]
+        )}
+      >
+        {value}
+        {suffix && (
+          <span className="ml-0.5 text-sm font-medium text-muted-foreground">
+            {suffix}
+          </span>
+        )}
+      </p>
+      {visual && <div className="mt-2">{visual}</div>}
+      {hint && (
+        <p className="mt-1.5 truncate text-[10px] text-muted-foreground" title={hint}>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ProgressDots({
+  filled,
+  total,
+  tone,
+}: {
+  filled: number;
+  total: number;
+  tone: Tone;
+}) {
+  return (
+    <div className="flex gap-1">
+      {Array.from({ length: total }).map((_, i) => (
+        <div
+          key={i}
+          className={cn(
+            "h-1.5 flex-1 rounded-full",
+            i < filled ? TONE_BAR[tone] : "bg-secondary"
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MiniBar({ pct, tone }: { pct: number; tone: Tone }) {
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+      <div
+        className={cn("h-full rounded-full transition-[width] duration-700", TONE_BAR[tone])}
+        style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+      />
+    </div>
+  );
+}
+
+function DeltaPill({ delta, invert }: { delta: number; invert?: boolean }) {
+  // invert=true → smaller is better (cycle time, delay)
+  if (Math.abs(delta) < 0.1) {
+    return (
+      <span className="inline-flex items-center gap-0.5 rounded-full bg-secondary px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+        =
+      </span>
+    );
+  }
+  const goodDirection = invert ? delta < 0 : delta > 0;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0 text-[10px] font-semibold tabular-nums",
+        goodDirection ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+      )}
+    >
+      {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {Math.abs(delta)}
+    </span>
+  );
+}
+
+// ============================================================================
+// FOOTNOTE STAT — small two-line stat box for the bottom of perf cards
+// ============================================================================
+
+function FootStat({
+  icon,
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+  tone: Tone;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-secondary/30 px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className={cn("flex h-4 w-4 items-center justify-center rounded", TONE_ICON[tone])}>
+          {icon}
+        </span>
+        {label}
+      </div>
+      <p
+        className={cn(
+          "mt-0.5 text-base font-semibold tabular-nums",
+          TONE_VALUE[tone]
+        )}
+      >
+        {value}
+      </p>
+      {hint && (
+        <p className="text-[10px] text-muted-foreground" title={hint}>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function InsightsList({ insights }: { insights: ScorecardInsight[] }) {

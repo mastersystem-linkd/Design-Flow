@@ -9,6 +9,12 @@ import {
 import { useConcepts } from "@/hooks/useConcepts";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
+import {
+  isCompleted as conceptIsCompleted,
+  isApprovedAwaitingFinalisation,
+  countRevisionCycles,
+  sumRevisionCycles,
+} from "@/lib/conceptStatus";
 import type { ConceptWithRelations } from "@/types/database";
 
 // ============================================================================
@@ -44,7 +50,28 @@ export interface DesignerConceptStat {
   submitted: number;
   approved: number;
   rejected: number;
+  /**
+   * Concepts currently in `revision_requested` state. This is the LIVE count,
+   * not the historical cycle count — see `revisionCycles` for the true
+   * "how many times revisions were requested across this designer's work".
+   */
   revisions: number;
+  /**
+   * Total revision cycles tallied across the designer's submissions from
+   * `completion_history`. A concept revised twice and then approved
+   * contributes 2 cycles. More accurate than `revisions` for workload.
+   */
+  revisionCycles: number;
+  /**
+   * Concepts that completed the whole loop (MD approval → designer done →
+   * final approval). Subset of `approved`.
+   */
+  completed: number;
+  /**
+   * Of the approved concepts, what % made it all the way to completion.
+   * 0–100. Highlights designers who get approval but stall on finalisation.
+   */
+  completionRate: number;
   avgApprovalHours: number;
   target: number; // monthly target (3)
   score: number;
@@ -94,10 +121,24 @@ export interface ConceptDashboardMetrics {
   kpis: {
     totalSubmitted: KpiMetric;
     totalApproved: KpiMetric;
+    /**
+     * Fully-shipped concepts in the period. Subset of approved — requires
+     * designer-done + final-approval stamps. New top-line KPI.
+     */
+    totalCompleted: KpiMetric;
     approvalRate: KpiMetric;
+    /**
+     * Approved → completed conversion rate this period (0–100). Surfaces
+     * concepts stuck waiting on designer/MD finalisation.
+     */
+    completionRate: KpiMetric;
     avgApprovalHours: KpiMetric;
     pendingReview: number;
     revisionRequested: number;
+    /** True revision cycles tallied across all concepts (from completion_history). */
+    revisionCyclesAllTime: number;
+    /** Approved-but-not-finalised cohort, across all concepts (not just period). */
+    awaitingFinalisation: number;
     distinctSubmitters: number;
     reviewedCount: number;
   };
@@ -207,6 +248,17 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
     const currApproved = curr.filter((c) => c.md_status === "approved").length;
     const prevApproved = prev.filter((c) => c.md_status === "approved").length;
 
+    // Completion: a strict subset of approved. We count concepts created in
+    // the period that ended up fully shipped (regardless of when the final
+    // approval landed) so the dashboard reads "cohort progress", not "ship
+    // events that happened to fall in the period".
+    const currCompleted = curr.filter(conceptIsCompleted).length;
+    const prevCompleted = prev.filter(conceptIsCompleted).length;
+    const currCompletionRate = currApproved > 0
+      ? Math.round((currCompleted / currApproved) * 100) : 0;
+    const prevCompletionRate = prevApproved > 0
+      ? Math.round((prevCompleted / prevApproved) * 100) : 0;
+
     const currReviewed = curr.filter((c) => c.md_status !== "pending");
     const prevReviewed = prev.filter((c) => c.md_status !== "pending");
 
@@ -229,10 +281,20 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
         previous: prevApproved,
         trend: calcTrend(currApproved, prevApproved),
       },
+      totalCompleted: {
+        current: currCompleted,
+        previous: prevCompleted,
+        trend: calcTrend(currCompleted, prevCompleted),
+      },
       approvalRate: {
         current: currApprovalRate,
         previous: prevApprovalRate,
         trend: calcTrend(currApprovalRate, prevApprovalRate),
+      },
+      completionRate: {
+        current: currCompletionRate,
+        previous: prevCompletionRate,
+        trend: calcTrend(currCompletionRate, prevCompletionRate),
       },
       avgApprovalHours: {
         current: safeAvg(currHours),
@@ -241,6 +303,8 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
       },
       pendingReview: concepts.filter((c) => c.md_status === "pending").length,
       revisionRequested: concepts.filter((c) => c.md_status === "revision_requested").length,
+      revisionCyclesAllTime: sumRevisionCycles(concepts),
+      awaitingFinalisation: concepts.filter(isApprovedAwaitingFinalisation).length,
       distinctSubmitters: new Set(curr.map((c) => c.submitted_by)).size,
       reviewedCount: currReviewed.length,
     };
@@ -320,6 +384,13 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
       const approved = mine.filter((c) => c.md_status === "approved").length;
       const rejected = mine.filter((c) => c.md_status === "rejected").length;
       const revisions = mine.filter((c) => c.md_status === "revision_requested").length;
+      const completed = mine.filter(conceptIsCompleted).length;
+      const completionRate = approved > 0
+        ? Math.round((completed / approved) * 100) : 0;
+      const revisionCycles = mine.reduce(
+        (sum, c) => sum + countRevisionCycles(c),
+        0
+      );
 
       const hours = mine.map(approvalHours).filter((h): h is number => h !== null);
 
@@ -335,13 +406,21 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
         approved,
         rejected,
         revisions,
+        revisionCycles,
+        completed,
+        completionRate,
         avgApprovalHours: safeAvg(hours),
         target: MONTHLY_TARGET,
         score: 0,
       };
     });
 
-    // Score: submission volume (30) + approval rate (35) + speed (20) + low revision (15)
+    // Score formula unchanged on purpose — we use the new fields for surfaces
+    // (KPI tiles, leaderboard footnotes) without retroactively shifting ranks.
+    // Volume (30) + approval rate (35) + speed (20) + low revision (15).
+    // `revisions` here is the live "currently in revision" count; using the
+    // truer cycle count would penalise designers for already-resolved
+    // revisions which arguably isn't the intent of this dial.
     const maxSubmitted = Math.max(1, ...stats.map((s) => s.submitted));
     for (const s of stats) {
       if (s.submitted === 0) { s.score = 0; continue; }
@@ -386,12 +465,10 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
     const rejected = monthConcepts.filter((c) => c.md_status === "rejected").length;
     const revision = monthConcepts.filter((c) => c.md_status === "revision_requested").length;
     const decided = approved + rejected + revision;
-    const finalization = monthConcepts.filter(
-      (c) => c.md_status === "approved" && !c.designer_actual_date
-    ).length;
-    const completed = monthConcepts.filter(
-      (c) => c.md_status === "approved" && !!c.designer_actual_date
-    ).length;
+    // "Finalisation" = MD-approved but still waiting on designer-done OR
+    // MD's post-handoff final approval. "Completed" = both stamps present.
+    const finalization = monthConcepts.filter(isApprovedAwaitingFinalisation).length;
+    const completed = monthConcepts.filter(conceptIsCompleted).length;
     return { submitted, underReview, decided, approved, rejected, revision, finalization, completed };
   }, [concepts, start, end]);
 

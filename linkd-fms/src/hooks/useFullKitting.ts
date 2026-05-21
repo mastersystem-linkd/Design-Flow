@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { sendNotificationToRole } from "@/lib/notifications";
 import type {
   FullKittingDetail,
   FullKittingDetailInsert,
@@ -16,6 +17,14 @@ export type MutationResult<T> = { data: T | null; error: string | null };
 /**
  * Caller-supplied fields for the kitting form. `task_id` and `submitted_by`
  * are derived — the rest come from the form UI.
+ *
+ * File handling:
+ *   - `files` is the new multi-file array (post-migration 0020).
+ *   - `file_url` stays as a single path for back-compat — the hook mirrors
+ *     `files[0]` into it on insert so legacy readers (older drawers,
+ *     dashboards) keep working without changes.
+ *   - If the caller passes only `file_url`, the hook normalises it into
+ *     `files: [file_url]` automatically.
  */
 export interface KittingFormData {
   fabric_details?: string | null;
@@ -24,7 +33,10 @@ export interface KittingFormData {
   accessories?: string | null;
   packing_type: PackingType;
   special_instructions?: string | null;
+  /** Single-file convenience field — kept so existing callers don't break. */
   file_url?: string | null;
+  /** All attached storage paths (preferred input shape, post-0020). */
+  files?: string[] | null;
 }
 
 export interface UseFullKitting {
@@ -59,7 +71,7 @@ export interface UseFullKitting {
 // ============================================================================
 
 export function useFullKitting(): UseFullKitting {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const setOpPending = useCallback((key: string, value: boolean) => {
@@ -117,8 +129,23 @@ export function useFullKitting(): UseFullKitting {
       const key = `submit:${taskId}`;
       setOpPending(key, true);
       try {
+        // Normalise the file inputs. The form may pass `files: string[]`
+        // (preferred) or just `file_url` (legacy). Either way we end up with
+        // a clean array; the first entry mirrors into `file_url` so older
+        // surfaces that still read the single-path column see something.
+        const fileList: string[] = (() => {
+          if (Array.isArray(formData.files)) {
+            return formData.files.filter(
+              (f): f is string => typeof f === "string" && f.trim().length > 0
+            );
+          }
+          const single = formData.file_url?.trim();
+          return single ? [single] : [];
+        })();
+        const primaryFileUrl = fileList[0] ?? null;
+
         // ── Step 1: Insert kitting record ──────────────────────────
-        const row: FullKittingDetailInsert = {
+        const baseRow: FullKittingDetailInsert = {
           task_id: taskId,
           submitted_by: user.id,
           fabric_details: formData.fabric_details?.trim() || null,
@@ -131,14 +158,41 @@ export function useFullKitting(): UseFullKitting {
           packing_type: formData.packing_type,
           special_instructions:
             formData.special_instructions?.trim() || null,
-          file_url: formData.file_url?.trim() || null,
+          file_url: primaryFileUrl,
+        };
+        const rowWithFiles: FullKittingDetailInsert = {
+          ...baseRow,
+          files: fileList,
         };
 
-        const { data: kittingRow, error: insertErr } = await supabase
-          .from("full_kitting_details")
-          .insert(row)
-          .select("*")
-          .single();
+        // Try the post-0020 shape first. If `files` doesn't exist yet
+        // (migration not applied), PostgREST returns "column ... does not
+        // exist" — we retry without the column so the user can still save
+        // kitting details during a deploy window.
+        let kittingRow: FullKittingDetail | null = null;
+        let insertErr: { code?: string; message: string } | null = null;
+        {
+          const res = await supabase
+            .from("full_kitting_details")
+            .insert(rowWithFiles)
+            .select("*")
+            .single();
+          kittingRow = res.data as FullKittingDetail | null;
+          insertErr = res.error;
+        }
+        if (
+          insertErr &&
+          (insertErr.message.includes("files") ||
+            insertErr.message.includes("schema cache"))
+        ) {
+          const retry = await supabase
+            .from("full_kitting_details")
+            .insert(baseRow)
+            .select("*")
+            .single();
+          kittingRow = retry.data as FullKittingDetail | null;
+          insertErr = retry.error;
+        }
 
         if (insertErr) {
           // If the kitting record already exists (unique constraint on
@@ -178,12 +232,35 @@ export function useFullKitting(): UseFullKitting {
           };
         }
 
+        // Best-effort fanout: admins + coordinators get pinged that the
+        // kitting form is in. The task code lookup is cheap (single column)
+        // and falls back to the raw id if absent. Failure is silent — we
+        // don't want notification trouble to undo a successful kitting save.
+        try {
+          const { data: taskInfo } = await supabase
+            .from("tasks")
+            .select("task_code")
+            .eq("id", taskId)
+            .maybeSingle();
+          const code = taskInfo?.task_code ?? taskId;
+          const submitterName = profile?.full_name ?? "A designer";
+          void sendNotificationToRole(
+            ["admin", "design_coordinator"],
+            "Full Kitting Submitted",
+            `${submitterName} submitted kitting for ${code}`,
+            "info",
+            "/dashboard"
+          );
+        } catch {
+          // best-effort
+        }
+
         return { data: kittingRow, error: null };
       } finally {
         setOpPending(key, false);
       }
     },
-    [user, setOpPending]
+    [user, profile, setOpPending]
   );
 
   return { getKittingForTask, submitKitting, isPending };

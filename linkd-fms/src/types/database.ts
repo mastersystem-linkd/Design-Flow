@@ -467,6 +467,48 @@ export type Database = {
           }
         ];
       };
+      task_comments: {
+        Row: {
+          id: string;
+          task_id: string;
+          user_id: string;
+          body: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          task_id: string;
+          user_id: string;
+          body: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          task_id?: string;
+          user_id?: string;
+          body?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "task_comments_task_id_fkey";
+            columns: ["task_id"];
+            isOneToOne: false;
+            referencedRelation: "tasks";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "task_comments_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       files: {
         Row: {
           id: string;
@@ -623,6 +665,9 @@ export type Database = {
           requires_full_kitting: boolean;
           full_kitting_image_url: string | null;
           created_by: string | null;
+          /** Optional FK to the originating brief. Set when the coordinator
+           *  picked the task in the sampling form; null for walk-in samples. */
+          task_id: string | null;
         };
         Insert: {
           id?: string;
@@ -651,6 +696,7 @@ export type Database = {
           requires_full_kitting?: boolean;
           full_kitting_image_url?: string | null;
           created_by?: string | null;
+          task_id?: string | null;
         };
         Update: {
           id?: string;
@@ -679,6 +725,7 @@ export type Database = {
           requires_full_kitting?: boolean;
           full_kitting_image_url?: string | null;
           created_by?: string | null;
+          task_id?: string | null;
         };
         Relationships: [];
       };
@@ -791,6 +838,9 @@ export type Database = {
           packing_type: "standard" | "premium" | "bulk" | "custom";
           special_instructions: string | null;
           file_url: string | null;
+          /** Storage paths for every attached file. First entry is mirrored
+           *  into `file_url` so legacy single-file readers still work. */
+          files: string[];
           created_at: string;
         };
         Insert: {
@@ -804,6 +854,7 @@ export type Database = {
           packing_type: "standard" | "premium" | "bulk" | "custom";
           special_instructions?: string | null;
           file_url?: string | null;
+          files?: string[];
           created_at?: string;
         };
         Update: {
@@ -817,6 +868,7 @@ export type Database = {
           packing_type?: "standard" | "premium" | "bulk" | "custom";
           special_instructions?: string | null;
           file_url?: string | null;
+          files?: string[];
           created_at?: string;
         };
         Relationships: [
@@ -884,6 +936,9 @@ export type Client = Tables<"clients">;
 export type Concept = Tables<"concepts">;
 export type Task = Tables<"tasks">;
 export type TaskLog = Tables<"task_logs">;
+export type TaskComment = Tables<"task_comments">;
+export type TaskCommentInsert = TablesInsert<"task_comments">;
+export type TaskCommentUpdate = TablesUpdate<"task_comments">;
 export type FileRecord = Tables<"files">;
 export type SamplingLog = Tables<"sampling_logs">;
 export type DesignerCode = Tables<"designer_codes">;
@@ -935,6 +990,11 @@ export interface ConceptWithRelations extends Concept {
   designer?: ProfileLite | null;
   client?: ClientLite | null;
   tasks?: Pick<Task, "id" | "task_code" | "status">[];
+}
+
+/** Task comment row joined with the author's profile-lite shape. */
+export interface TaskCommentWithAuthor extends TaskComment {
+  author: ProfileLite | null;
 }
 
 /** Sample row joined with the auth user that created it (if any).

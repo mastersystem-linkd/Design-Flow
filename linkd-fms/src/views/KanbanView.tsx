@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Paperclip,
@@ -53,8 +53,11 @@ import {
 import { type CsvColumn } from "@/lib/exportCSV";
 import {
   STATUS_LABELS,
+  STATUS_COLORS,
   COLUMN_DOT,
   COLUMN_ACCENT,
+  PRIORITY_LABELS,
+  PRIORITY_COLORS,
 } from "@/lib/constants";
 import { ROUTES } from "@/lib/routes";
 import { cn, formatDate } from "@/lib/utils";
@@ -130,6 +133,23 @@ interface SortConfig {
 
 const DEFAULT_SORT: SortConfig = { key: "deadline", dir: "asc" };
 
+/**
+ * Tracks whether the viewport is below Tailwind's `md` breakpoint (< 768px).
+ * Used to swap the wide table for a stacked card list on phones.
+ * Listens to `resize` and cleans up on unmount.
+ */
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window === "undefined" ? false : window.innerWidth < 768
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
 // ============================================================================
 // Top-level view
 // ============================================================================
@@ -153,12 +173,42 @@ export function KanbanView() {
   const role: UserRole = profile?.role ?? "designer";
   const isAdmin = isAdminRole(role);
 
-  const [filter, setFilter] = useState<FilterTab>(defaultFilterForRole(role));
-  const [statusTab, setStatusTab] = useState<TaskStatus>(
-    defaultStatusTabForRole(role)
+  // URL params support deep-linking from dashboard KPI cards. We read once on
+  // mount (or whenever the search-string changes) and seed the filter/state.
+  // Local UI mutations don't write back — the URL is treated as the entry
+  // intent, not a live mirror of the user's clicks.
+  const [searchParams] = useSearchParams();
+  const urlStatus = searchParams.get("status") as TaskStatus | null;
+  const urlFilter = searchParams.get("filter") as FilterTab | null;
+  const urlOverdue = searchParams.get("overdue") === "1";
+  const urlFrom = searchParams.get("from"); // ISO yyyy-mm-dd
+  const urlTo = searchParams.get("to");
+  const urlDesigner = searchParams.get("designer"); // profile id
+
+  const [filter, setFilter] = useState<FilterTab>(
+    urlFilter ?? defaultFilterForRole(role)
   );
-  const [designerFilter, setDesignerFilter] = useState<string>("");
+  const [statusTab, setStatusTab] = useState<TaskStatus>(
+    urlStatus ?? defaultStatusTabForRole(role)
+  );
+  const [designerFilter, setDesignerFilter] = useState<string>(urlDesigner ?? "");
   const [search, setSearch] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState<boolean>(urlOverdue);
+  const [dateRange, setDateRange] = useState<{ from: string | null; to: string | null }>({
+    from: urlFrom,
+    to: urlTo,
+  });
+
+  // Re-sync state when the URL changes (e.g. clicking another KPI card while
+  // already on this page — the route is the same but params differ).
+  useEffect(() => {
+    if (urlStatus) setStatusTab(urlStatus);
+    if (urlFilter) setFilter(urlFilter);
+    setOverdueOnly(urlOverdue);
+    setDateRange({ from: urlFrom, to: urlTo });
+    if (urlDesigner !== null) setDesignerFilter(urlDesigner);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlStatus, urlFilter, urlOverdue, urlFrom, urlTo, urlDesigner]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [kittingTask, setKittingTask] = useState<TaskWithRelations | null>(null);
   const [editTask, setEditTask] = useState<TaskWithRelations | null>(null);
@@ -254,8 +304,36 @@ export function KanbanView() {
       list = list.filter((t) => t.assigned_to === designerFilter);
     }
 
+    // URL-driven filters from dashboard KPI deep-links.
+    if (overdueOnly) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      list = list.filter(
+        (t) =>
+          t.status !== "done" &&
+          t.planned_deadline &&
+          t.planned_deadline < todayStr
+      );
+    }
+    if (dateRange.from || dateRange.to) {
+      const from = dateRange.from ? new Date(dateRange.from).getTime() : -Infinity;
+      // To-date is inclusive of the day → end-of-day in epoch ms
+      const to = dateRange.to
+        ? new Date(dateRange.to + "T23:59:59.999").getTime()
+        : Infinity;
+      list = list.filter((t) => {
+        // For done tasks, anchor to completion; for open tasks, to creation.
+        // This makes "?status=done&from=X&to=Y" mean "shipped in window",
+        // while "?from=X&to=Y" without status filters to created-in-window.
+        const anchor =
+          t.completed_at ?? (t.status === "done" ? t.updated_at : t.created_at);
+        if (!anchor) return false;
+        const ts = new Date(anchor).getTime();
+        return ts >= from && ts <= to;
+      });
+    }
+
     return list;
-  }, [tasks, filter, user?.id, role, isAdmin, designerFilter]);
+  }, [tasks, filter, user?.id, role, isAdmin, designerFilter, overdueOnly, dateRange]);
 
   /** Search MATCHES — used for opacity dimming, not filtering. */
   const matchesSearch = useMemo(() => {
@@ -639,6 +717,36 @@ export function KanbanView() {
         onOpenShortcuts={() => setShortcutsHelpOpen(true)}
       />
 
+      {/* Deep-link filter chips. Shown only when arriving from a dashboard
+          KPI/badge click — gives the user a visible "this list is filtered"
+          signal + a one-click clear. Without this, an overdue/date-range
+          filter silently shrinks the table and looks like missing data. */}
+      {(overdueOnly || dateRange.from || dateRange.to) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+          <span className="font-medium text-primary">Filtered:</span>
+          {overdueOnly && (
+            <span className="rounded-full bg-destructive/15 px-2 py-0.5 font-medium text-destructive">
+              Overdue only
+            </span>
+          )}
+          {(dateRange.from || dateRange.to) && (
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary">
+              {dateRange.from ?? "…"} → {dateRange.to ?? "…"}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setOverdueOnly(false);
+              setDateRange({ from: null, to: null });
+            }}
+            className="ml-auto rounded-md border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           Failed to load tasks: {error}
@@ -950,7 +1058,9 @@ function BulkActionBar({
       role="region"
       aria-label="Bulk actions"
       className={cn(
-        "fixed bottom-4 left-1/2 z-40 -translate-x-1/2",
+        // On mobile, push above the MobileTabBar (h-16) + iOS safe area.
+        "fixed left-1/2 z-40 -translate-x-1/2",
+        "bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] md:bottom-4",
         "flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-xl",
         "animate-slide-up"
       )}
@@ -1226,6 +1336,7 @@ interface SectionProps {
 function TaskTableSection(props: SectionProps) {
   const { status, tasks, sort, canBulk, selectedIds, onToggleAll } = props;
   const sorted = useMemo(() => sortTasks(tasks, sort), [tasks, sort]);
+  const isMobile = useIsMobile();
 
   // Header select-all state: count how many visible (sorted) rows are selected.
   const visibleSelectedCount = useMemo(
@@ -1268,9 +1379,11 @@ function TaskTableSection(props: SectionProps) {
         </p>
       </div>
 
-      {/* Table */}
+      {/* Body — mobile: stacked cards. md+: wide horizontal-scrolling table. */}
       {tasks.length === 0 ? (
         <EmptySectionRow status={status} role={props.role} />
+      ) : isMobile ? (
+        <MobileCardList rows={sorted} sectionProps={props} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[2800px] text-sm">
@@ -1371,6 +1484,183 @@ const SECTION_HINTS: Record<TaskStatus, string> = {
   sampling: "",
   done: "Wrapped up.",
 };
+
+// ============================================================================
+// Mobile card list (< md). Renders below the wide table on phones.
+// ============================================================================
+
+function MobileCardList({
+  rows,
+  sectionProps,
+}: {
+  rows: TaskWithRelations[];
+  sectionProps: SectionProps;
+}) {
+  return (
+    <ul className="flex flex-col gap-2 p-3">
+      {rows.map((task, idx) => (
+        <MobileTaskCard
+          key={`${task.id}-${task.status}`}
+          task={task}
+          index={idx}
+          sectionProps={sectionProps}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function MobileTaskCard({
+  task,
+  index,
+  sectionProps,
+}: {
+  task: TaskWithRelations;
+  index: number;
+  sectionProps: SectionProps;
+}) {
+  const {
+    canBulk,
+    selectedIds,
+    onToggleRow,
+    onSelectTask,
+    onAccept,
+    onSelfAssign,
+    onAdvance,
+    onSubmitReview,
+    onFullKitting,
+    currentUserId,
+    role,
+    isPending,
+  } = sectionProps;
+
+  const isMine = currentUserId !== null && task.assigned_to === currentUserId;
+  const isUnassigned = !task.assigned_to;
+  const isAdmin = isAdminRole(role);
+  const isUrgent = task.priority === "urgent";
+  const selected = selectedIds.has(task.id);
+
+  const ctas = getCtasForRow({
+    task,
+    role,
+    isMine,
+    isUnassigned,
+    isAdmin,
+    // Section-level handlers expect the task object; bind per-card.
+    onAccept: () => onAccept(task),
+    onSelfAssign: () => onSelfAssign(task),
+    onAdvance: (s) => onAdvance(task, s),
+    onSubmitReview: () => onSubmitReview(task),
+    onFullKitting: () => onFullKitting(task),
+  });
+
+  return (
+    <li
+      onClick={() => onSelectTask(task.id)}
+      className={cn(
+        "rounded-xl border border-border bg-card p-3 transition-colors",
+        "hover:bg-card/80 active:bg-card/60 cursor-pointer",
+        selected && "bg-primary/[0.04] ring-1 ring-primary/40",
+        isUrgent && !selected && "border-destructive/30"
+      )}
+    >
+      {/* Row 1 — concept name + priority chip */}
+      <div className="flex items-start gap-2">
+        {canBulk && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) =>
+              onToggleRow(
+                task.id,
+                index,
+                (e.nativeEvent as MouseEvent).shiftKey
+              )
+            }
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Select task ${task.task_code}`}
+            className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-primary"
+          />
+        )}
+        <p className="line-clamp-1 flex-1 text-sm font-medium text-foreground">
+          {task.concept || task.task_code}
+        </p>
+        <Badge
+          className={cn(
+            "shrink-0 text-[10px]",
+            PRIORITY_COLORS[task.priority]
+          )}
+        >
+          {PRIORITY_LABELS[task.priority]}
+        </Badge>
+      </div>
+
+      {/* Row 2 — client · fabric */}
+      <p className="mt-1 truncate text-xs text-muted-foreground">
+        {task.client?.party_name ?? "—"}
+        {task.fabric && <> · {task.fabric}</>}
+      </p>
+
+      {/* Row 3 — assignee + deadline */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {task.assignee ? (
+            <>
+              <Avatar className="h-6 w-6">
+                {task.assignee.avatar_url ? (
+                  <AvatarImage src={task.assignee.avatar_url} />
+                ) : null}
+                <AvatarFallback className="text-[9px]">
+                  {getInitials(task.assignee.full_name)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="truncate text-xs text-foreground">
+                {task.assignee.full_name}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs italic text-muted-foreground">Open</span>
+          )}
+        </div>
+        <DeadlineCell deadline={task.planned_deadline} />
+      </div>
+
+      {/* Row 4 — status chip + CTAs */}
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/60 pt-2">
+        <Badge className={cn("text-[10px]", STATUS_COLORS[task.status])}>
+          {STATUS_LABELS[task.status]}
+        </Badge>
+        <div
+          className="flex flex-wrap items-center justify-end gap-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {ctas.slice(0, 2).map((cta) => {
+            const pending = cta.pendingOp
+              ? isPending(cta.pendingOp, task.id)
+              : false;
+            const Icon = cta.icon;
+            return (
+              <button
+                key={cta.label}
+                type="button"
+                onClick={cta.onClick}
+                disabled={pending}
+                className={cn(
+                  "inline-flex min-h-[40px] items-center gap-1 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50",
+                  CTA_CLASSES[cta.variant]
+                )}
+                aria-label={cta.label}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {cta.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </li>
+  );
+}
 
 // ----------------- empty state row -----------------
 
@@ -1743,10 +2033,15 @@ function TaskRow({
         )}
       </td>
 
-      {/* 19 + 20. Full Knitting toggle + FK Form (shared optimistic state) */}
+      {/* 19 + 20. Full Knitting toggle + FK Form (shared optimistic state)
+          `canEdit` gates the editable <select>: per RLS, designers can only
+          update tasks they're assigned to (or created). Letting them toggle
+          a row they don't own triggers the "Cannot coerce" RLS error in the
+          UPDATE→SELECT chain. Admins/coordinators see the toggle everywhere. */}
       <FullKnittingCells
         task={task}
         isAdmin={isAdmin}
+        canEdit={isAdmin || isMine}
         onFullKitting={onFullKitting}
       />
 
@@ -2020,7 +2315,7 @@ function RowActionMenu({
         ref={triggerRef}
         type="button"
         onClick={handleToggle}
-        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         aria-label="Task actions"
       >
         <MoreVertical className="h-4 w-4" />
@@ -2089,10 +2384,18 @@ function RowActionMenu({
 function FullKnittingCells({
   task,
   isAdmin,
+  canEdit,
   onFullKitting,
 }: {
   task: TaskWithRelations;
   isAdmin: boolean;
+  /**
+   * Whether the current user is allowed to update this task's full_kitting
+   * fields. False for designers viewing a teammate's or pool task — they
+   * should see the value but not get an editable control that would error
+   * on submit (RLS hides the SELECT-after-UPDATE row → "Cannot coerce").
+   */
+  canEdit: boolean;
   onFullKitting: () => void;
 }) {
   const { updateTask } = useTaskMutations();
@@ -2126,23 +2429,37 @@ function FullKnittingCells({
 
   return (
     <>
-      {/* Full Knitting toggle */}
+      {/* Full Knitting toggle (editable only when user owns the task or is admin) */}
       <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
-        <select
-          value={isYes ? "yes" : "no"}
-          onChange={(e) => void handleToggle(e.target.value)}
-          disabled={toggling}
-          className={cn(
-            "h-7 rounded-md border px-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
-            isYes
-              ? "border-primary/40 bg-primary/10 text-primary"
-              : "border-border bg-card text-muted-foreground",
-            toggling && "opacity-50"
-          )}
-        >
-          <option value="no">No</option>
-          <option value="yes">Yes</option>
-        </select>
+        {canEdit ? (
+          <select
+            value={isYes ? "yes" : "no"}
+            onChange={(e) => void handleToggle(e.target.value)}
+            disabled={toggling}
+            className={cn(
+              "h-7 rounded-md border px-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
+              isYes
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border bg-card text-muted-foreground",
+              toggling && "opacity-50"
+            )}
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        ) : (
+          <span
+            className={cn(
+              "inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium",
+              isYes
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border bg-secondary/40 text-muted-foreground"
+            )}
+            title="Only the task's assignee or an admin can change this."
+          >
+            {isYes ? "Yes" : "No"}
+          </span>
+        )}
       </td>
 
       {/* FK Form — appears instantly when Yes; shows saved data if submitted */}
@@ -2165,15 +2482,26 @@ function FullKnittingCells({
                 File attached
               </span>
             )}
-            {/* Knitting Form button */}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onFullKitting(); }}
-              className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
-            >
-              <Plus className="h-3 w-3" />
-              {task.full_kitting_submitted_at ? "View / Edit" : "Knitting Form"}
-            </button>
+            {/* Knitting Form button — non-owners get a read-only "View"
+                variant only when a kitting record exists; otherwise hidden. */}
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onFullKitting(); }}
+                className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
+              >
+                <Plus className="h-3 w-3" />
+                {task.full_kitting_submitted_at ? "View / Edit" : "Knitting Form"}
+              </button>
+            ) : task.full_kitting_submitted_at ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onFullKitting(); }}
+                className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/80"
+              >
+                View
+              </button>
+            ) : null}
           </div>
         ) : (
           <span className="text-[11px] text-muted-foreground">—</span>

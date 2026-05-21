@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryKeys } from "@/lib/queryKeys";
 import type { Profile, UserRole } from "@/types/database";
 
 interface Options {
@@ -7,36 +8,30 @@ interface Options {
   roles?: UserRole[];
 }
 
+async function fetchProfiles(roles: UserRole[] | undefined): Promise<Profile[]> {
+  let q = supabase.from("profiles").select("*").order("full_name");
+  if (roles && roles.length) {
+    q = q.in("role", roles);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
 /** Lists profiles, optionally filtered by role. Ordered by full_name. */
 export function useProfiles({ roles }: Options = {}) {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+  // Stable key — sorted + joined so callers passing new array refs reuse cache.
   const rolesKey = roles ? roles.slice().sort().join(",") : "";
-
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    let q = supabase.from("profiles").select("*").order("full_name");
-    if (roles && roles.length) {
-      q = q.in("role", roles);
-    }
-    const { data, error: err } = await q;
-    if (err) {
-      setError(err.message);
-      setProfiles([]);
-    } else {
-      setProfiles(data ?? []);
-    }
-    setIsLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rolesKey]);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  return { profiles, totalCount: profiles.length, isLoading, error, refetch };
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: queryKeys.profiles.byRole(rolesKey),
+    queryFn: () => fetchProfiles(roles),
+  });
+  const profiles = data ?? [];
+  return {
+    profiles,
+    totalCount: profiles.length,
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+    refetch,
+  };
 }

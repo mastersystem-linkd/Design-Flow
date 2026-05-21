@@ -147,8 +147,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Skip a duplicate fetch if we already have this user's profile.
-        if (newUserId === lastFetchedUserId.current && profile) {
+        // Skip a duplicate fetch if we've already looked this user up.
+        //
+        // Supabase's auth client re-fires SIGNED_IN whenever the tab regains
+        // visibility (and on TOKEN_REFRESHED in some versions). We only want
+        // to skeleton + refetch when the *user* genuinely changed, so the
+        // dedup key is the user id, not the freshness of the `profile` state.
+        //
+        // (Earlier we also checked `&& profile`, but `profile` was captured
+        // from the closure of the *first* effect run — always `null` — so the
+        // check could never short-circuit and every tab-focus flashed the
+        // AppShellSkeleton.)
+        if (newUserId === lastFetchedUserId.current) {
           setProfileChecked(true);
           return;
         }

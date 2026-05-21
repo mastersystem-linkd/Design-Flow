@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { CheckCircle2, Package, ChevronRight, Upload, X, Paperclip } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useFullKitting, type KittingFormData } from "@/hooks/useFullKitting";
 import {
@@ -105,15 +106,17 @@ export function FullKittingModal({
   const [confirmClose, setConfirmClose] = useState(false);
   const [completing, setCompleting] = useState(false);
 
-  // File upload state
-  const [file, setFile] = useState<File | null>(null);
+  // File upload state — multi-file. Files are kept in memory (not uploaded
+  // yet) and pushed to storage during submit. Per-file size guard runs at
+  // pick time so we don't bother uploading anything too large.
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function resetState() {
     setStep(1);
     setFormData({ packing_type: "standard" });
-    setFile(null);
+    setFiles([]);
     setConfirmClose(false);
     setCompleting(false);
   }
@@ -150,27 +153,40 @@ export function FullKittingModal({
       return;
     }
 
-    let fileUrl: string | null = null;
-
-    // Upload file to sample-files bucket if one was selected
-    if (file) {
+    // Upload every selected file in order. First successful path becomes
+    // `file_url` (legacy single-file readers). Failure of any one file
+    // aborts the whole submit — partial uploads would leave orphaned
+    // objects in storage with no DB pointer.
+    const uploadedPaths: string[] = [];
+    if (files.length > 0) {
       setUploading(true);
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${user.id}/kitting/${task.id}/${Date.now()}-${safeName}`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from("sample-files")
-        .upload(path, file, { contentType: file.type || "application/octet-stream" });
-
-      setUploading(false);
-      if (uploadErr) {
-        toast.error(`File upload failed: ${uploadErr.message}`);
-        return;
+      try {
+        for (const f of files) {
+          const processed = await compressImage(f);
+          const safeName = processed.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `${user.id}/kitting/${task.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+          const { error: uploadErr } = await supabase.storage
+            .from("sample-files")
+            .upload(path, processed, {
+              contentType: processed.type || "application/octet-stream",
+            });
+          if (uploadErr) {
+            setUploading(false);
+            toast.error(`File upload failed for "${f.name}": ${uploadErr.message}`);
+            return;
+          }
+          uploadedPaths.push(path);
+        }
+      } finally {
+        setUploading(false);
       }
-      fileUrl = path;
     }
 
-    const { error } = await submitKitting(task.id, { ...formData, file_url: fileUrl });
+    const { error } = await submitKitting(task.id, {
+      ...formData,
+      files: uploadedPaths,
+      file_url: uploadedPaths[0] ?? null,
+    });
     if (error) {
       toast.error(error);
       return;
@@ -233,8 +249,8 @@ export function FullKittingModal({
               fields={KITTING_FIELDS}
               formData={formData}
               updateField={updateField}
-              file={file}
-              onFileChange={setFile}
+              files={files}
+              onFilesChange={setFiles}
               fileInputRef={fileInputRef}
               uploading={uploading}
               onSubmit={handleSubmitKitting}
@@ -358,8 +374,8 @@ function StepKittingForm({
   fields,
   formData,
   updateField,
-  file,
-  onFileChange,
+  files,
+  onFilesChange,
   fileInputRef,
   uploading,
   onSubmit,
@@ -372,8 +388,8 @@ function StepKittingForm({
     key: K,
     value: KittingFormData[K]
   ) => void;
-  file: File | null;
-  onFileChange: (f: File | null) => void;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
   uploading: boolean;
   onSubmit: () => void;
@@ -444,53 +460,76 @@ function StepKittingForm({
         </div>
       ))}
 
-      {/* ── File / Image upload ── */}
+      {/* ── File / Image upload — multi-file. Picked files queue in memory
+          and upload on submit. Per-file 100 MB cap. */}
       <div className="space-y-1.5">
-        <Label>Attachment (optional)</Label>
+        <Label>Attachments (optional)</Label>
         <input
           ref={fileInputRef}
           type="file"
           accept="*/*"
+          multiple
           className="hidden"
           onChange={(e) => {
-            const f = e.target.files?.[0] ?? null;
-            if (f && f.size > 100 * 1024 * 1024) {
-              toast.error("File too large — max 100 MB");
+            const picked = Array.from(e.target.files ?? []);
+            if (picked.length === 0) return;
+            const tooBig = picked.find((f) => f.size > 100 * 1024 * 1024);
+            if (tooBig) {
+              toast.error(
+                `"${tooBig.name}" is over 100 MB — each file must be 100 MB or less.`
+              );
+              if (e.target) e.target.value = "";
               return;
             }
-            onFileChange(f);
+            onFilesChange([...files, ...picked]);
             if (e.target) e.target.value = "";
           }}
         />
-        {file ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
-            <Paperclip className="h-4 w-4 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-              {file.name}
-            </span>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {(file.size / 1024 / 1024).toFixed(1)} MB
-            </span>
-            <button
-              type="button"
-              onClick={() => onFileChange(null)}
-              disabled={busy}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card py-3 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
-          >
-            <Upload className="h-4 w-4" />
-            Choose file · max 100 MB
-          </button>
+
+        {files.length > 0 && (
+          <ul className="space-y-1.5">
+            {files.map((f, i) => (
+              <li
+                key={`${f.name}-${i}`}
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+              >
+                <Paperclip className="h-4 w-4 shrink-0 text-primary" />
+                <span
+                  className="min-w-0 flex-1 truncate text-sm text-foreground"
+                  title={f.name}
+                >
+                  {f.name}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {(f.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onFilesChange(files.filter((_, idx) => idx !== i))
+                  }
+                  disabled={busy}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  aria-label={`Remove ${f.name}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card py-3 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
+        >
+          <Upload className="h-4 w-4" />
+          {files.length > 0
+            ? `Add more files · max 100 MB each`
+            : `Choose files · max 100 MB each`}
+        </button>
       </div>
 
       <div className="flex gap-3 pt-2">

@@ -909,6 +909,63 @@ export function ScorecardDetailView() {
               </span>
               <span className="ml-2 text-muted-foreground/70">target: &lt; 24h</span>
             </p>
+            {/* Completion + revision-cycle footnote — exposes the gap between
+                "MD approved" and "actually shipped" so the reviewer can spot a
+                designer who lands approvals but stalls on finalisation. */}
+            <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                  Shipped
+                </div>
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      data.concept.approved === 0
+                        ? "text-muted-foreground"
+                        : data.concept.completionRate >= 70
+                        ? "text-success"
+                        : data.concept.completionRate >= 40
+                        ? "text-warning"
+                        : "text-destructive"
+                    )}
+                  >
+                    {data.concept.completed}
+                    <span className="text-muted-foreground/60">/{data.concept.approved}</span>
+                  </span>
+                  {data.concept.approved > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      ({data.concept.completionRate}%)
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                  Revision cycles
+                </div>
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      data.concept.revisionCycles === 0
+                        ? "text-success"
+                        : data.concept.submitted > 0 &&
+                          data.concept.revisionCycles / data.concept.submitted > 0.5
+                        ? "text-destructive"
+                        : "text-foreground"
+                    )}
+                  >
+                    {data.concept.revisionCycles}
+                  </span>
+                  {data.concept.submitted > 0 && data.concept.revisionCycles > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      ({(data.concept.revisionCycles / data.concept.submitted).toFixed(1)} per submission)
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -984,6 +1041,60 @@ export function ScorecardDetailView() {
                 );
               })()}
             </p>
+            {/* Cycle time + late count footnote — "Avg completion" above is
+                delay-from-deadline; this splits out true effort time
+                (assigned→done) and the count of late completions in the same
+                window so the two signals don't get mistaken for each other. */}
+            <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                  Cycle time
+                </div>
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      data.task.completed === 0
+                        ? "text-muted-foreground"
+                        : data.task.avgCycleDays <= 3
+                        ? "text-success"
+                        : data.task.avgCycleDays <= 6
+                        ? "text-warning"
+                        : "text-destructive"
+                    )}
+                  >
+                    {data.task.completed === 0 ? "—" : `${data.task.avgCycleDays}d`}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    assigned→done
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                  Late completions
+                </div>
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      data.task.late === 0
+                        ? "text-success"
+                        : data.task.late > data.task.onTime
+                        ? "text-destructive"
+                        : "text-warning"
+                    )}
+                  >
+                    {data.task.late}
+                  </span>
+                  {data.task.completed > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      of {data.task.completed}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
       </div>
@@ -1136,10 +1247,13 @@ export function ScorecardDetailView() {
         </Card>
       </div>
 
-      {/* ── ROW: Priority + Vs Team + Concept Funnel ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border border-border">
-          <div className="p-4">
+      {/* ── ROW: Priority + Vs Team + Concept Funnel ──
+          `items-stretch` + `h-full` on every card so the priority donut
+          (now substantially taller after the redesign) doesn't leave gaps
+          next to its row-mates. */}
+      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Zap className="h-3 w-3" />
               <span>Priority</span>
@@ -1147,12 +1261,14 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Task priority mix
             </h3>
-            <PriorityBreakdown data={priorityBreakdown} />
+            <div className="flex-1">
+              <PriorityBreakdown data={priorityBreakdown} />
+            </div>
           </div>
         </Card>
 
-        <Card className="border border-border">
-          <div className="p-4">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Layers className="h-3 w-3" />
               <span>Comparison</span>
@@ -1160,12 +1276,14 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               You vs team average
             </h3>
-            <VsTeamChart data={vsTeam} />
+            <div className="flex-1">
+              <VsTeamChart data={vsTeam} />
+            </div>
           </div>
         </Card>
 
-        <Card className="border border-border">
-          <div className="p-4">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <GitBranch className="h-3 w-3" />
               <span>Concepts</span>
@@ -1173,7 +1291,9 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Pipeline funnel
             </h3>
-            <ConceptFunnelChart data={conceptFunnel} />
+            <div className="flex-1">
+              <ConceptFunnelChart data={conceptFunnel} />
+            </div>
           </div>
         </Card>
       </div>
@@ -2621,17 +2741,43 @@ function PriorityBreakdown({
   data: { label: string; value: number; color: string }[];
 }) {
   const total = data.reduce((s, d) => s + d.value, 0);
-  const r = 32;
+  // Larger ring (r=68) so the donut feels like the visual anchor of the
+  // card — the old r=32 was lost on a 340px-wide column.
+  const r = 68;
   const c = 2 * Math.PI * r;
+  const stroke = 18;
+
+  // Tone metadata for both the donut stroke and the legend row. Keeping
+  // these together so the bar fill and dot match perfectly without two
+  // separate Tailwind-class lookups.
+  const meta: Record<
+    string,
+    { stroke: string; barClass: string; dotClass: string }
+  > = {
+    Urgent: {
+      stroke: "rgb(var(--destructive))",
+      barClass: "bg-destructive",
+      dotClass: "bg-destructive",
+    },
+    High: {
+      stroke: "rgb(var(--warning))",
+      barClass: "bg-warning",
+      dotClass: "bg-warning",
+    },
+    Normal: {
+      stroke: "rgb(var(--primary))",
+      barClass: "bg-primary",
+      dotClass: "bg-primary",
+    },
+    Low: {
+      stroke: "rgb(var(--muted-foreground))",
+      barClass: "bg-muted-foreground/60",
+      dotClass: "bg-muted-foreground/60",
+    },
+  };
 
   const segments = useMemo(() => {
     if (total === 0) return [];
-    const colorMap: Record<string, string> = {
-      Urgent: "rgb(var(--destructive))",
-      High: "rgb(var(--warning))",
-      Normal: "rgb(var(--primary))",
-      Low: "rgb(var(--muted))",
-    };
     let cumulative = 0;
     return data
       .filter((d) => d.value > 0)
@@ -2639,68 +2785,138 @@ function PriorityBreakdown({
         const length = (d.value / total) * c;
         const offset = c - cumulative;
         cumulative += length;
-        return { ...d, length, offset, hex: colorMap[d.label] ?? "rgb(var(--primary))" };
+        return {
+          ...d,
+          length,
+          offset,
+          stroke: meta[d.label]?.stroke ?? "rgb(var(--primary))",
+        };
       });
+    // meta is stable in this render; total/data drive recompute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, total, c]);
+
+  // Identify the dominant priority for the centre annotation ("mostly X").
+  // Falls back to a neutral "tasks" footer when there's no clear winner.
+  const dominant = useMemo(() => {
+    if (total === 0) return null;
+    const best = [...data].sort((a, b) => b.value - a.value)[0];
+    if (!best || best.value === 0) return null;
+    const pct = Math.round((best.value / total) * 100);
+    return { label: best.label, pct };
+  }, [data, total]);
 
   if (total === 0) {
     return (
-      <p className="mt-4 rounded-lg bg-secondary/40 p-3 text-center text-xs italic text-muted-foreground">
-        No tasks scheduled in this range
-      </p>
+      <div className="mt-4 flex flex-col items-center justify-center rounded-xl bg-secondary/40 px-4 py-10 text-center">
+        <Zap className="mb-2 h-6 w-6 text-muted-foreground/60" />
+        <p className="text-xs italic text-muted-foreground">
+          No tasks scheduled in this range
+        </p>
+      </div>
     );
   }
 
   return (
-    <div className="mt-3 flex items-center gap-4">
-      <div className="relative h-[84px] w-[84px] shrink-0">
-        <svg viewBox="0 0 90 90" className="-rotate-90 h-full w-full" aria-hidden>
+    <div className="mt-3 flex flex-col items-center gap-5">
+      {/* Donut hero — large, centered, with two lines of text inside. */}
+      <div className="relative h-[180px] w-[180px] shrink-0">
+        <svg
+          viewBox="0 0 180 180"
+          className="-rotate-90 h-full w-full"
+          aria-hidden
+        >
+          {/* Track */}
           <circle
-            cx="45"
-            cy="45"
+            cx="90"
+            cy="90"
             r={r}
             fill="none"
             stroke="rgb(var(--secondary))"
-            strokeWidth={9}
+            strokeWidth={stroke}
           />
+          {/* Segments */}
           {segments.map((s, i) => (
             <circle
               key={i}
-              cx="45"
-              cy="45"
+              cx="90"
+              cy="90"
               r={r}
               fill="none"
-              stroke={s.hex}
-              strokeWidth={9}
+              stroke={s.stroke}
+              strokeWidth={stroke}
+              strokeLinecap={segments.length === 1 ? "round" : "butt"}
               strokeDasharray={`${s.length} ${c - s.length}`}
               strokeDashoffset={s.offset}
+              style={{
+                transition: "stroke-dasharray 700ms cubic-bezier(0.4,0,0.2,1)",
+              }}
             />
           ))}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <p className="text-base font-bold tabular-nums text-foreground">{total}</p>
-          <p className="text-[8px] uppercase tracking-wider text-muted-foreground">
+          <p className="text-4xl font-bold leading-none tabular-nums text-foreground">
+            {total}
+          </p>
+          <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             tasks
           </p>
+          {dominant && (
+            <p className="mt-2 max-w-[120px] text-center text-[10px] text-muted-foreground">
+              mostly{" "}
+              <span className="font-semibold text-foreground">
+                {dominant.label.toLowerCase()}
+              </span>{" "}
+              ({dominant.pct}%)
+            </p>
+          )}
         </div>
       </div>
-      <div className="flex-1 space-y-1 text-xs">
+
+      {/* Legend — each row has dot · label · proportion bar · count/% */}
+      <ul className="w-full space-y-2">
         {data.map((d) => {
-          const pct = total > 0 ? Math.round((d.value / total) * 100) : 0;
+          const pct = total > 0 ? (d.value / total) * 100 : 0;
+          const tone = meta[d.label];
+          const isZero = d.value === 0;
           return (
-            <div key={d.label} className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                <span className={cn("h-2 w-2 rounded-full", d.color)} />
-                {d.label}
-              </span>
+            <li
+              key={d.label}
+              className={cn(
+                "grid grid-cols-[auto_64px_1fr_auto] items-center gap-2 text-xs",
+                isZero && "opacity-50"
+              )}
+            >
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  tone?.dotClass ?? "bg-muted"
+                )}
+              />
+              <span className="font-medium text-foreground">{d.label}</span>
+              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-[width]",
+                    tone?.barClass ?? "bg-primary"
+                  )}
+                  style={{
+                    width: `${pct}%`,
+                    transitionDuration: "700ms",
+                    transitionDelay: "150ms",
+                  }}
+                />
+              </div>
               <span className="tabular-nums text-foreground">
                 {d.value}
-                <span className="ml-1 text-[10px] text-muted-foreground">({pct}%)</span>
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  ({Math.round(pct)}%)
+                </span>
               </span>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </div>
   );
 }

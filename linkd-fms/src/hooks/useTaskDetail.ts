@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryKeys } from "@/lib/queryKeys";
 import type {
   FileRecord,
   Profile,
@@ -17,13 +18,16 @@ export interface TaskLogWithUser extends TaskLog {
   changer: ProfileLite | null;
 }
 
-export interface UseTaskDetailResult {
+interface TaskDetailBundle {
   task: TaskWithRelations | null;
   files: FileWithUploader[];
   logs: TaskLogWithUser[];
+}
+
+export interface UseTaskDetailResult extends TaskDetailBundle {
   isLoading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: () => unknown;
 }
 
 const TASK_SELECT = `
@@ -44,59 +48,47 @@ const LOG_SELECT = `
   changer:profiles!task_logs_changed_by_fkey(id, full_name, role, avatar_url)
 `;
 
+async function fetchTaskDetail(taskId: string): Promise<TaskDetailBundle> {
+  const [taskRes, filesRes, logsRes] = await Promise.all([
+    supabase.from("tasks").select(TASK_SELECT).eq("id", taskId).single(),
+    supabase
+      .from("files")
+      .select(FILE_SELECT)
+      .eq("task_id", taskId)
+      .order("uploaded_at", { ascending: false }),
+    supabase
+      .from("task_logs")
+      .select(LOG_SELECT)
+      .eq("task_id", taskId)
+      .order("timestamp", { ascending: false }),
+  ]);
+
+  if (taskRes.error) throw taskRes.error;
+  return {
+    task: taskRes.data as unknown as TaskWithRelations,
+    files: (filesRes.data ?? []) as unknown as FileWithUploader[],
+    logs: (logsRes.data ?? []) as unknown as TaskLogWithUser[],
+  };
+}
+
 /**
  * Fetches a task + its files + its activity log in parallel. Re-runs whenever
  * `taskId` changes. Pass `null` to disable.
  */
 export function useTaskDetail(taskId: string | null): UseTaskDetailResult {
-  const [task, setTask] = useState<TaskWithRelations | null>(null);
-  const [files, setFiles] = useState<FileWithUploader[]>([]);
-  const [logs, setLogs] = useState<TaskLogWithUser[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const enabled = !!taskId;
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: queryKeys.tasks.detail(taskId ?? ""),
+    queryFn: () => fetchTaskDetail(taskId as string),
+    enabled,
+  });
 
-  const fetchAll = useCallback(async () => {
-    if (!taskId) {
-      setTask(null);
-      setFiles([]);
-      setLogs([]);
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-
-    const [taskRes, filesRes, logsRes] = await Promise.all([
-      supabase.from("tasks").select(TASK_SELECT).eq("id", taskId).single(),
-      supabase
-        .from("files")
-        .select(FILE_SELECT)
-        .eq("task_id", taskId)
-        .order("uploaded_at", { ascending: false }),
-      supabase
-        .from("task_logs")
-        .select(LOG_SELECT)
-        .eq("task_id", taskId)
-        .order("timestamp", { ascending: false }),
-    ]);
-
-    if (taskRes.error) {
-      setError(taskRes.error.message);
-      setTask(null);
-      setFiles([]);
-      setLogs([]);
-    } else {
-      setTask(taskRes.data as unknown as TaskWithRelations);
-      setFiles((filesRes.data ?? []) as unknown as FileWithUploader[]);
-      setLogs((logsRes.data ?? []) as unknown as TaskLogWithUser[]);
-    }
-    setIsLoading(false);
-  }, [taskId]);
-
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
-
-  return { task, files, logs, isLoading, error, refetch: fetchAll };
+  return {
+    task: data?.task ?? null,
+    files: data?.files ?? [],
+    logs: data?.logs ?? [],
+    isLoading: enabled ? isLoading : false,
+    error: error instanceof Error ? error.message : null,
+    refetch,
+  };
 }

@@ -47,34 +47,15 @@ export function NotificationBell() {
   const [pulse, setPulse] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Pulse animation + browser title flash when unreadCount increases.
+  // Bell-icon pulse when unread count climbs. The browser-tab title flash
+  // used to live here too but it now belongs to `useNotifications` (so it
+  // can react to the exact realtime INSERT moment + visibility state),
+  // avoiding two competing intervals fighting over `document.title`.
   useEffect(() => {
     if (unreadCount > prevCount) {
       setPulse(true);
       const t = setTimeout(() => setPulse(false), 2500);
-
-      // Flash the browser tab title to catch attention
-      const originalTitle = document.title;
-      let flash = true;
-      const titleInterval = setInterval(() => {
-        document.title = flash
-          ? `(${unreadCount}) New Notification!`
-          : originalTitle;
-        flash = !flash;
-      }, 1000);
-
-      // Stop flashing after 10 seconds
-      const stopFlash = setTimeout(() => {
-        clearInterval(titleInterval);
-        document.title = originalTitle;
-      }, 10_000);
-
-      return () => {
-        clearTimeout(t);
-        clearInterval(titleInterval);
-        clearTimeout(stopFlash);
-        document.title = originalTitle;
-      };
+      return () => clearTimeout(t);
     }
     setPrevCount(unreadCount);
   }, [unreadCount, prevCount]);
@@ -130,9 +111,19 @@ export function NotificationBell() {
           )}
         />
         {displayBadge && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold tabular-nums text-destructive-foreground">
-            {displayBadge}
-          </span>
+          <>
+            {/* Outer ring pulse for attention — sits behind the readable badge */}
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -top-0.5 inline-flex h-4 w-4 animate-ping rounded-full bg-destructive opacity-60 motion-reduce:animate-none"
+            />
+            <span
+              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold tabular-nums text-destructive-foreground"
+              aria-live="polite"
+            >
+              {displayBadge}
+            </span>
+          </>
         )}
       </button>
 

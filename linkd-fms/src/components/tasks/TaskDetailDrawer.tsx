@@ -16,9 +16,12 @@ import {
   Minus,
   Plus,
   AlertTriangle,
+  MessageSquare,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { toast } from "@/components/ui";
+import { toast, LazyImage } from "@/components/ui";
 import {
   Sheet,
   SheetContent,
@@ -36,10 +39,14 @@ import {
   getInitials,
 } from "@/components/ui/avatar";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaskDetail, type FileWithUploader, type TaskLogWithUser } from "@/hooks/useTaskDetail";
 import { useTaskMutations, type UpdateTaskFields } from "@/hooks/useTaskMutations";
+import { useTaskComments } from "@/hooks/useTaskComments";
 import { useProfiles } from "@/hooks/useProfiles";
+import { getSamplesForTask } from "@/hooks/useSamples";
+import { sendNotification } from "@/lib/notifications";
 import {
   STATUS_ORDER,
   STATUS_LABELS,
@@ -61,6 +68,7 @@ import type {
   TaskWithRelations,
   UserRole,
   Profile,
+  Sample,
 } from "@/types/database";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -196,6 +204,10 @@ export function TaskDetailDrawer({
               )}
 
               <ActivityLog logs={logs} />
+
+              <Discussion task={task} />
+
+              <SamplingRecords task={task} />
             </div>
 
             <ActionFooter
@@ -625,6 +637,15 @@ function EditableBriefDetails({
 }) {
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
 
+  // Reassignment lock matches the same rule used by the inline AssigneeRow
+  // (admin-only Change dropdown). Once the task hits a finished state we
+  // keep the field visible but read-only so the form still shows who owns
+  // it without inviting an edit that would rewrite history.
+  const assignmentLocked =
+    task.status === "done" ||
+    task.status === "approved" ||
+    task.status === "sampling";
+
   const [description, setDescription] = useState(task.description ?? "");
   const [notes, setNotes] = useState(task.notes ?? "");
   const [deadline, setDeadline] = useState(task.planned_deadline ?? "");
@@ -650,7 +671,10 @@ function EditableBriefDetails({
       notes: notes.trim() || null,
       planned_deadline: deadline || null,
       priority,
-      assigned_to: assignedTo || null,
+      // Drop assigned_to entirely when the task is finished — belt-and-braces
+      // alongside the disabled <select>. Even if a stale form submits, the
+      // assignee stays put.
+      ...(assignmentLocked ? {} : { assigned_to: assignedTo || null }),
       whatsapp_group: whatsappGroup.trim() || null,
       qty: qtyNum,
       mtr: Number.isFinite(mtrNum as number) ? (mtrNum as number) : null,
@@ -726,16 +750,26 @@ function EditableBriefDetails({
           </div>
         </div>
 
-        {/* Assigned to */}
+        {/* Assigned to — locked once the task is finished. */}
         <div className="space-y-1">
-          <Label htmlFor="ed-assigned" className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <Label htmlFor="ed-assigned" className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
             Assigned to
+            {assignmentLocked && (
+              <span className="rounded-full border border-border bg-secondary/40 px-1.5 py-0 text-[9px] font-medium text-muted-foreground">
+                Locked
+              </span>
+            )}
           </Label>
           <select
             id="ed-assigned"
             value={assignedTo}
             onChange={(e) => setAssignedTo(e.target.value)}
-            disabled={isPending}
+            disabled={isPending || assignmentLocked}
+            title={
+              assignmentLocked
+                ? `Assignee can't be changed after the task is ${task.status}.`
+                : undefined
+            }
             className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
           >
             <option value="">Unassigned</option>
@@ -913,21 +947,11 @@ function BriefDetails({
         </InfoCard>
 
         <InfoCard label="Assigned to">
-          {task.assignee ? (
-            <span className="flex items-center gap-1.5">
-              <Avatar className="h-5 w-5">
-                {task.assignee.avatar_url ? (
-                  <AvatarImage src={task.assignee.avatar_url} />
-                ) : null}
-                <AvatarFallback className="text-[9px]">
-                  {getInitials(task.assignee.full_name)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="truncate">{task.assignee.full_name}</span>
-            </span>
-          ) : (
-            <UnassignedRow taskId={task.id} isAdmin={isAdmin} onAssigned={onChanged} />
-          )}
+          <AssigneeRow
+            task={task}
+            isAdmin={isAdmin}
+            onAssigned={onChanged}
+          />
         </InfoCard>
       </div>
 
@@ -982,74 +1006,185 @@ function InfoCard({
   );
 }
 
-function UnassignedRow({
-  taskId,
+/**
+ * Assignee row in the brief-details grid.
+ *
+ * Two modes:
+ *   - Unassigned (Open Pool): admins/coordinators see "Open Pool" + an
+ *     "Assign" dropdown to pick a designer.
+ *   - Assigned: everyone sees the avatar + name. Admins/coordinators also
+ *     see a "Change" trigger that opens the same designer picker, plus an
+ *     "Unassign" option (sends the task back to the pool) when status allows.
+ *
+ * Why merged with the pool case: admins repeatedly asked for a one-click
+ * reassign after a designer claims a task in the wrong column or goes on
+ * leave. Forcing them into the Edit drawer was an extra step that hid the
+ * action.
+ */
+function AssigneeRow({
+  task,
   isAdmin,
   onAssigned,
 }: {
-  taskId: string;
+  task: TaskWithRelations;
   isAdmin: boolean;
   onAssigned: () => void;
 }) {
-  const { assignTask, isPending } = useTaskMutations();
+  const { assignTask, updateTask, isPending } = useTaskMutations();
   const { profiles } = useProfiles({ roles: ["designer"] });
-  const pending = isPending("assign", taskId);
+  const pending = isPending("assign", task.id) || isPending("updateTask", task.id);
+  const currentId = task.assigned_to ?? null;
 
   async function assign(designerId: string) {
-    const { error } = await assignTask(taskId, designerId);
+    if (designerId === currentId) return; // no-op
+    const { error } = await assignTask(task.id, designerId);
     if (error) {
       toast.error(error);
       return;
     }
-    toast.success("Task assigned");
+    toast.success(currentId ? "Designer changed" : "Task assigned");
     onAssigned();
   }
 
-  if (!isAdmin) {
-    return <span className="italic text-muted-foreground">Open Pool</span>;
+  // Reassignment is locked once the task reaches a "finished" state —
+  // changing who owns a task that's already shipped (or about to ship)
+  // rewrites history and confuses analytics. Admins can still see the
+  // current assignee, just not change it.
+  const isFinished =
+    task.status === "done" ||
+    task.status === "approved" ||
+    task.status === "sampling";
+  const canReassign = isAdmin && !isFinished;
+  // "Send back to pool" — same gate, plus we need an assignee to clear.
+  const canUnassign = !!currentId && canReassign;
+
+  async function unassign() {
+    const { error } = await updateTask(task.id, { assigned_to: null });
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success("Task sent back to Pool");
+    onAssigned();
   }
+
+  // Designer / non-admin view: read-only label.
+  if (!isAdmin) {
+    return task.assignee ? (
+      <span className="flex items-center gap-1.5">
+        <Avatar className="h-5 w-5">
+          {task.assignee.avatar_url ? (
+            <AvatarImage src={task.assignee.avatar_url} />
+          ) : null}
+          <AvatarFallback className="text-[9px]">
+            {getInitials(task.assignee.full_name)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate">{task.assignee.full_name}</span>
+      </span>
+    ) : (
+      <span className="italic text-muted-foreground">Open Pool</span>
+    );
+  }
+
+  // Admin / coordinator view: name (or "Open Pool") + change trigger.
+  // The Change button is hidden entirely once the task is finished — see
+  // `canReassign` above. We keep the read-only assignee chip so it still
+  // shows who owned the task at completion.
   return (
     <div className="flex items-center gap-2">
-      <span className="italic text-muted-foreground">Open Pool</span>
+      {task.assignee ? (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Avatar className="h-5 w-5">
+            {task.assignee.avatar_url ? (
+              <AvatarImage src={task.assignee.avatar_url} />
+            ) : null}
+            <AvatarFallback className="text-[9px]">
+              {getInitials(task.assignee.full_name)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="truncate">{task.assignee.full_name}</span>
+        </span>
+      ) : (
+        <span className="italic text-muted-foreground">Open Pool</span>
+      )}
+      {!canReassign ? (
+        <span
+          className="ml-auto shrink-0 rounded-md border border-border bg-secondary/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+          title={`Assignee is locked once a task is ${task.status}.`}
+        >
+          Locked
+        </span>
+      ) : (
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
             disabled={pending}
-            className="rounded-md border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+            className="ml-auto shrink-0 rounded-md border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
           >
-            {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Assign"}
+            {pending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : task.assignee ? (
+              "Change"
+            ) : (
+              "Assign"
+            )}
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             sideOffset={4}
             align="end"
-            className="z-[60] min-w-[200px] rounded-md border border-border bg-card py-1 shadow-lg"
+            className="z-[60] max-h-[320px] min-w-[220px] overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg"
           >
             {profiles.length === 0 && (
               <div className="px-3 py-2 text-xs text-muted-foreground">
                 No designers found
               </div>
             )}
-            {profiles.map((d) => (
-              <DropdownMenu.Item
-                key={d.id}
-                onSelect={() => void assign(d.id)}
-                className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm outline-none data-[highlighted]:bg-secondary"
-              >
-                <Avatar className="h-5 w-5">
-                  {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
-                  <AvatarFallback className="text-[9px]">
-                    {getInitials(d.full_name)}
-                  </AvatarFallback>
-                </Avatar>
-                {d.full_name}
-              </DropdownMenu.Item>
-            ))}
+            {profiles.map((d) => {
+              const isCurrent = d.id === currentId;
+              return (
+                <DropdownMenu.Item
+                  key={d.id}
+                  onSelect={() => void assign(d.id)}
+                  disabled={isCurrent}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 px-3 py-2 text-sm outline-none data-[highlighted]:bg-secondary",
+                    isCurrent && "cursor-default opacity-60"
+                  )}
+                >
+                  <Avatar className="h-5 w-5">
+                    {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
+                    <AvatarFallback className="text-[9px]">
+                      {getInitials(d.full_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="flex-1 truncate">{d.full_name}</span>
+                  {isCurrent && (
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Current
+                    </span>
+                  )}
+                </DropdownMenu.Item>
+              );
+            })}
+            {canUnassign && (
+              <>
+                <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                <DropdownMenu.Item
+                  onSelect={() => void unassign()}
+                  className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-destructive outline-none data-[highlighted]:bg-destructive/5"
+                >
+                  Send back to Pool
+                </DropdownMenu.Item>
+              </>
+            )}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+      )}
     </div>
   );
 }
@@ -1114,12 +1249,14 @@ function FullKittingSection({
       setProgress((p) => (p >= 90 ? p : p + Math.random() * 12));
     }, 180);
 
-    const path = `${user.id}/tasks/${task.id}/full-kitting-${Date.now()}-${safeFileName(file.name)}`;
+    // Shrink large JPEG/PNG/WebP photos before upload. PSD / PDF / video pass through.
+    const processed = await compressImage(file);
+    const path = `${user.id}/tasks/${task.id}/full-kitting-${Date.now()}-${safeFileName(processed.name)}`;
 
     const { error: upErr } = await supabase.storage
       .from(FULL_KITTING_BUCKET)
-      .upload(path, file, {
-        contentType: file.type || "application/octet-stream",
+      .upload(path, processed, {
+        contentType: processed.type || "application/octet-stream",
         upsert: false,
       });
 
@@ -1555,12 +1692,15 @@ function FileUploadZone({
     }
     setUploading(true);
 
-    const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    // Shrink large JPEG/PNG/WebP photos before upload (PSD/PDF/video pass through).
+    const processed = await compressImage(file);
+
+    const safeName = processed.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const path = `${user.id}/tasks/${task.id}/${Date.now()}-${safeName}`;
 
     const { error: uploadErr } = await supabase.storage
       .from("design-files")
-      .upload(path, file, { contentType: file.type, upsert: false });
+      .upload(path, processed, { contentType: processed.type, upsert: false });
 
     if (uploadErr) {
       setUploading(false);
@@ -1572,7 +1712,7 @@ function FileUploadZone({
       task_id: task.id,
       storage_url: path,
       file_name: file.name,
-      file_size: file.size,
+      file_size: processed.size,
       uploaded_by: user.id,
     });
 
@@ -1720,10 +1860,10 @@ function FileTile({ file }: { file: FileWithUploader }) {
     <div className="overflow-hidden rounded-md border border-border bg-card">
       <div className="relative h-20 w-full bg-secondary">
         {isImage && thumb ? (
-          <img
+          <LazyImage
             src={thumb}
             alt={file.file_name}
-            className="h-full w-full object-cover"
+            className="h-full w-full"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
@@ -2199,11 +2339,16 @@ function LogCompletionForm({
     // 1. Upload proof photo if provided.
     let proofPath: string | null = null;
     if (photo) {
-      const safeName = photo.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+      // Shrink large JPEG/PNG/WebP photos before upload.
+      const processedPhoto = await compressImage(photo);
+      const safeName = processedPhoto.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
       proofPath = `proofs/${task.id}/${Date.now()}-${safeName}`;
       const { error: uploadErr } = await supabase.storage
         .from("proof-photos")
-        .upload(proofPath, photo, { contentType: photo.type, upsert: false });
+        .upload(proofPath, processedPhoto, {
+          contentType: processedPhoto.type,
+          upsert: false,
+        });
       if (uploadErr) {
         setSubmitting(false);
         toast.error(`Photo upload failed: ${uploadErr.message}`);
@@ -2389,5 +2534,402 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// ============================================================================
+// Section 9 — Discussion (task_comments)
+// ============================================================================
+
+const COMMENT_MAX = 2000;
+
+function Discussion({ task }: { task: TaskWithRelations }) {
+  const { user } = useAuth();
+  const {
+    comments,
+    isLoading,
+    addComment,
+    editComment,
+    deleteComment,
+  } = useTaskComments(task.id);
+
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+  const listRef = useRef<HTMLOListElement>(null);
+
+  // Scroll the comment list to the bottom whenever a new comment lands.
+  useEffect(() => {
+    if (!listRef.current) return;
+    listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [comments.length]);
+
+  const trimmedLen = draft.trim().length;
+  const canPost = trimmedLen > 0 && trimmedLen <= COMMENT_MAX && !posting;
+
+  async function handlePost() {
+    if (!canPost) return;
+    setPosting(true);
+    const body = draft.trim();
+    const { data, error } = await addComment(body);
+    setPosting(false);
+
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    setDraft("");
+    toast.success("Comment added");
+
+    // Notify the assignee if it's someone other than the commenter.
+    if (
+      data &&
+      task.assigned_to &&
+      task.assigned_to !== user?.id
+    ) {
+      void sendNotification(
+        task.assigned_to,
+        `New comment on ${task.task_code}`,
+        body.length > 100 ? body.slice(0, 100) + "…" : body,
+        "info",
+        `/dashboard?task=${task.id}`
+      );
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Ctrl/Cmd+Enter posts (familiar from Slack / GitHub).
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      void handlePost();
+    }
+  }
+
+  return (
+    <Section title="Discussion" countBadge={comments.length}>
+      {isLoading && comments.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground">Loading…</p>
+      ) : comments.length === 0 ? (
+        <p className="flex items-center gap-2 rounded-lg bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+          No comments yet. Start the discussion.
+        </p>
+      ) : (
+        <ol
+          ref={listRef}
+          className="max-h-[300px] space-y-3 overflow-y-auto pr-1"
+        >
+          {comments.map((c) => (
+            <CommentItem
+              key={c.id}
+              comment={c}
+              isOwn={c.user_id === user?.id}
+              onEdit={editComment}
+              onDelete={deleteComment}
+            />
+          ))}
+        </ol>
+      )}
+
+      {/* Composer */}
+      <div className="mt-3 space-y-1.5">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value.slice(0, COMMENT_MAX))}
+          onKeyDown={handleKeyDown}
+          placeholder="Add a comment…"
+          rows={2}
+          maxLength={COMMENT_MAX}
+          disabled={posting}
+          className="w-full resize-none rounded-md border border-border bg-card px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        />
+        <div className="flex items-center justify-end gap-2">
+          {trimmedLen > 1500 && (
+            <span
+              className={cn(
+                "text-xs text-muted-foreground tabular-nums",
+                trimmedLen >= COMMENT_MAX && "text-destructive"
+              )}
+            >
+              {trimmedLen}/{COMMENT_MAX}
+            </span>
+          )}
+          <LoadingButton
+            type="button"
+            size="sm"
+            onClick={() => void handlePost()}
+            loading={posting}
+            loadingText="Posting…"
+            disabled={!canPost}
+          >
+            Post
+          </LoadingButton>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function CommentItem({
+  comment,
+  isOwn,
+  onEdit,
+  onDelete,
+}: {
+  comment: import("@/types/database").TaskCommentWithAuthor;
+  isOwn: boolean;
+  onEdit: (id: string, body: string) => Promise<{ error: string | null }>;
+  onDelete: (id: string) => Promise<{ error: string | null }>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.body);
+  const [saving, setSaving] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const when = comment.created_at
+    ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })
+    : "";
+  const wasEdited =
+    comment.updated_at &&
+    comment.created_at &&
+    new Date(comment.updated_at).getTime() -
+      new Date(comment.created_at).getTime() >
+      1000;
+
+  async function handleSave() {
+    if (!draft.trim() || draft === comment.body) {
+      setEditing(false);
+      setDraft(comment.body);
+      return;
+    }
+    setSaving(true);
+    const { error } = await onEdit(comment.id, draft);
+    setSaving(false);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    setEditing(false);
+    toast.success("Comment updated");
+  }
+
+  async function handleDelete() {
+    const { error } = await onDelete(comment.id);
+    setConfirmDel(false);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success("Comment deleted");
+  }
+
+  return (
+    <li className="flex gap-2">
+      <Avatar className="h-7 w-7 shrink-0">
+        {comment.author?.avatar_url ? (
+          <AvatarImage src={comment.author.avatar_url} />
+        ) : null}
+        <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
+          {getInitials(comment.author?.full_name ?? "")}
+        </AvatarFallback>
+      </Avatar>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <p className="text-sm font-medium text-foreground">
+            {comment.author?.full_name ?? "Unknown user"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {when}
+            {wasEdited && (
+              <span className="ml-1 italic text-muted-foreground/70">
+                (edited)
+              </span>
+            )}
+          </p>
+        </div>
+
+        {editing ? (
+          <div className="mt-1 space-y-1.5">
+            <textarea
+              value={draft}
+              onChange={(e) =>
+                setDraft(e.target.value.slice(0, COMMENT_MAX))
+              }
+              rows={2}
+              disabled={saving}
+              className="w-full resize-none rounded-md border border-border bg-card px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+              autoFocus
+            />
+            <div className="flex items-center gap-2">
+              <LoadingButton
+                type="button"
+                size="sm"
+                onClick={() => void handleSave()}
+                loading={saving}
+                loadingText="Saving…"
+                disabled={!draft.trim()}
+              >
+                Save
+              </LoadingButton>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft(comment.body);
+                }}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-foreground">
+              {comment.body}
+            </p>
+            {isOwn && (
+              <div className="mt-1 flex items-center gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDel(true)}
+                  className="inline-flex items-center gap-1 text-destructive hover:underline"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Delete
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirmDel}
+        title="Delete this comment?"
+        description="Other people in this thread won't see it anymore. This action can't be undone."
+        variant="danger"
+        confirmLabel="Delete"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmDel(false)}
+      />
+    </li>
+  );
+}
+
 // Re-export Profile type for jsdoc-style consumers
 export type { Profile };
+
+// ============================================================================
+// Section 10 — Sampling Records (reverse lookup from sample.task_id)
+// ============================================================================
+//
+// Counterpart to the linked-task picker in SamplingFormDrawer: when a brief
+// has had samples logged against it, we list them here so admins/coordinators
+// can see how the work has been moving through the printing stage without
+// jumping to the Sampling Hub.
+//
+// Loads on mount via getSamplesForTask — one cheap indexed query per drawer
+// open. Real-time updates aren't critical (samples are coordinator-driven,
+// not high-frequency) so we skip the channel subscription cost.
+
+function SamplingRecords({ task }: { task: TaskWithRelations }) {
+  const [samples, setSamples] = useState<Sample[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void getSamplesForTask(task.id).then((rows) => {
+      if (cancelled) return;
+      setSamples(rows);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id]);
+
+  // Section is hidden entirely when the task has never been sampled —
+  // adding visual noise to brand-new briefs without sampling activity
+  // would crowd the drawer. The "Add Sample" action lives in the sampling
+  // page; this section is informational.
+  if (!loading && (samples?.length ?? 0) === 0) {
+    return null;
+  }
+
+  return (
+    <Section title="Sampling Records" countBadge={samples?.length}>
+      {loading ? (
+        <div className="space-y-1.5">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="h-9 animate-pulse rounded bg-secondary/60" />
+          ))}
+        </div>
+      ) : samples && samples.length > 0 ? (
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-xs">
+            <thead className="bg-secondary/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr className="text-left">
+                <th className="px-2 py-1.5 font-medium">Date</th>
+                <th className="px-2 py-1.5 font-medium">Party</th>
+                <th className="px-2 py-1.5 font-medium text-right">Recvd</th>
+                <th className="px-2 py-1.5 font-medium text-right">Printed</th>
+                <th className="px-2 py-1.5 font-medium text-right">Pending</th>
+                <th className="px-2 py-1.5 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {samples.map((s) => (
+                <tr key={s.id} className="border-t border-border/60">
+                  <td className="whitespace-nowrap px-2 py-1.5 text-muted-foreground">
+                    {formatDate(s.created_at)}
+                  </td>
+                  <td className="px-2 py-1.5 text-foreground">
+                    {s.party_name}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {s.total_fabrics_received ?? "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {s.printed_mtr}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-2 py-1.5 text-right tabular-nums",
+                      s.pending_qty > 0 ? "text-warning" : "text-success"
+                    )}
+                  >
+                    {s.pending_qty}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {s.is_completed ? (
+                      <Badge className="bg-success/15 text-success border border-success/30 px-1.5 py-0 text-[9px]">
+                        Done
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-warning/15 text-warning border border-warning/30 px-1.5 py-0 text-[9px]">
+                        Pending
+                      </Badge>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-xs italic text-muted-foreground">
+          No sampling records linked to this task.
+        </p>
+      )}
+    </Section>
+  );
+}

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaskMutations } from "@/hooks/useTaskMutations";
 import { useClients } from "@/hooks/useClients";
@@ -153,6 +154,117 @@ function BriefingForm({
   const [newClientName, setNewClientName] = useState("");
   const [addingClient, setAddingClient] = useState(false);
 
+  // ---------------- draft persistence ----------------
+  // Brief forms get abandoned a lot — admin/coordinator gathers context from
+  // WhatsApp + phone calls and may need to close the dialog mid-flow. We
+  // persist all the serialisable fields under a per-user key so reopening the
+  // form offers a "Resume / Start fresh" choice instead of silently restoring
+  // (which surprises the user when they want a blank slate). Mirrors the
+  // SubmitConceptDialog pattern.
+  //
+  // NOT persisted: full_kitting file (File objects don't serialise), upload
+  // progress, drag/error/UI flags. The notes textarea + toggle survive.
+  const DRAFT_KEY = user?.id ? `linkd-brief-draft:${user.id}` : null;
+  const [draftStatus, setDraftStatus] = useState<"checking" | "prompt" | "ready">(
+    "checking"
+  );
+  const savedDraftRef = useRef<Record<string, any> | null>(null);
+
+  // On mount: peek at localStorage. If there's a draft with any non-default
+  // value, show the prompt; otherwise jump straight to ready.
+  useEffect(() => {
+    if (!DRAFT_KEY) return;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const hasContent = parsed && typeof parsed === "object" && Object.values(parsed).some(
+          (v) => v !== "" && v !== null && v !== false && v !== undefined
+        );
+        if (hasContent) {
+          savedDraftRef.current = parsed;
+          setDraftStatus("prompt");
+          return;
+        }
+        // Empty husk left over — wipe it so it doesn't keep prompting.
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    } catch {
+      // Corrupted JSON / disabled storage — just continue with an empty form.
+    }
+    setDraftStatus("ready");
+  }, [DRAFT_KEY]);
+
+  function applyDraft() {
+    const d = savedDraftRef.current;
+    if (d) {
+      setClientId(d.clientId ?? "");
+      setConcept(d.concept ?? "");
+      setDescription(d.description ?? "");
+      setFabric(d.fabric ?? "");
+      setQty(d.qty ?? "");
+      setMtr(d.mtr ?? "");
+      setPlannedDeadline(d.plannedDeadline ?? "");
+      setDueTime(d.dueTime ?? "");
+      setConceptStartDate(d.conceptStartDate ?? "");
+      setPriority((d.priority === "urgent" ? "urgent" : "normal") as Priority);
+      setWhatsappGroup(d.whatsappGroup ?? "");
+      setAssignedBy(d.assignedBy ?? profile?.full_name ?? "");
+      setAssignedTo(d.assignedTo ?? null);
+      setRequiresFullKitting(!!d.requiresFullKitting);
+      setFullKittingNotes(d.fullKittingNotes ?? "");
+    }
+    setDraftStatus("ready");
+  }
+
+  function discardDraft() {
+    if (DRAFT_KEY) {
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    }
+    savedDraftRef.current = null;
+    setDraftStatus("ready");
+  }
+
+  // Debounced persist on every keystroke (once the user has chosen their
+  // path — never write while the prompt is showing or before mount-check).
+  useEffect(() => {
+    if (!DRAFT_KEY || draftStatus !== "ready") return;
+    const t = setTimeout(() => {
+      const payload = {
+        clientId, concept, description, fabric, qty, mtr,
+        plannedDeadline, dueTime, conceptStartDate, priority,
+        whatsappGroup, assignedBy, assignedTo,
+        requiresFullKitting, fullKittingNotes,
+      };
+      // Skip writing if the payload is fully empty — avoids leaving a husk
+      // that would trigger the prompt next time.
+      const hasContent = Object.values(payload).some(
+        (v) => v !== "" && v !== null && v !== false && v !== undefined
+      );
+      try {
+        if (hasContent) {
+          localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+        } else {
+          localStorage.removeItem(DRAFT_KEY);
+        }
+      } catch { /* storage full / disabled */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [
+    DRAFT_KEY, draftStatus,
+    clientId, concept, description, fabric, qty, mtr,
+    plannedDeadline, dueTime, conceptStartDate, priority,
+    whatsappGroup, assignedBy, assignedTo,
+    requiresFullKitting, fullKittingNotes,
+  ]);
+
+  function clearDraftOnSuccess() {
+    if (DRAFT_KEY) {
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    }
+    savedDraftRef.current = null;
+  }
+
   const submitting = isPending("create");
 
   function validate(): FormErrors {
@@ -241,19 +353,22 @@ function BriefingForm({
       setUploadProgress((p) => (p >= 90 ? p : p + Math.random() * 12));
     }, 180);
 
-    const safe = sanitizeFilename(file.name);
+    // Shrink large JPEG/PNG/WebP photos before upload (PSD/PDF/video pass through).
+    const processed = await compressImage(file);
+
+    const safe = sanitizeFilename(processed.name);
     const path = `${user.id}/tasks/full-kitting/draft-${Date.now()}-${safe}`;
 
-    if (file.type.startsWith("image/")) {
-      setFullKittingPreviewUrl(URL.createObjectURL(file));
+    if (processed.type.startsWith("image/")) {
+      setFullKittingPreviewUrl(URL.createObjectURL(processed));
     } else {
       setFullKittingPreviewUrl(null);
     }
 
     const { error } = await supabase.storage
       .from(FULL_KITTING_BUCKET)
-      .upload(path, file, {
-        contentType: file.type || "application/octet-stream",
+      .upload(path, processed, {
+        contentType: processed.type || "application/octet-stream",
         upsert: false,
       });
 
@@ -363,6 +478,7 @@ function BriefingForm({
       return;
     }
     if (data) {
+      clearDraftOnSuccess();
       if (isDialog && onSuccess) {
         toast.success(`Brief created: ${data.task_code}`);
         onSuccess();
@@ -386,6 +502,88 @@ function BriefingForm({
   // ---------------- FORM ----------------
   const show = (key: keyof FormErrors) =>
     submitAttempted && errors[key] ? errors[key] : undefined;
+
+  // While we're checking localStorage, suppress the form to avoid a flicker
+  // of empty inputs that then get overwritten when the draft is restored.
+  if (draftStatus === "checking") {
+    return (
+      <div className={cn(
+        isDialog ? "px-6 py-5" : "mx-auto max-w-[700px] pb-12"
+      )}>
+        <div className="h-32 animate-pulse rounded-lg bg-secondary/40" />
+      </div>
+    );
+  }
+
+  // Resume-or-start-fresh prompt. Shown only when there's saved content from
+  // an earlier session; the user explicitly chooses before the form renders.
+  if (draftStatus === "prompt") {
+    const d = savedDraftRef.current ?? {};
+    // Quick "what's in the draft" preview so the user can decide whether to
+    // resume — counts the non-empty fields and surfaces the headline ones.
+    const filledCount = Object.values(d).filter(
+      (v) => v !== "" && v !== null && v !== false && v !== undefined
+    ).length;
+    const previewBits = [
+      d.concept ? `Concept: ${String(d.concept).slice(0, 40)}` : null,
+      d.fabric ? `Fabric: ${String(d.fabric).slice(0, 40)}` : null,
+      d.qty ? `Qty: ${d.qty}m` : null,
+      d.plannedDeadline ? `Deadline: ${d.plannedDeadline}` : null,
+    ].filter(Boolean);
+    return (
+      <div className={cn(
+        isDialog ? "px-6 py-5" : "mx-auto max-w-[700px] pb-12",
+        "space-y-5"
+      )}>
+        <header className="space-y-1">
+          <h1 className={cn(
+            "font-sans tracking-tight text-foreground",
+            isDialog ? "text-lg font-semibold" : "text-3xl"
+          )}>
+            New Brief
+          </h1>
+        </header>
+        <div className="rounded-xl border border-primary/30 bg-primary/[0.04] p-5">
+          <div className="mb-3 flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15">
+              <ImageIcon className="h-4 w-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-foreground">
+                Resume your draft?
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                You started a brief earlier and didn't submit it. We saved
+                {" "}{filledCount} field{filledCount !== 1 ? "s" : ""} for you.
+              </p>
+            </div>
+          </div>
+          {previewBits.length > 0 && (
+            <ul className="mb-4 space-y-1 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
+              {previewBits.map((bit) => (
+                <li key={bit as string} className="truncate">• {bit}</li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={discardDraft}
+            >
+              Start fresh
+            </Button>
+            <Button
+              type="button"
+              onClick={applyDraft}
+            >
+              Continue draft
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn(

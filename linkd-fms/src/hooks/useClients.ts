@@ -1,32 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryKeys } from "@/lib/queryKeys";
 import type { Client } from "@/types/database";
+
+async function fetchClients(): Promise<Client[]> {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*")
+    .order("party_name", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
 
 /** Lists all clients ordered by party_name. */
 export function useClients() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    const { data, error: err } = await supabase
-      .from("clients")
-      .select("*")
-      .order("party_name", { ascending: true });
-    if (err) {
-      setError(err.message);
-      setClients([]);
-    } else {
-      setClients(data ?? []);
-    }
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  return { clients, totalCount: clients.length, isLoading, error, refetch };
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: queryKeys.clients.all,
+    queryFn: fetchClients,
+  });
+  const clients = data ?? [];
+  return {
+    clients,
+    totalCount: clients.length,
+    isLoading,
+    error: error instanceof Error ? error.message : null,
+    refetch,
+  };
 }

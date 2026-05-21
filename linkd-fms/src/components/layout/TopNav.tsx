@@ -44,7 +44,7 @@ function getPageTitle(pathname: string, role: UserRole): RouteTitle {
     return { title: "Task Dashboard" };
   }
   if (pathname.startsWith(ROUTES.system)) {
-    return { title: "System" };
+    return { title: "Settings & Admin" };
   }
   if (pathname.startsWith(ROUTES.salvedge)) {
     return { title: "Salvedge" };

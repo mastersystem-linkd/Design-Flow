@@ -81,7 +81,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
             { to: ROUTES.team, label: "Team", icon: Users },
             { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
-            { to: ROUTES.system, label: "System", icon: Settings },
+            { to: ROUTES.system, label: "Settings", icon: Settings },
           ],
         },
       ];
@@ -102,7 +102,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
             { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
             { to: ROUTES.team, label: "Team", icon: Users },
-            { to: ROUTES.system, label: "System", icon: Settings },
+            { to: ROUTES.system, label: "Settings", icon: Settings },
           ],
         },
       ];
@@ -326,7 +326,7 @@ function NavRow({
         onClick={onNavigate}
         className={({ isActive }) =>
           cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-all duration-150",
+            "flex min-h-[40px] items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
             isActive
               ? "bg-primary text-white shadow-sm shadow-primary/20"
               : "text-white/60 hover:bg-white/[0.07] hover:text-white",

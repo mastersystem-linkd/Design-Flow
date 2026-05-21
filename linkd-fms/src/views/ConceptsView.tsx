@@ -1,4 +1,5 @@
-import { useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Plus,
   RefreshCw,
@@ -24,6 +25,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
+  Badge,
   getInitials,
   EmptyState,
   ExportDialog,
@@ -37,6 +39,7 @@ import { SubmitConceptDialog } from "@/components/concepts/SubmitConceptDialog";
 import { ConceptDetailDrawer } from "@/components/concepts/ConceptDetailDrawer";
 import {
   CONCEPT_STATUS_LABELS,
+  CONCEPT_STATUS_COLORS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { CONCEPT_STATUSES } from "@/types/database";
@@ -45,7 +48,41 @@ import type {
   ConceptWithRelations,
 } from "@/types/database";
 
-type Tab = "all" | ConceptStatus;
+/**
+ * Status filter tabs:
+ *  - "all"            — everything
+ *  - ConceptStatus    — pending / approved / rejected / revision_requested
+ *  - "completed"      — virtual tab: md_status='approved' AND finalized
+ *                      (final approval granted AND designer marked done).
+ *                      These rows are HIDDEN from the "approved" tab so
+ *                      "approved" only shows live work-in-progress.
+ */
+type Tab = "all" | ConceptStatus | "completed";
+
+/**
+ * A concept is "completed" once both sides of the workflow have signed off:
+ *   1. `md_status === 'approved'`         — initial MD approval landed
+ *   2. `final_approved_at` is set         — MD granted final approval
+ *   3. `designer_actual_date` is set      — designer marked the work done
+ *
+ * Rejected and pending-revision concepts never count as completed.
+ *
+ * Revision loop is supported by design: when MD requests revision on an
+ * already-approved concept and the designer hits "Re-submit",
+ * `resubmitConcept` only clears `final_approval_notes` + bumps
+ * `final_approval_planned_date`. It deliberately leaves `designer_actual_date`
+ * intact (set by the original `finalizeConcept` call), and once MD eventually
+ * grants the post-revision final approval, `final_approved_at` is stamped.
+ * Both conditions (2) and (3) end up true through the same predicate — no
+ * special-case branch needed.
+ */
+function isCompleted(c: ConceptWithRelations): boolean {
+  return (
+    c.md_status === "approved" &&
+    !!c.final_approved_at &&
+    !!c.designer_actual_date
+  );
+}
 
 // ============================================================================
 // Category accent colors — only used on the thin top-bar of merged headers
@@ -140,7 +177,19 @@ export function ConceptsView() {
   const isDesigner = role === "designer";
   const userId = profile?.id;
 
-  const [tab, setTab] = useState<Tab>("all");
+  // URL deep-linking: dashboard KPI cards link to `/concepts?tab=approved` etc.
+  // Read once for the initial state, then re-sync on URL change so card clicks
+  // re-target the same view without remount.
+  const [urlParams] = useSearchParams();
+  const urlTab = urlParams.get("tab") as Tab | null;
+  const validTabs: Tab[] = ["all", "pending", "approved", "rejected", "revision_requested", "completed"];
+  const initialTab: Tab = urlTab && validTabs.includes(urlTab) ? urlTab : "all";
+
+  const [tab, setTab] = useState<Tab>(initialTab);
+  useEffect(() => {
+    if (urlTab && validTabs.includes(urlTab)) setTab(urlTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlTab]);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [selected, setSelected] = useState<ConceptWithRelations | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -178,20 +227,35 @@ export function ConceptsView() {
   ];
 
   // ── Counts ──
+  // `approved` here is "approved but NOT yet completed". Fully completed
+  // concepts get their own bucket so the two tabs never double-count.
   const counts = useMemo(() => {
-    const map: Record<ConceptStatus, number> = {
+    const map: Record<ConceptStatus, number> & { completed: number } = {
       pending: 0,
       approved: 0,
       rejected: 0,
       revision_requested: 0,
+      completed: 0,
     };
-    for (const c of concepts) map[c.md_status]++;
+    for (const c of concepts) {
+      if (isCompleted(c)) {
+        map.completed++;
+      } else {
+        map[c.md_status]++;
+      }
+    }
     return map;
   }, [concepts]);
 
   const allVisible = useMemo(() => {
     if (tab === "all") return concepts;
-    return concepts.filter((c) => c.md_status === tab);
+    if (tab === "completed") return concepts.filter(isCompleted);
+    // For status tabs: rows that match the status AND aren't yet completed.
+    // (Completed rows live in their own tab so they don't muddy the
+    // "Approved" view, which should be live work in progress.)
+    return concepts.filter(
+      (c) => c.md_status === tab && !isCompleted(c)
+    );
   }, [concepts, tab]);
 
   const conceptPg = usePagination(allVisible.length, 25);
@@ -328,6 +392,13 @@ export function ConceptsView() {
             dotColor={STATUS_DOT_COLOR[s]}
           />
         ))}
+        <FilterChip
+          label="Completed"
+          count={counts.completed}
+          active={tab === "completed"}
+          onClick={() => setTab("completed")}
+          dotColor="bg-success"
+        />
       </div>
 
       {/* ── Error ── */}
@@ -346,11 +417,15 @@ export function ConceptsView() {
           title={
             tab === "all"
               ? "No concepts yet"
+              : tab === "completed"
+              ? "No completed concepts yet"
               : `No ${CONCEPT_STATUS_LABELS[tab].toLowerCase()} concepts`
           }
           description={
             tab === "all"
               ? "Submit your first concept to get started."
+              : tab === "completed"
+              ? "Concepts land here once the designer is done and MD has granted final approval."
               : "Try switching to a different filter."
           }
           action={
@@ -363,7 +438,8 @@ export function ConceptsView() {
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border shadow-sm">
+        <>
+        <div className="hidden md:block overflow-x-auto rounded-xl border border-border shadow-sm">
           <table className="w-full min-w-[1800px] border-collapse text-[13px]">
             <caption className="sr-only">Design concepts with approval workflow</caption>
             <thead>
@@ -646,6 +722,39 @@ export function ConceptsView() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile card list — shown below md (replaces the 22-col wide table). */}
+        <ul className="flex flex-col gap-2 md:hidden">
+          {visible.map((c) => (
+            <li
+              key={c.id}
+              onClick={() => setSelected(c)}
+              className="rounded-xl border border-border bg-card p-3 cursor-pointer transition-colors hover:bg-card/80 active:bg-card/60"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="line-clamp-1 flex-1 text-sm font-medium text-foreground">
+                  {c.title}
+                </p>
+                <Badge
+                  className={cn(
+                    "shrink-0 text-[10px]",
+                    CONCEPT_STATUS_COLORS[c.md_status]
+                  )}
+                >
+                  {CONCEPT_STATUS_LABELS[c.md_status]}
+                </Badge>
+              </div>
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {(c.submitter ?? c.designer)?.full_name ?? "—"}
+                {c.client?.party_name && <> · {c.client.party_name}</>}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+                {fmtDate(c.start_date ?? c.created_at)}
+              </p>
+            </li>
+          ))}
+        </ul>
+        </>
       )}
 
       {/* ── Pagination ── */}

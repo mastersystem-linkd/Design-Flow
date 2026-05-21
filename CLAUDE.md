@@ -16,16 +16,15 @@ History: original 4 roles (`super_admin`, `admin`, `designer`, `production`) wer
 
 ---
 
-## Two scaffolds in this repo
+## Project structure
 
-This directory has **two** project scaffolds. The Vite one is active; the Next.js one is legacy and should be deleted once we commit to Vite.
+This repo contains a single active project:
 
 | Where | What | Status |
 |---|---|---|
 | `./linkd-fms/` | **Vite + React + TS + Tailwind SPA** | Active |
-| `./` (root: `src/app/`, `next.config.js`, etc.) | Next.js 14 App Router | Legacy — no longer being worked on |
 
-**All new work happens in `./linkd-fms/`.** When in doubt, paths in this document refer to `linkd-fms/` unless stated otherwise.
+The legacy Next.js scaffold (root `src/app/`, `next.config.js`, etc.) was deleted. **All work happens in `./linkd-fms/`.** Paths in this document refer to `linkd-fms/` unless stated otherwise.
 
 ---
 
@@ -35,6 +34,7 @@ This directory has **two** project scaffolds. The Vite one is active; the Next.j
 - **Tailwind CSS** with **dual-theme** (light + dark) via CSS custom properties + class-based toggle
 - Font: **Inter everywhere** (body + headings + wordmark). Loaded from Google Fonts (weights 400/500/600/700); system-ui as fallback.
 - **React Router v6** for routing
+- **@tanstack/react-query 5.x** for server state (all data hooks migrated from manual useState/useEffect)
 - **@supabase/supabase-js 2.45.4** (pinned — 2.105.x has a request-hang bug in this combo)
 - **lucide-react** for icons, **date-fns** for relative timestamps, **recharts** for charts (RadialBarChart in ConceptDashboard)
 - **shadcn-style** UI primitives at `linkd-fms/src/components/ui/` (no shadcn CLI — components were hand-written)
@@ -90,9 +90,19 @@ linkd-fms/
     │   │                                  — centralized capability checks; use instead of role-equals
     │   ├── notifications.ts               sendNotification, sendNotificationToMany, sendNotificationToRole
     │   │                                  — reusable helpers for inserting notifications via Supabase client
+    │   ├── exportCSV.ts                   Generic CSV exporter: columnsToCSV(data, columns) → Blob download.
+    │   │                                  CsvColumn<T> type with key + label + optional transform. Used by
+    │   │                                  ExportDialog for tasks, concepts, samples.
+    │   ├── queryKeys.ts                   Centralized React Query cache key constants for all hooks.
+    │   │                                  Namespaced: tasks.all/list/detail, concepts.all/list, etc.
+    │   ├── imageCompression.ts            Client-side image compression via Canvas API. Shrinks
+    │   │                                  JPEG/PNG/WebP >500KB down to 1920px max edge at 0.85
+    │   │                                  quality. Skips PSD/PDF/video. Fails silently → original.
+    │   │                                  Used by all upload handlers (Briefing, Concepts, Sampling,
+    │   │                                  TaskDetail, FullKitting).
     │   └── utils.ts                       cn(), formatDate()
     ├── types/
-    │   └── database.ts                    Full Database type (12 tables) + aliases + joined shapes
+    │   └── database.ts                    Full Database type (15 tables) + aliases + joined shapes
     ├── hooks/
     │   ├── useAuth.tsx                    AuthProvider + useAuth() — single source for auth state
     │   ├── useTheme.tsx                   ThemeProvider + useTheme() — light/dark/system toggle, localStorage
@@ -114,9 +124,30 @@ linkd-fms/
     │   ├── useAnalytics.ts                Concept Dashboard metrics: KPIs, status distribution, monthly volume
     │   │                                  (period-adaptive: days/weeks/months), designer concept stats + scoring,
     │   │                                  approval speed. Period filter: week | month | quarter.
+    │   │                                  Also exports sparklines: { submitted[], approved[] } (7 buckets).
     │   ├── useTaskAnalytics.ts            Task Dashboard metrics: completion KPIs, pipeline snapshot,
     │   │                                  volume (period-adaptive), designer task stats + scoring.
     │   │                                  Separate from useAnalytics — concepts and tasks are independent.
+    │   │                                  Also exports sparklines: { completed[], onTime[], created[] }.
+    │   ├── useTaskComments.ts             Comment thread for a task. CRUD + Realtime (INSERT).
+    │   │                                  Joins author profile for avatar/name. Used by TaskDetailDrawer.
+    │   ├── useFormDraft.ts                Generic localStorage-backed form draft persistence.
+    │   │                                  Debounced write (300ms), defensive merge on restore,
+    │   │                                  `restored` flag for UI hint. Used by SubmitConceptDialog.
+    │   ├── useFiles.ts                    Lists files from all 3 Supabase storage buckets (design-files,
+    │   │                                  sample-files, task-files). Recursive listing, signed URL generation,
+    │   │                                  delete by bucket+path. Used by FilesView.
+    │   ├── usePagination.ts              Reusable client-side pagination state: page, pageSize, from/to,
+    │   │                                  showing text, hasNext/hasPrev, resetPage. Used by ConceptsView,
+    │   │                                  ProductionView, NotificationsView.
+    │   ├── useAnimatedNumber.ts           RAF-based animated counter with cubic ease-out. Skips
+    │   │                                  <10% changes. Used by KpiCard for dashboard metrics.
+    │   ├── useSalvedge.ts                 Salvedge records CRUD. Filters: designerId, dateRange, search.
+    │   │                                  createSalvedge, updateSalvedge, deleteSalvedge. Used by SalvedgeView.
+    │   ├── useDesignerScorecard.ts        Per-designer scorecard data. Composes useConcepts + useTasks +
+    │   │                                  useProfiles + useDesignerCodes. Returns concept/task blocks,
+    │   │                                  composite score, rank, 6-month trend, 365-day daily activity,
+    │   │                                  last-10 activity feed, insights array. Period: week/month/quarter/year.
     │   └── useKeyboardShortcuts.ts        Generic global keydown registrar. Takes a list of
     │                                      { key, handler, description, category } shortcuts +
     │                                      enabled flag. Auto-skips when an input/textarea/select is
@@ -150,17 +181,32 @@ linkd-fms/
     │   │   │                              Renders each shortcut as a `<kbd>` badge + description.
     │   │   │                              Used by KanbanView (`?` key or keyboard icon button)
     │   │   │                              with the shortcut list from `useKeyboardShortcuts`.
+    │   │   ├── LazyImage.tsx              IntersectionObserver-based lazy image loading.
+    │   │   │                              Skeleton pulse placeholder → fade-in on decode.
+    │   │   │                              100px rootMargin preload. Fallback on error.
     │   │   ├── sheet.tsx                  Radix right-side drawer primitive
     │   │   ├── Skeleton.tsx              Skeleton + SkeletonCard/SkeletonTable/SkeletonText
     │   │   ├── TextilePattern.tsx         Decorative herringbone SVG for LoginView left panel
     │   │   ├── ThemeToggle.tsx            Light/Dark/System cycle button (Sun/Moon/Monitor icons)
-    │   │   ├── NotificationBell.tsx       Bell icon + dropdown (15 recent, unread badge, mark-all-read)
-    │   │   └── Toaster.tsx                Custom toast system: <Toaster/> + `toast.*` + useToast()
+    │   │   ├── NotificationBell.tsx       Bell icon + dropdown (15 recent, unread badge, mark-all-read).
+    │   │   │                              Web Audio chime on new notification + tab title flash for 10s.
+    │   │   ├── Toaster.tsx                Custom toast system: <Toaster/> + `toast.*` + useToast()
+    │   │   ├── Pagination.tsx             Smart page navigation: ellipsis page numbers, prev/next,
+    │   │   │                              page size selector (10/25/50). Works with usePagination hook.
+    │   │   ├── Sparkline.tsx              Pure SVG sparkline with quadratic bezier smoothing, gradient
+    │   │   │                              fill, end-dot. No recharts dependency. Used by KpiCard.
+    │   │   └── ExportDialog.tsx           CSV export dialog: date range picker, column selection,
+    │   │                                  preview count, download button. Uses lib/exportCSV.
     │   ├── layout/
-    │   │   ├── AppLayout.tsx              Shell — Sidebar + TopNav + main; fade-in on route change
+    │   │   ├── AppLayout.tsx              Shell — Sidebar + TopNav + main; fade-in on route change.
+    │   │   │                              Skip-to-content link + focus management on route change.
     │   │   ├── Sidebar.tsx                Dark sidebar w/ Dashboard first, section labels ("Manage"),
-    │   │   │                              ThemeToggle, user dropdown; role-filtered nav
+    │   │   │                              ThemeToggle, user dropdown; role-filtered nav. Files nav item.
     │   │   ├── TopNav.tsx                 Glassmorphism top bar — page title, ConnectionDot, user avatar
+    │   │   ├── MobileTabBar.tsx           Bottom tab bar for mobile (<md). Role-specific 4-tab layout:
+    │   │   │                              admin (Home/All Tasks/Concepts/Alerts), coordinator
+    │   │   │                              (Home/All Tasks/Sampling/Alerts), designer (Home/My Board/
+    │   │   │                              Concepts/Alerts). active:scale-95 press feedback.
     │   │   ├── ProtectedRoute.tsx         Auth + onboarding + role gates; inline access-restricted
     │   │   └── RootRedirect.tsx           Auth-aware "/" redirect to roleHomePath / login / onboarding
     │   ├── tasks/
@@ -234,7 +280,13 @@ linkd-fms/
     │                                      CoordinatorConceptDashboard (team overview),
     │                                      AdminConceptDashboard (pending-review queue)
     └── views/
-        ├── LoginView.tsx                  Split-screen login — labels above, eye toggle, success flash (FUNCTIONAL)
+        ├── LoginView.tsx                  Split-screen login — layered left panel (radial glow + dot grid
+        │                                  + floating orbs + "LINKD" wordmark + tagline), staggered fade-in
+        │                                  animations on form elements, password eye toggle, "Forgot password?"
+        │                                  inline flow (sends Supabase resetPasswordForEmail). (FUNCTIONAL)
+        ├── ResetPasswordView.tsx          /reset-password (public route). Same split-screen as login.
+        │                                  New password + confirm with eye toggles, min 8 chars, auto-redirect
+        │                                  on success. Uses supabase.auth.updateUser(). (FUNCTIONAL)
         ├── OnboardingView.tsx             Fallback when user has no profile row
         ├── AccessRestrictedView.tsx       Inline "you can't see this page" panel (renders inside AppLayout)
         ├── NotFoundView.tsx               404 page rendered inside AppLayout for authed users
@@ -293,6 +345,10 @@ linkd-fms/
         │                                  drill-in panel listing all events. Admin gets Export CSV +
         │                                  Send Feedback + Open Team actions; designer self-view hides
         │                                  rank pill and admin actions. (FUNCTIONAL)
+        ├── FilesView.tsx                   /files — File browser across all 3 storage buckets (design-files,
+        │                                  sample-files, task-files). Grid/list toggle, bucket filter pills,
+        │                                  search, image thumbnails on hover, download/delete actions.
+        │                                  All roles. (FUNCTIONAL)
         ├── SalvedgeView.tsx               /salvedge — Salvedge / challan-based fabric distribution
         │                                  records. All roles; designers see their own. (FUNCTIONAL)
         └── SystemView.tsx                 /system — Admin data management: row counts per table, expandable
@@ -310,6 +366,7 @@ Canonical routes are constants in [`linkd-fms/src/lib/routes.ts`](linkd-fms/src/
 | Path | View | Admin | Design Coordinator | Designer |
 |---|---|---|---|---|
 | `/login` | LoginView (enhanced split-screen) | public | same | same |
+| `/reset-password` | ResetPasswordView | public (from email link) | same | same |
 | `/onboarding` | OnboardingView | authed, no profile | same | same |
 | `/` | RootRedirect | — | — | — |
 | `/home` | redirect → /dashboard | — | — | — |
@@ -321,6 +378,7 @@ Canonical routes are constants in [`linkd-fms/src/lib/routes.ts`](linkd-fms/src/
 | `/analytics` | AnalyticsView (Concept Dashboard) | yes | yes | yes (personal) |
 | `/sampling` | ProductionView (Sampling Hub) | yes | yes | AccessRestricted |
 | `/salvedge` | SalvedgeView | yes | yes | yes |
+| `/files` | FilesView (file browser) | yes | yes | yes |
 | `/team` | TeamView (role mgmt + codes) | yes | yes | AccessRestricted |
 | `/scorecards` | ScorecardsView (admin grid) | yes | inline restriction | inline restriction |
 | `/scorecards/:id` | ScorecardDetailView (full-page) | yes (any designer) | inline restriction | self only (gated in view) |
@@ -351,10 +409,11 @@ A "Notifications" row (with unread badge) is appended below the main nav for eve
 
 ```
 <ThemeProvider defaultTheme="light">       <- main.tsx
-  <AuthProvider>
-    <App>
-      <BrowserRouter>
-        <Toaster />                          <- custom toaster (mounted once)
+  <QueryClientProvider client={queryClient}>  <- React Query (staleTime 2min, gcTime 10min)
+    <AuthProvider>
+      <App>
+        <BrowserRouter>
+          <Toaster />                          <- custom toaster (mounted once)
         <Routes>
           <Route path="/login" .../>         <- public; LoginView
           <Route path="/onboarding" .../>    <- public-ish
@@ -372,10 +431,11 @@ A "Notifications" row (with unread badge) is appended below the main nav for eve
               </AppLayout>
           </Route>
           <Route path="*" element={<ProtectedRoute><NotFoundView/></ProtectedRoute>} />
-        </Routes>
-      </BrowserRouter>
-    </App>
-  </AuthProvider>
+          </Routes>
+        </BrowserRouter>
+      </App>
+    </AuthProvider>
+  </QueryClientProvider>
 </ThemeProvider>
 ```
 
@@ -531,7 +591,12 @@ import {
 | `<SearchInput value onChange placeholder debounceMs>` | Generic version. Focus ring. |
 | `<DeadlineCell deadline>` | Severity dot + formatted date + relative "N days left" label. Uses `daysUntil`/`daysSeverity`/`shouldPulse` from `lib/days.ts`. Used in task tables on `/dashboard`, `/sampling`, `/concepts`. |
 | `<ThemeToggle>` | Cycles light → dark → system. Sun/Moon/Monitor icons + label. Placed in sidebar. |
-| `<NotificationBell>` | Bell icon with unread count badge (capped at 9+). Dropdown shows 15 most recent notifications with type icons (info/warning/urgent/success), relative timestamps, mark-all-read. Pulse animation on new arrival. Links to `/notifications`. Placed in TopNav. |
+| `<NotificationBell>` | Bell icon with unread count badge (capped at 9+). Dropdown shows 15 most recent notifications with type icons (info/warning/urgent/success), relative timestamps, mark-all-read. Pulse animation on new arrival. **Web Audio chime** (A5 + D6 two-tone sine wave) on new Realtime notification. **Tab title flash** for 10 seconds. Links to `/notifications`. Placed in TopNav. |
+| `<Pagination>` | Smart page navigation: ellipsis page numbers, prev/next buttons, page size selector (10/25/50). Works with `usePagination` hook. |
+| `<Sparkline>` | Pure SVG mini-chart with quadratic bezier smoothing, gradient fill, end-dot. Color adapts to trend direction (green up, red down). No recharts dependency. Used by `KpiCard`. |
+| `<ExportDialog>` | CSV export modal: date range picker, column selection, preview row count, download button. Uses `lib/exportCSV`. Used by KanbanView (tasks export). |
+| `<LazyImage>` | IntersectionObserver-based lazy loading. 100px rootMargin preload. Skeleton pulse → fade-in (300ms). Error fallback (ImageOff icon or custom). Not used for avatars or ConceptImage (those have their own flows). |
+| `<MobileTabBar>` | Fixed bottom tab bar for `<md` screens. Role-specific 4-tab layout with active:scale-95 press feedback. Rendered in AppLayout. |
 
 **Global CSS animations** in [`index.css`](linkd-fms/src/index.css):
 - `animate-slide-in-right` / `animate-slide-out-right` — Toaster + drawers
@@ -544,7 +609,7 @@ import {
 
 ## Data hooks
 
-All hooks live in `linkd-fms/src/hooks/`. Read patterns return `{ data, isLoading, error, refetch }`. Mutation patterns return `Promise<{ data, error }>` and **never throw** — error is always a string ready for `toast.error()`.
+All hooks live in `linkd-fms/src/hooks/`. **Read hooks use `@tanstack/react-query`** (`useQuery` with centralized `queryKeys` from `lib/queryKeys.ts`). Mutation patterns return `Promise<{ data, error }>` and **never throw** — error is always a string ready for `toast.error()`. React Query config: `staleTime: 2min`, `gcTime: 10min`, `retry: 1`, `refetchOnWindowFocus: false`.
 
 | Hook | Purpose |
 |---|---|
@@ -563,8 +628,14 @@ All hooks live in `linkd-fms/src/hooks/`. Read patterns return `{ data, isLoadin
 | `useFullKitting()` | Structured kitting form CRUD for `full_kitting_details` table. `getKittingForTask(taskId)` fetches existing record; `submitKitting(taskId, formData)` inserts record + advances task to done. |
 | `useSamples(filters?)` | Sample records with full CRUD. Filters: `dateRange`, `customerName` (ILIKE), `status` (pending/completed/all). Mutations: `createSample(input)`, `updateSample(id, data)`, `deleteSample(id)`. All auto-refetch after mutation. Filter key memoized for stable deps. |
 | `useAnalytics(period?)` | Concept Dashboard data layer. Computes all metrics from `useConcepts` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data (days for week, weeks for month, months for quarter). Returns KPIs (submitted/approved/rate/turnaround), status distribution, volume points, designer concept stats with weighted scoring, approval speed. |
-| `useTaskAnalytics(period?)` | Task Dashboard data layer. Computes all metrics from `useTasks` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data. Returns KPIs (completed/on-time/avg days/created), pipeline snapshot, volume points, designer task stats with weighted scoring, **plus the raw `tasks` array re-exported so consumers don't double-fetch**. Separate from `useAnalytics` — the two systems are independent. |
+| `useTaskAnalytics(period?)` | Task Dashboard data layer. Computes all metrics from `useTasks` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data. Returns KPIs (completed/on-time/avg days/created), pipeline snapshot, volume points, designer task stats with weighted scoring, sparklines (7-bucket: completed/onTime/created), **plus the raw `tasks` array re-exported so consumers don't double-fetch**. Separate from `useAnalytics` — the two systems are independent. |
 | `useDesignerScorecard(designerId, period?)` | Per-designer scorecard data layer. Composes `useConcepts` + `useTasks` + `useProfiles` + `useDesignerCodes`. No new DB queries. Reuses the 30/35/20/15 scoring formulas. Returns: profile + designer codes, concept block (submitted/approved/rejected/revisions/pending/approvalRate/avgReviewHours/score/breakdown/monthlyTargetProgress), task block (assigned/completed/onTime/inProgress/avgDays/score/breakdown/teamAvgDays), composite score, rank (concept/task/overall + total), 6-month trend, 365-day dailyActivity (for heatmap), last-10 activity feed (merged concept + task events), and insights array (rule-based strengths/watchouts capped at 4 with watchouts first). Period = `week`/`month`/`quarter`/`year`. |
+| `useTaskComments(taskId)` | Comment thread for one task. CRUD (add/edit/delete) + Supabase Realtime subscription (INSERT on `task_comments` filtered by `task_id`). Joins author profile (avatar, name, role). Optimistic local append with dedup. Pass `null` to disable. Used by TaskDetailDrawer "Discussion" section. |
+| `useFormDraft(storageKey, defaults)` | Generic localStorage-backed form draft persistence. Debounced 300ms writes. Defensive merge on restore (only matching keys). Returns `[state, setState, clear, restored]`. `restored` flag lets UI show "draft recovered" hint. Pass `storageKey = null` to disable. Used by SubmitConceptDialog. |
+| `useFiles()` | Recursively lists files from all 3 Supabase storage buckets. Returns `{ files, isLoading, error, refetch, getSignedUrl, deleteFile }`. Used by FilesView. |
+| `usePagination(totalCount, defaultPageSize?)` | Client-side pagination state. Returns `{ page, pageSize, setPage, setPageSize, from, to, showingText, hasNext, hasPrev, resetPage }`. |
+| `useAnimatedNumber(value, duration?)` | RAF-based animated counter with cubic ease-out. Returns the animated display value. Skips animation for changes <10%. Used by KpiCard. |
+| `useSalvedge(filters?)` | Salvedge records CRUD for `salvedge_records` table. Filters: designerId, dateRange, search. Mutations: `createSalvedge`, `updateSalvedge`, `deleteSalvedge`. |
 
 ---
 
@@ -598,9 +669,9 @@ Examples: `DF 01-S0526-FLOR-200M`, `DF 09-P0526-CONC-2M`
 
 ## Database (Supabase)
 
-Schema source of truth: [`supabase/migrations/0001_full_schema.sql`](supabase/migrations/0001_full_schema.sql) (~470 lines). Additive migrations: [`0003_storage_buckets.sql`](supabase/migrations/0003_storage_buckets.sql), [`0004_design_storage.sql`](supabase/migrations/0004_design_storage.sql), [`0005_task_additions.sql`](supabase/migrations/0005_task_additions.sql), [`0006_simplify_roles.sql`](supabase/migrations/0006_simplify_roles.sql), [`0007_designer_codes.sql`](supabase/migrations/0007_designer_codes.sql), [`0008_design_coordinator_role.sql`](supabase/migrations/0008_design_coordinator_role.sql), [`0009_design_coordinator_policies.sql`](supabase/migrations/0009_design_coordinator_policies.sql), [`0010_workflow_additions.sql`](supabase/migrations/0010_workflow_additions.sql), [`0011_lookup_tables.sql`](supabase/migrations/0011_lookup_tables.sql), [`0012_concept_extensions.sql`](supabase/migrations/0012_concept_extensions.sql), [`0013_notifications_and_kitting.sql`](supabase/migrations/0013_notifications_and_kitting.sql), [`0014_task_completion_fields.sql`](supabase/migrations/0014_task_completion_fields.sql).
+Schema source of truth: [`supabase/migrations/0001_full_schema.sql`](supabase/migrations/0001_full_schema.sql) (~470 lines). Additive migrations: [`0003_storage_buckets.sql`](supabase/migrations/0003_storage_buckets.sql), [`0004_design_storage.sql`](supabase/migrations/0004_design_storage.sql), [`0005_task_additions.sql`](supabase/migrations/0005_task_additions.sql), [`0006_simplify_roles.sql`](supabase/migrations/0006_simplify_roles.sql), [`0007_designer_codes.sql`](supabase/migrations/0007_designer_codes.sql), [`0008_design_coordinator_role.sql`](supabase/migrations/0008_design_coordinator_role.sql), [`0009_design_coordinator_policies.sql`](supabase/migrations/0009_design_coordinator_policies.sql), [`0010_workflow_additions.sql`](supabase/migrations/0010_workflow_additions.sql), [`0011_lookup_tables.sql`](supabase/migrations/0011_lookup_tables.sql), [`0012_concept_extensions.sql`](supabase/migrations/0012_concept_extensions.sql), [`0013_notifications_and_kitting.sql`](supabase/migrations/0013_notifications_and_kitting.sql), [`0014_task_completion_fields.sql`](supabase/migrations/0014_task_completion_fields.sql), [`0016_designer_claim_pool.sql`](supabase/migrations/0016_designer_claim_pool.sql), [`0017_task_comments.sql`](supabase/migrations/0017_task_comments.sql), [`0018_concept_files.sql`](supabase/migrations/0018_concept_files.sql).
 
-**Why there's no 0002.** Original setup had four split migrations. When consolidated, **0001 + 0002 + 0004 were merged into the single `0001_full_schema.sql`**. The numbering gap is intentional; continue from `0015` for new migrations.
+**Why there's no 0002 or 0015.** Original setup had four split migrations. When consolidated, **0001 + 0002 + 0004 were merged into the single `0001_full_schema.sql`**. The numbering gaps are intentional; continue from `0019` for new migrations.
 
 | File | What it does |
 |---|---|
@@ -618,9 +689,14 @@ Schema source of truth: [`supabase/migrations/0001_full_schema.sql`](supabase/mi
 | `0012_concept_extensions.sql` | **Extends `concepts` table** with 12 new columns: `start_date`, `designer_id` (FK → profiles), `client_id` (FK → clients), `assigned_by`, `priority` (task_priority, default 'normal'), `file_url`, `final_approval_planned_date`, `final_approval_actual_date`, `final_approval_notes`, `final_approved_at`, `approved_designs_count`, `remarks`. Plus 4 indexes. |
 | `0013_notifications_and_kitting.sql` | **Two new tables**: `notifications` (user_id, title, message, type CHECK info/warning/urgent/success, link, is_read; RLS: own-only SELECT, admin/coordinator INSERT, own UPDATE, admin DELETE; Realtime-enabled) and `full_kitting_details` (task_id UNIQUE, submitted_by, fabric_details, colors, quantity, accessories, packing_type CHECK standard/premium/bulk/custom, special_instructions; RLS: authed SELECT, self INSERT, admin/coordinator UPDATE, admin DELETE). |
 | `0014_task_completion_fields.sql` | Adds `assigned_at` (timestamptz), `completed_at` (timestamptz), `delay_days` (integer) to tasks table for completion tracking. |
+| `0016_designer_claim_pool.sql` | RLS policy allowing designers to self-assign from the pool (update `assigned_to` on unassigned tasks). |
+| `0017_task_comments.sql` | **New table** `task_comments` (uuid PK, `task_id` FK → tasks ON DELETE CASCADE, `user_id` FK → profiles ON DELETE CASCADE, `body` text 1–2000 chars, timestamps). RLS: authed SELECT, own INSERT/UPDATE, own-or-admin DELETE. `touch_updated_at` trigger. Composite index on `(task_id, created_at DESC)`. |
+| `0018_concept_files.sql` | Adds `files` JSONB column to `concepts` (default `'[]'`). Backfills existing rows with `[image_url]`. App insert path has schema fallback: retries without `files` if column doesn't exist yet. |
 
-**14 tables**: `profiles`, `clients`, `concept_categories`, `fabrics`, `concepts`, `tasks`, `task_logs`, `files`, `sampling_logs`, `designer_codes`, `samples`, `salvedge_records`, `notifications`, `full_kitting_details`.
+**15 tables**: `profiles`, `clients`, `concept_categories`, `fabrics`, `concepts`, `tasks`, `task_logs`, `files`, `sampling_logs`, `designer_codes`, `samples`, `salvedge_records`, `notifications`, `full_kitting_details`, `task_comments`.
 Plus `task_counters` (internal, per-year sequence for task codes).
+
+**Note on `concepts.completion_history`**: JSONB column (added via Dashboard SQL, not a numbered migration) tracking revision cycles. Each entry: `{ cycle, action, timestamp, delay_days?, notes? }`. Appended by `resubmitConcept`, `finalApproveConcept`, `finalReviseConcept` mutations in `useConcepts`.
 
 **Tables added in 0010** (no UI consumes them yet — schema-only landing):
 - **`samples`** — daily customer-sample records. Wide table (24 cols) — `party_name` is **free text** (not FK to clients), `pending_qty` is a `GENERATED` column (`total_fabrics_received - printed_mtr`), `order_or_sample` is a 3-value CHECK (`'order' | 'sample' | ''`), three storage-path columns (`photo_url`, `video_url`, `signature_url`) all point at `sample-files`. `created_by → auth.users` (set null on delete).
@@ -684,6 +760,7 @@ Helper functions live in 0001 (recreated by 0006): `auth_role()` and `is_admin()
 | salvedge_records (0010) | full CRUD (`is_admin()` strict) | read only | read all; insert own; update own |
 | notifications (0013) | insert (admin/coordinator); delete (admin only) | insert; read own | read own; update own (is_read only) |
 | full_kitting_details (0013) | update; delete | update | read all; insert own (submitted_by = self) |
+| task_comments (0017) | read all; insert own; update own; delete any | read all; insert own; update own; delete any | read all; insert own; update own; delete own only |
 
 `task_logs` has no UPDATE/DELETE policies → effectively append-only audit trail.
 
@@ -843,6 +920,33 @@ The sampling view ([`ProductionView.tsx`](linkd-fms/src/views/ProductionView.tsx
 
 ---
 
+## Notification system
+
+The notification system has 3 layers:
+
+**Layer 1 — DB table** (`notifications`): `user_id`, `title`, `message`, `type` (info/warning/urgent/success), `link`, `is_read`. RLS: own-only SELECT, admin/coordinator INSERT.
+
+**Layer 2 — Sending helpers** ([`lib/notifications.ts`](linkd-fms/src/lib/notifications.ts)): `sendNotification(userId, ...)`, `sendNotificationToMany(userIds, ...)`, `sendNotificationToRole(role, ...)`.
+
+**Layer 3 — Realtime + sound** ([`useNotifications`](linkd-fms/src/hooks/useNotifications.ts)): Subscribes to Supabase Realtime `postgres_changes` INSERT events filtered to `user_id`. Plays Web Audio chime (A5 + D6 sine waves). Tab title flashes for 10s.
+
+**Where notifications fire from:**
+| Trigger | Recipient | Hook/File |
+|---|---|---|
+| Task assigned | Designer | `useTaskMutations` |
+| Task self-claimed | Previous assignee | `useTaskMutations` |
+| Task marked done | All coordinators | `useTaskMutations` |
+| Concept submitted | All admins | `useConcepts` |
+| Concept reviewed | Submitter | `useConcepts` |
+| Final approval | Submitter | `useConcepts` |
+| Revision feedback | Submitter | `useConcepts` |
+| Concept re-submitted | All admins | `useConcepts` |
+| Role changed | Affected user | `TeamView` |
+
+**UI surfaces:** `<NotificationBell>` in TopNav (dropdown + badge), `/notifications` full page (type filters, date grouping, pagination).
+
+---
+
 ## Conventions
 
 **Path aliases.** `@/*` → `linkd-fms/src/*`. Configured in `tsconfig.json` + `vite.config.ts`. Always use `@/` rather than relative imports.
@@ -870,7 +974,9 @@ The sampling view ([`ProductionView.tsx`](linkd-fms/src/views/ProductionView.tsx
 **Loading states.** Prefer `<AppShellSkeleton>` for full-page loading. Prefer `<SkeletonCard>` / `<SkeletonTable>` / `<SkeletonText>` inside existing layouts.
 
 **File uploads.**
-- Use `supabase.storage.from('design-files').upload(path, file, { contentType })`.
+
+- **Always compress first**: `const compressed = await compressImage(file)` before uploading (import from `@/lib/imageCompression`).
+- Use `supabase.storage.from('design-files').upload(path, compressed, { contentType })`.
 - Path **must** start with `{auth.uid()}/` — RLS rejects anything else.
 - Conventional paths: `{uid}/concepts/{ts}-{rand}.{ext}` and `{uid}/tasks/{task_id}/{ts}-{safe_name}.{ext}`.
 - Full-kitting uploads go to `sample-files` bucket.
@@ -891,6 +997,12 @@ The sampling view ([`ProductionView.tsx`](linkd-fms/src/views/ProductionView.tsx
 **Month codes.** `A`–`L` map to Jan–Dec in [`lib/constants.ts`](linkd-fms/src/lib/constants.ts). Helpers: `monthCodeForDate()`, `monthCodeFromNumber()`, `monthNumberFromCode()`.
 
 **Optimistic UI.** Hooks don't manage row state — components do. The kanban/sampling use refetch-after-mutation + highlight animation via `enteringIds`.
+
+**React Query.** All data-fetching hooks use `@tanstack/react-query` (`useQuery`) with centralized cache keys from `lib/queryKeys.ts`. Mutations invalidate via `queryClient.invalidateQueries({ queryKey: queryKeys.*.all })`. Don't use raw useState/useEffect for data fetching — always use `useQuery`.
+
+**Image compression.** All file upload handlers must call `compressImage(file)` before uploading to Supabase Storage. Import from `@/lib/imageCompression`. It's a no-op for non-image types (PSD, PDF, video) and files <500KB.
+
+**Form drafts.** For multi-field forms that users might abandon mid-entry (like concept submission), use `useFormDraft(storageKey, defaults)` to persist text fields to localStorage. Don't persist File/Blob objects — only serializable data.
 
 ---
 
@@ -985,6 +1097,14 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 21. **Notifications use Supabase Realtime.** The `useNotifications` hook subscribes to `postgres_changes` INSERT events on the `notifications` table filtered by `user_id`. New rows auto-prepend without refetch. The channel is cleaned up on unmount. Requires Realtime enabled on the `notifications` table in Supabase Dashboard.
 22. **`full_kitting_details` has a UNIQUE constraint on `task_id`.** One kitting record per task. Attempting a second INSERT for the same task will error — the UI should call `getKittingForTask()` first to check.
 23. **0014 added `assigned_at`, `completed_at`, `delay_days` to tasks.** These are nullable columns with no triggers — the app is responsible for stamping them at the appropriate lifecycle points.
+24. **`completion_history` JSONB on concepts.** Added via Supabase Dashboard SQL (not a numbered migration). If the column doesn't exist, `useConcepts` mutations gracefully skip writing to it.
+25. **Notification sound requires user interaction first.** Browsers block `AudioContext` before any user gesture. The chime will fail silently on the first page load until the user clicks anything.
+26. **Legacy Next.js scaffold deleted.** Root `src/`, `next.config.js`, `package.json`, `tailwind.config.ts`, `tsconfig.json` are gone. Only `linkd-fms/` exists now.
+27. **`useDeadlineAlerts` removed.** The periodic client-side deadline alert system was deleted. Deadline checking is no longer active — may be reimplemented as a Supabase Edge Function or cron in the future.
+28. **React Query staleTime is 2 minutes.** All data hooks share a single `QueryClient` with `staleTime: 2min`, `gcTime: 10min`, `retry: 1`. Supabase Realtime subscriptions handle instant updates for tasks, concepts, notifications, and comments — the staleTime just prevents needless refetches on component remounts.
+29. **`concepts.files` JSONB has a schema fallback.** The `submitConcept` mutation tries inserting with the `files` column first; if the column doesn't exist (pre-0018), it retries without it. Then if extended 0012 columns also don't exist, it falls back to the base payload.
+30. **Image compression is best-effort.** `compressImage()` catches all errors (CORS, OOM, decode failure) and returns the original file. Console logs before/after sizes. PNGs with transparency stay as PNG; everything else goes to JPEG.
+31. **`task_comments` cascade-deletes with tasks.** If a task is deleted, all its comments are automatically removed (ON DELETE CASCADE on `task_id` FK).
 
 ---
 
@@ -992,7 +1112,7 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 
 **Done:**
 - Vite scaffold + **dual-theme** (light/dark/system) Tailwind + Inter font + FOUC prevention
-- Full DB schema (12 tables, triggers, RLS, storage) — migrations 0001/0003–0012 applied
+- Full DB schema (15 tables, triggers, RLS, storage) — migrations 0001/0003–0014, 0016–0018 applied
 - **Theme system**: `useTheme` hook + `ThemeProvider` + `ThemeToggle` component + CSS custom properties for all tokens in both light and dark modes
 - **3-role architecture** (admin / design_coordinator / designer)
 - Centralized [`lib/permissions.ts`](linkd-fms/src/lib/permissions.ts)
@@ -1000,7 +1120,7 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 - **UX utility layer**: Toaster, Skeleton (x3), AppShellSkeleton, EmptyState, ConfirmDialog, LoadingButton, ConnectionDot, SearchInput, DeadlineCell, ThemeToggle + global CSS keyframes + barrel export
 - **App shell**: AppLayout + Sidebar (Dashboard first, section labels, glassmorphism TopNav) + RootRedirect
 - **UI polish**: Custom scrollbars, `rounded-xl` cards with hover shadow, subtle `fadeIn` with Y-translate, deeper dark mode, smoother animations
-- **`/login`** — split-screen, labels-above inputs, password eye toggle, focus rings, success flash
+- **`/login`** — split-screen with layered left panel (radial glow, dot grid, floating orbs, "LINKD" wordmark, tagline), staggered fade-in on form elements, password eye toggle, focus rings, success flash, inline "Forgot password?" flow
 - **`/onboarding`** — fallback for profile-less users
 - **AccessRestrictedView** — inline, friendly, keeps sidebar + URL
 - **NotFoundView** — 404 inside app shell
@@ -1020,6 +1140,26 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 - **Concept dashboard** — `ConceptDashboard.tsx` with 3 role-specific sections: `DesignerConceptDashboard` (monthly target tracker with recharts RadialBarChart, 3/month target), `CoordinatorConceptDashboard` (team overview), `AdminConceptDashboard` (pending-review queue). Rendered above concepts table in ConceptsView.
 - **Notification helpers** — [`lib/notifications.ts`](linkd-fms/src/lib/notifications.ts): `sendNotification(userId, title, msg, type?, link?)`, `sendNotificationToMany(userIds, ...)`, `sendNotificationToRole(role, ...)`. Reusable for inserting notifications from any view or hook.
 - **Seed data**: seed-user, seed-data, seed-clients (CSV), seed-fabrics (CSV), seed-concept-categories (CSV), seed-designer-codes
+- **Password reset** — `/reset-password` public route. Split-screen layout matching login. New password + confirm with eye toggles, min 8 chars, auto-redirect on success. Triggered from "Forgot password?" on login page via `supabase.auth.resetPasswordForEmail()`.
+- **File browser** — `/files` page with grid/list toggle, bucket filter pills (design-files, sample-files, task-files), search, image thumbnails on hover, download via signed URL, delete with confirmation. `useFiles` hook for recursive bucket listing.
+- **Pagination** — Reusable `usePagination` hook + `<Pagination>` UI component. Client-side pagination (fetch all, slice locally). Smart ellipsis page numbers + page size selector. Used by ConceptsView, ProductionView, NotificationsView.
+- **Dashboard sparklines** — Pure SVG `<Sparkline>` component (no recharts). `useAnimatedNumber` hook for RAF-based counters. KpiCard enhanced with optional `sparklineData` + `animateValue` props. Sparkline color adapts to trend direction.
+- **Keyboard shortcuts** — `useKeyboardShortcuts` hook + `<KeyboardShortcutsDialog>` UI. Wired into KanbanView: J/K navigate rows, Enter opens drawer, Esc closes, / and F focus search, 1-4 switch tabs, ? shows help. Keyboard icon button in top bar. Auto-disabled during input focus or open dialogs.
+- **Mobile bottom tab bar** — `<MobileTabBar>` with role-specific 4-tab layout (admin: Home/All Tasks/Concepts/Alerts; designer: Home/My Board/Concepts/Alerts). Fixed bottom on `<md` screens.
+- **Accessibility** — Skip-to-content link in AppLayout, focus management on route change via useRef + useEffect.
+- **Profile page enhancements** — Appearance section with 3 theme cards (Light/Dark/System), password section with eye toggles and min 8 chars validation.
+- **Notification sound** — Web Audio API two-tone chime (A5 880Hz + D6 1174Hz sine waves) on new Realtime notifications. No external audio files.
+- **Notification tab flash** — Browser tab title flashes for 10 seconds when new notification arrives.
+- **Concept revision flow** — 4-stage pipeline in ConceptDetailDrawer. Stage 4 split into approve/revise paths. `completion_history` JSONB column tracks revision cycles with timestamps. `resubmitConcept` mutation appends to history. Mandatory notes for revision.
+- **CSV export** — `ExportDialog` component + `lib/exportCSV.ts`. Generic column-based CSV generation with date range filtering. Used for task export in KanbanView.
+- **Salvedge** — `/salvedge` view + `useSalvedge` hook. Challan-based fabric distribution records. All roles; designers see their own. Full CRUD.
+- **Legacy cleanup** — Deleted Next.js scaffold (root src/app/, next.config.js, package.json, etc.). Removed Sonner toast library (replaced by custom Toaster).
+- **React Query migration** — All data hooks migrated from manual useState/useEffect to `@tanstack/react-query`. `QueryClientProvider` wraps the app in main.tsx with staleTime 2min, gcTime 10min, retry 1, refetchOnWindowFocus false. Centralized cache keys in `lib/queryKeys.ts`.
+- **Task comments / discussion thread** — `task_comments` table (migration 0017) + `useTaskComments` hook with CRUD + Supabase Realtime subscription. Rendered as "Discussion" section in TaskDetailDrawer. Avatar + name + role badge per comment. Edit/delete own comments. Admin/coordinator can moderate (delete any). 2000 char limit with counter.
+- **Multi-file concept submissions** — `concepts.files` JSONB column (migration 0018) holding array of storage paths. SubmitConceptDialog supports multiple file uploads. Schema fallback: retries without `files` column on pre-0018 databases. Existing rows backfilled with `[image_url]`.
+- **Form draft persistence** — `useFormDraft` hook: localStorage-backed draft save/restore with 300ms debounce. Defensive merge on restore. "Draft recovered" banner in SubmitConceptDialog when a previous submission was interrupted.
+- **Client-side image compression** — `lib/imageCompression.ts`: Canvas-based resize + recompress for JPEG/PNG/WebP >500KB. Max 1920px edge, 0.85 quality. Skips PSD/PDF/video. Fails silently → original file. Used by all 6 upload handlers (Briefing, Concepts, Sampling, TaskDetail, FullKitting drawer/modal).
+- **Lazy image loading** — `<LazyImage>` component: IntersectionObserver (100px rootMargin), skeleton pulse placeholder, opacity fade-in on decode, error fallback. Used for file thumbnails.
 
 **Dashboards (FUNCTIONAL):**
 
@@ -1035,7 +1175,6 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 - Edit own pending concept (DB permits it; UI doesn't expose it)
 - Concept → Task promotion (`tasks.concept_id` FK exists, no UI)
 - Drag-and-drop reordering in Kanban
-- **0010 surfaces**: Salvedge view (challan-based fabric distribution) — `useSalvedge()` hook not yet created
 - **Lookup taxonomy admin UI**: no in-app interface for managing `concept_categories` or `fabrics`
 
 ---
@@ -1091,10 +1230,24 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 | Change MD review actions | [`ConceptDetailDrawer.tsx`](linkd-fms/src/components/concepts/ConceptDetailDrawer.tsx) |
 | Add a global animation | [`index.css`](linkd-fms/src/index.css) — `@keyframes` + utility class |
 | Add a UI primitive | `components/ui/` + re-export from `index.ts` |
-| Add a DB table or column | New file `supabase/migrations/0015_*.sql` + update `types/database.ts` |
 | Add a permission check | Use [`lib/permissions.ts`](linkd-fms/src/lib/permissions.ts) helpers |
 | Seed clients/fabrics/categories | `scripts/seed-clients.mjs`, `seed-fabrics.mjs`, `seed-concept-categories.mjs` |
 | Show a toast | `import { toast } from "@/components/ui"` |
 | Confirm a destructive action | `<ConfirmDialog variant="danger" ... />` |
 | Show a deadline cell | `<DeadlineCell deadline={task.planned_deadline} />` |
 | Toggle theme programmatically | `const { setTheme } = useTheme()` |
+| Add pagination to a view | `usePagination(totalCount)` hook + `<Pagination>` component |
+| Add a sparkline to a card | `<Sparkline data={[...]} />` — pure SVG, no recharts |
+| Export data as CSV | `<ExportDialog>` + `lib/exportCSV.ts` |
+| Change notification sound | [`useNotifications.ts`](linkd-fms/src/hooks/useNotifications.ts) — `playNotificationSound()` Web Audio |
+| Change mobile bottom tabs | [`MobileTabBar.tsx`](linkd-fms/src/components/layout/MobileTabBar.tsx) — role-specific tab arrays |
+| Browse/manage uploaded files | [`FilesView.tsx`](linkd-fms/src/views/FilesView.tsx) + [`useFiles.ts`](linkd-fms/src/hooks/useFiles.ts) |
+| Change password reset flow | [`ResetPasswordView.tsx`](linkd-fms/src/views/ResetPasswordView.tsx) |
+| Change concept revision flow | [`ConceptDetailDrawer.tsx`](linkd-fms/src/components/concepts/ConceptDetailDrawer.tsx) — Stage 4 approve/revise split |
+| Change salvedge page | [`SalvedgeView.tsx`](linkd-fms/src/views/SalvedgeView.tsx) + [`useSalvedge.ts`](linkd-fms/src/hooks/useSalvedge.ts) |
+| Add task comments / discussion | [`useTaskComments.ts`](linkd-fms/src/hooks/useTaskComments.ts) — CRUD + Realtime; rendered in TaskDetailDrawer |
+| Add form draft persistence | [`useFormDraft.ts`](linkd-fms/src/hooks/useFormDraft.ts) — generic localStorage draft with debounce |
+| Compress images before upload | `import { compressImage } from "@/lib/imageCompression"` — Canvas pipeline, fails silently |
+| Lazy-load an image | `<LazyImage src={url} alt="..." className="..." />` — IntersectionObserver + fade-in |
+| Invalidate React Query cache | `queryClient.invalidateQueries({ queryKey: queryKeys.*.all })` — keys in `lib/queryKeys.ts` |
+| Add a DB table or column | New file `supabase/migrations/0019_*.sql` + update `types/database.ts` |

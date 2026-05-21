@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FileIcon, Loader2, Upload, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useFullKitting, type KittingFormData } from "@/hooks/useFullKitting";
 import {
@@ -46,8 +47,14 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
   const [specialInstructions, setSpecialInstructions] = useState("");
 
   // ── File state ──
-  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
-  const [uploadedName, setUploadedName] = useState<string | null>(null);
+  // Multi-file upload (post-migration 0020). Each entry holds its storage
+  // path + display name; the form sends `files: string[]` to the kitting
+  // mutation, which mirrors files[0] into `file_url` for back-compat.
+  interface UploadedFile {
+    path: string;
+    name: string;
+  }
+  const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -63,66 +70,93 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
     setAccessories("");
     setPackingType("standard");
     setSpecialInstructions("");
-    setUploadedPath(null);
-    setUploadedName(null);
+    setUploads([]);
     setError(null);
   }, [task?.id, open]);
 
   // ── File upload ──
+  // Multi-file handler — iterates over every file in the picker selection.
+  // Each is individually size-checked, compressed (when applicable), and
+  // uploaded to its own deterministic path. We append to `uploads` instead
+  // of replacing so the user can stack uploads in multiple clicks.
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !user || !task) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0 || !user || !task) return;
+    const files = Array.from(fileList);
 
-    if (file.size > MAX_FILE_BYTES) {
-      setError("File too large — max 100 MB");
+    // Reject the whole batch on the first oversized file — clearer than
+    // silently skipping one and uploading the rest.
+    const tooBig = files.find((f) => f.size > MAX_FILE_BYTES);
+    if (tooBig) {
+      setError(`"${tooBig.name}" is over 100 MB — each file must be 100 MB or less.`);
+      // Clear the picker so the user can re-select after fixing.
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
     setUploading(true);
-    setUploadProgress(8);
+    setUploadProgress(5);
     setError(null);
 
-    const timer = window.setInterval(() => {
-      setUploadProgress((p) => (p >= 90 ? p : p + Math.random() * 12));
-    }, 180);
+    // Synthetic progress bar — we don't get per-byte progress from the JS
+    // client, so we advance a counter as each file finishes.
+    const stepSize = 95 / files.length;
+    const newUploads: UploadedFile[] = [];
 
-    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const path = `${user.id}/tasks/${task.id}/full-kitting-${Date.now()}-${safe}`;
+    try {
+      for (const f of files) {
+        const processed = await compressImage(f);
+        const safe = processed.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `${user.id}/tasks/${task.id}/full-kitting-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
 
-    const { error: upErr } = await supabase.storage
-      .from(FK_BUCKET)
-      .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
+        const { error: upErr } = await supabase.storage
+          .from(FK_BUCKET)
+          .upload(path, processed, {
+            contentType: processed.type || "application/octet-stream",
+            upsert: false,
+          });
+        if (upErr) {
+          setError(`Upload failed for "${f.name}": ${upErr.message}`);
+          break;
+        }
+        newUploads.push({ path, name: f.name });
+        setUploadProgress((p) => Math.min(95, p + stepSize));
+      }
 
-    window.clearInterval(timer);
+      if (newUploads.length > 0) {
+        // Mirror the first uploaded path into the task's legacy single-file
+        // column so existing surfaces that read `full_kitting_image_url`
+        // (e.g. the kanban "FK Image" cell) still show something.
+        const mergedFirst =
+          uploads[0]?.path ?? newUploads[0]?.path ?? null;
+        await supabase
+          .from("tasks")
+          .update({
+            full_kitting_image_url: mergedFirst,
+            full_kitting_submitted_at: new Date().toISOString(),
+            full_kitting_submitted_by: user.id,
+          })
+          .eq("id", task.id);
 
-    if (upErr) {
-      setUploading(false);
-      setUploadProgress(0);
-      setError(upErr.message);
-      return;
+        setUploads((prev) => [...prev, ...newUploads]);
+      }
+      setUploadProgress(100);
+    } finally {
+      setTimeout(() => {
+        setUploading(false);
+        setUploadProgress(0);
+      }, 250);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-
-    // Also update the task's full_kitting_image_url
-    await supabase.from("tasks").update({
-      full_kitting_image_url: path,
-      full_kitting_submitted_at: new Date().toISOString(),
-      full_kitting_submitted_by: user.id,
-    }).eq("id", task.id);
-
-    setUploadedPath(path);
-    setUploadedName(file.name);
-    setUploadProgress(100);
-    setTimeout(() => { setUploading(false); setUploadProgress(0); }, 250);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function removeFile() {
-    if (uploadedPath) {
-      void supabase.storage.from(FK_BUCKET).remove([uploadedPath]);
+  function removeFile(idx: number) {
+    const target = uploads[idx];
+    if (target) {
+      // Best-effort cleanup — we don't surface storage delete errors.
+      void supabase.storage.from(FK_BUCKET).remove([target.path]);
     }
-    setUploadedPath(null);
-    setUploadedName(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setUploads((prev) => prev.filter((_, i) => i !== idx));
   }
 
   // ── Submit ──
@@ -136,6 +170,10 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
       accessories: accessories.trim() || null,
       packing_type: packingType,
       special_instructions: specialInstructions.trim() || null,
+      // Send all uploaded paths; hook mirrors files[0] into file_url for
+      // back-compat with any old reader that still reads the single column.
+      files: uploads.map((u) => u.path),
+      file_url: uploads[0]?.path ?? null,
     };
 
     const { error: e } = await submitKitting(task.id, formData);
@@ -191,43 +229,70 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
             </div>
           </div>
 
-          {/* File upload */}
+          {/* File upload — multi-file. Already-uploaded files render as
+              chips above the dropzone; the dropzone itself stays available
+              to stack more uploads in subsequent clicks. */}
           <div className="space-y-1.5">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Full Kitting File <span className="normal-case text-muted-foreground">(up to 100 MB)</span>
+              Full Kitting Files{" "}
+              <span className="normal-case text-muted-foreground">
+                (up to 100 MB each)
+              </span>
             </Label>
 
-            {uploadedPath ? (
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5">
-                <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm text-foreground">{uploadedName}</span>
-                <button type="button" onClick={removeFile} className="shrink-0 text-muted-foreground hover:text-destructive">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading || saving}
-                className={cn(
-                  "flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-card py-6 text-sm transition-colors hover:border-primary",
-                  (uploading || saving) && "opacity-50 pointer-events-none"
-                )}
-              >
-                {uploading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                ) : (
-                  <Upload className="h-5 w-5 text-muted-foreground" />
-                )}
-                <span className="text-muted-foreground">
-                  {uploading ? "Uploading…" : "Tap to upload file"}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  JPG / PNG / PSD / GIF / MP4 / PDF · up to 100 MB
-                </span>
-              </button>
+            {uploads.length > 0 && (
+              <ul className="space-y-1.5">
+                {uploads.map((f, i) => (
+                  <li
+                    key={`${f.path}-${i}`}
+                    className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+                  >
+                    <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span
+                      className="min-w-0 flex-1 truncate text-sm text-foreground"
+                      title={f.name}
+                    >
+                      {f.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Remove ${f.name}`}
+                      disabled={saving}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || saving}
+              className={cn(
+                "flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-card py-6 text-sm transition-colors hover:border-primary",
+                (uploading || saving) && "pointer-events-none opacity-50"
+              )}
+            >
+              {uploading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                <Upload className="h-5 w-5 text-muted-foreground" />
+              )}
+              <span className="text-muted-foreground">
+                {uploading
+                  ? "Uploading…"
+                  : uploads.length > 0
+                  ? "Tap to add more files"
+                  : "Tap to upload files"}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                JPG / PNG / PSD / GIF / MP4 / PDF · up to 100 MB each · multiple OK
+              </span>
+            </button>
 
             {uploading && (
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -241,6 +306,7 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               className="hidden"
               onChange={handleFile}
             />

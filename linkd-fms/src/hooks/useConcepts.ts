@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { queryKeys } from "@/lib/queryKeys";
 import { sendNotification, sendNotificationToRole } from "@/lib/notifications";
 import { differenceInDays, parseISO } from "date-fns";
 import type {
@@ -57,9 +59,9 @@ export interface SubmitConceptInput {
   title: string;
   description?: string | null;
   /**
-   * Storage path of the supporting file (image, PSD, MP4) inside the
-   * `sample-files` bucket. Pre-0012 this was an image inside `design-files`;
-   * new submissions use `sample-files` (100 MB cap).
+   * Storage path of the *primary* supporting file (image, PSD, MP4) inside
+   * the `sample-files` bucket. Always equals `files[0]` for new submissions;
+   * kept as a top-level column for the detail-drawer's hero preview.
    */
   image_url: string;
   /** New 0012 fields. */
@@ -70,6 +72,13 @@ export interface SubmitConceptInput {
   priority?: TaskPriority;
   /** Optional alternate file path (kept in sync with image_url for now). */
   file_url?: string | null;
+  /**
+   * Storage paths for every uploaded attachment (added in 0018). The first
+   * entry mirrors `image_url`; subsequent entries are additional references.
+   * If the 0018 migration hasn't been applied yet, the insert falls back to
+   * a payload without this column.
+   */
+  files?: string[];
 }
 
 export interface ReviewInput {
@@ -87,7 +96,7 @@ export interface UseConcepts {
   totalCount: number;
   isLoading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: () => unknown;
   submitConcept: (input: SubmitConceptInput) => Promise<MutationResult<Concept>>;
   reviewConcept: (
     conceptId: string,
@@ -107,88 +116,90 @@ export interface UseConcepts {
   resubmitConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
 }
 
+// ============================================================================
+// Query function
+// ============================================================================
+
+async function fetchConcepts(
+  filters: ConceptFilters | undefined,
+  userId: string | undefined
+): Promise<ConceptWithRelations[]> {
+  function buildQuery(selectFragment: string) {
+    let q = supabase
+      .from("concepts")
+      .select(selectFragment)
+      .order("created_at", { ascending: false });
+
+    if (filters?.status) {
+      if (Array.isArray(filters.status)) {
+        if (filters.status.length) q = q.in("md_status", filters.status);
+      } else {
+        q = q.eq("md_status", filters.status);
+      }
+    }
+    if (filters?.mySubmissionsOnly && userId) {
+      q = q.eq("submitted_by", userId);
+    } else if (filters?.submittedBy) {
+      q = q.eq("submitted_by", filters.submittedBy);
+    }
+    return q;
+  }
+
+  let { data, error } = await buildQuery(FULL_SELECT);
+
+  // 0012 fallback: missing relations → retry with the legacy select.
+  if (error && isMissingRelationshipError(error.message)) {
+    console.warn(
+      "[useConcepts] new relations missing — falling back to legacy select. " +
+        "Apply migration 0012 to enable designer/client joins."
+    );
+    const fallback = await buildQuery(LEGACY_SELECT);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    console.error("[useConcepts] query error", error);
+    throw error;
+  }
+  return (data ?? []) as unknown as ConceptWithRelations[];
+}
+
+// ============================================================================
+// Hook
+// ============================================================================
+
 export function useConcepts(filters?: ConceptFilters): UseConcepts {
-  const { user } = useAuth();
-  const [concepts, setConcepts] = useState<ConceptWithRelations[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { user, profile } = useAuth();
+  const queryClient = useQueryClient();
 
   const filterKey = JSON.stringify(filters ?? {});
+  const userKey = filters?.mySubmissionsOnly ? user?.id ?? "" : "any";
 
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: queryKeys.concepts.list({ filterKey, userKey }),
+    queryFn: () => fetchConcepts(filters, user?.id),
+  });
 
-    function buildQuery(selectFragment: string) {
-      let q = supabase
-        .from("concepts")
-        .select(selectFragment)
-        .order("created_at", { ascending: false });
+  // Invalidate every concept query when the row set changes.
+  const invalidateAll = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.concepts.all });
+  }, [queryClient]);
 
-      if (filters?.status) {
-        if (Array.isArray(filters.status)) {
-          if (filters.status.length) q = q.in("md_status", filters.status);
-        } else {
-          q = q.eq("md_status", filters.status);
-        }
-      }
-      if (filters?.mySubmissionsOnly && user?.id) {
-        q = q.eq("submitted_by", user.id);
-      } else if (filters?.submittedBy) {
-        q = q.eq("submitted_by", filters.submittedBy);
-      }
-      return q;
-    }
-
-    // Try the full select first (post-0012 schema).
-    let { data, error: err } = await buildQuery(FULL_SELECT);
-
-    // If 0012 hasn't been applied yet, PostgREST reports the missing relation
-    // and we fall back to the legacy select so the page still renders.
-    if (err && isMissingRelationshipError(err.message)) {
-      console.warn(
-        "[useConcepts] new relations missing — falling back to legacy select. " +
-          "Apply migration 0012 to enable designer/client joins."
-      );
-      const fallback = await buildQuery(LEGACY_SELECT);
-      data = fallback.data;
-      err = fallback.error;
-    }
-
-    if (err) {
-      console.error("[useConcepts] query error", err);
-      setError(err.message);
-      setConcepts([]);
-    } else {
-      setConcepts((data ?? []) as unknown as ConceptWithRelations[]);
-    }
-    setIsLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, user?.id]);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  // ── Realtime subscription ─────────────────────────────────────────
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-
+  // Realtime: any concept change invalidates the cache so all consumers refetch.
   useEffect(() => {
     const channel = supabase
       .channel("concepts-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "concepts" },
-        () => { void refetch(); }
+        () => invalidateAll()
       )
       .subscribe();
-
-    channelRef.current = channel;
     return () => {
       void supabase.removeChannel(channel);
-      channelRef.current = null;
     };
-  }, [refetch]);
+  }, [invalidateAll]);
 
   // ---------- mutations ----------
 
@@ -206,6 +217,10 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         image_url: input.image_url,
         submitted_by: user.id,
       };
+      const filesArray =
+        input.files && input.files.length > 0
+          ? input.files
+          : [input.image_url];
       const extendedPayload = {
         ...basePayload,
         start_date: input.start_date ?? null,
@@ -214,6 +229,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         assigned_by: input.assigned_by?.trim() || null,
         priority: input.priority ?? "normal",
         file_url: input.file_url ?? input.image_url,
+        files: filesArray,
       };
 
       let { data, error: err } = await supabase
@@ -222,38 +238,55 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .select("*")
         .single();
 
-      // If migration 0012 isn't applied yet, the new columns don't exist
-      // (Postgres reports "column ... does not exist"). Fall back to the
-      // base payload so submission still works.
+      // Schema fallback ladder:
+      //   1. Full extendedPayload   — works post-0018
+      //   2. Drop `files` column    — works post-0012, pre-0018
+      //   3. basePayload only       — works pre-0012
       if (err && /does not exist|schema cache/i.test(err.message)) {
         console.warn(
-          "[useConcepts] new columns missing — submitting with base payload. " +
-            "Apply migration 0012 to persist start_date/designer/client/etc."
+          "[useConcepts] schema missing — retrying without `files` column. " +
+            "Apply migration 0018 to persist multi-file attachments."
         );
-        const fallback = await supabase
+        const { files: _omit, ...withoutFiles } = extendedPayload;
+        void _omit;
+        const retry1 = await supabase
           .from("concepts")
-          .insert(basePayload)
+          .insert(withoutFiles)
           .select("*")
           .single();
-        data = fallback.data;
-        err = fallback.error;
+        data = retry1.data;
+        err = retry1.error;
+
+        if (err && /does not exist|schema cache/i.test(err.message)) {
+          console.warn(
+            "[useConcepts] extended columns also missing — falling back to base payload. " +
+              "Apply migration 0012 to persist start_date/designer/client/etc."
+          );
+          const retry2 = await supabase
+            .from("concepts")
+            .insert(basePayload)
+            .select("*")
+            .single();
+          data = retry2.data;
+          err = retry2.error;
+        }
       }
 
       if (err) return { data: null, error: err.message };
 
-      // Notify admins that a concept was submitted for review
+      const submitterName = profile?.full_name ?? "A designer";
       void sendNotificationToRole(
-        "admin",
+        ["admin", "design_coordinator"],
         "New Concept Submitted",
-        `${input.title} was submitted for review.`,
+        `${submitterName} submitted "${input.title}"`,
         "info",
         "/concepts"
       );
 
-      await refetch();
+      invalidateAll();
       return { data, error: null };
     },
-    [user, refetch]
+    [user, profile, invalidateAll]
   );
 
   const reviewConcept = useCallback<UseConcepts["reviewConcept"]>(
@@ -265,39 +298,51 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
           md_status: input.status,
           md_reviewed_by: user.id,
           md_notes: input.notes?.trim() || null,
-          // md_actual_date + md_reviewed_at stamped by trigger
-          // designer_planned_date = +4d set by trigger on approval
         })
         .eq("id", conceptId)
         .select("*")
         .single();
       if (err) return { data: null, error: err.message };
 
-      // Notify the concept submitter of the review result
       if (data) {
-        const statusLabel =
-          input.status === "approved" ? "approved" :
-          input.status === "rejected" ? "rejected" :
-          "sent back for revision";
-        const type = input.status === "approved" ? "success" as const :
-                     input.status === "rejected" ? "warning" as const :
-                     "info" as const;
-        void sendNotification(
-          data.submitted_by,
-          `Concept ${statusLabel}`,
-          `Your concept "${data.title}" has been ${statusLabel}.`,
-          type,
-          "/concepts"
-        );
+        // Per-verdict notification — the submitter learns the outcome AND
+        // the reason in a single payload, so they don't have to open the
+        // drawer to find out why a rejection happened.
+        const notes = input.notes?.trim();
+        if (input.status === "approved") {
+          void sendNotification(
+            data.submitted_by,
+            "Concept Approved",
+            `Your concept "${data.title}" has been approved.`,
+            "success",
+            "/concepts"
+          );
+        } else if (input.status === "rejected") {
+          void sendNotification(
+            data.submitted_by,
+            "Concept Rejected",
+            `Your concept "${data.title}" was rejected: ${notes || "No reason given"}`,
+            "warning",
+            "/concepts"
+          );
+        } else if (input.status === "revision_requested") {
+          void sendNotification(
+            data.submitted_by,
+            "Revision Requested",
+            `Changes needed on "${data.title}": ${notes || "See details"}`,
+            "warning",
+            "/concepts"
+          );
+        }
       }
 
-      await refetch();
+      invalidateAll();
       return { data, error: null };
     },
-    [user, refetch]
+    [user, invalidateAll]
   );
 
-  // ── History helper: fetch current history, append entry, return updated ──
+  // History helper: fetch current history, append entry, return updated array.
   async function appendHistory(
     conceptId: string,
     entry: CompletionHistoryEntry
@@ -312,21 +357,18 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
     return [...existing, entry];
   }
 
-  // ── Designer marks concept as Done (first time) ──
   const finalizeConcept = useCallback<UseConcepts["finalizeConcept"]>(
     async (conceptId) => {
       if (!user) return { data: null, error: "Not authenticated" };
 
       const now = new Date().toISOString().slice(0, 10);
 
-      // Fetch concept to calculate delay
       const { data: concept } = await supabase
         .from("concepts")
         .select("designer_planned_date, designer_actual_date")
         .eq("id", conceptId)
         .single();
 
-      // Don't overwrite if already done (re-submit uses resubmitConcept)
       if (concept?.designer_actual_date) {
         return { data: null, error: "Already marked as done. Use Re-submit instead." };
       }
@@ -352,13 +394,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .select("*")
         .single();
       if (err) return { data: null, error: err.message };
-      await refetch();
+      invalidateAll();
       return { data, error: null };
     },
-    [user, refetch]
+    [user, invalidateAll]
   );
 
-  // ── MD grants Final Approval ──
   const finalApproveConcept = useCallback<UseConcepts["finalApproveConcept"]>(
     async (conceptId, input) => {
       if (!user) return { data: null, error: "Not authenticated" };
@@ -396,13 +437,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         );
       }
 
-      await refetch();
+      invalidateAll();
       return { data, error: null };
     },
-    [user, refetch]
+    [user, invalidateAll]
   );
 
-  // ── MD requests revision (with mandatory feedback) ──
   const finalReviseConcept = useCallback<UseConcepts["finalReviseConcept"]>(
     async (conceptId, notes) => {
       if (!user) return { data: null, error: "Not authenticated" };
@@ -432,27 +472,25 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       if (data) {
         void sendNotification(
           data.submitted_by,
-          "Revision Feedback",
-          `Your concept "${data.title}" received feedback: ${notes.trim()}`,
+          "Final Review — Changes Needed",
+          `Revision needed on "${data.title}": ${notes.trim()}`,
           "warning",
           "/concepts"
         );
       }
 
-      await refetch();
+      invalidateAll();
       return { data, error: null };
     },
-    [user, refetch]
+    [user, invalidateAll]
   );
 
-  // ── Designer re-submits after revision ──
   const resubmitConcept = useCallback<UseConcepts["resubmitConcept"]>(
     async (conceptId) => {
       if (!user) return { data: null, error: "Not authenticated" };
 
       const now = new Date().toISOString().slice(0, 10);
 
-      // Calculate delay from original done date
       const { data: concept } = await supabase
         .from("concepts")
         .select("designer_actual_date")
@@ -483,26 +521,28 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       if (err) return { data: null, error: err.message };
 
       if (data) {
+        const submitterName = profile?.full_name ?? "Designer";
         void sendNotificationToRole(
-          "admin",
+          ["admin", "design_coordinator"],
           "Concept Re-submitted",
-          `"${data.title}" has been re-submitted after revision.`,
+          `${submitterName} re-submitted "${data.title}" for final review`,
           "info",
           "/concepts"
         );
       }
 
-      await refetch();
+      invalidateAll();
       return { data, error: null };
     },
-    [user, refetch]
+    [user, profile, invalidateAll]
   );
 
+  const concepts = data ?? [];
   return {
     concepts,
     totalCount: concepts.length,
     isLoading,
-    error,
+    error: error instanceof Error ? error.message : null,
     refetch,
     submitConcept,
     reviewConcept,
