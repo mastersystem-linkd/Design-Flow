@@ -37,7 +37,7 @@ import {
   type SampleWithTask,
 } from "@/hooks/useSamples";
 import { useProfiles } from "@/hooks/useProfiles";
-import { SamplingFormDrawer } from "@/components/sampling/SamplingFormDrawer";
+import { SamplingFormDialog } from "@/components/sampling/SamplingFormDialog";
 import {
   Badge,
   Button,
@@ -395,6 +395,7 @@ export function ProductionView() {
                     <th className="px-3 py-2 font-medium">Sampling Done By</th>
                     <th className="px-3 py-2 font-medium">Sample Entry By</th>
                     <th className="px-3 py-2 font-medium text-right">Printed Mtr</th>
+                    <th className="px-3 py-2 font-medium">SR NO-</th>
                     <th className="px-3 py-2 font-medium">Order / Sample</th>
                     <th className="px-3 py-2 font-medium">Completion</th>
                     <th className="px-3 py-2 font-medium text-right">Pending</th>
@@ -403,7 +404,6 @@ export function ProductionView() {
                     <th className="px-3 py-2 font-medium">Neatly Prepared</th>
                     <th className="px-3 py-2 font-medium">Photo</th>
                     <th className="px-3 py-2 font-medium">Video</th>
-                    <th className="px-3 py-2 font-medium">Form</th>
                     <th className="px-3 py-2 font-medium">Signature</th>
                     <th className="px-3 py-2 font-medium">Comments</th>
                     <th className="px-3 py-2 font-medium">Full Knitting</th>
@@ -465,7 +465,7 @@ export function ProductionView() {
       )}
 
       {/* ── Drawers / Dialogs ── */}
-      <SamplingFormDrawer
+      <SamplingFormDialog
         open={formOpen}
         onOpenChange={(o) => {
           if (!o) setEditSample(null);
@@ -627,6 +627,9 @@ function SampleRow({
         {/* Printed Mtr */}
         <td className="px-3 py-3 text-right tabular-nums">{s.printed_mtr}</td>
 
+        {/* SR NO- */}
+        <td className="px-3 py-3 font-mono text-[11px] text-primary">{s.sr_no ?? "—"}</td>
+
         {/* Order / Sample */}
         <td className="px-3 py-3 text-xs capitalize text-muted-foreground">
           {s.order_or_sample ? (
@@ -739,17 +742,6 @@ function SampleRow({
           />
         </td>
 
-        {/* Form */}
-        <td className="px-3 py-3">
-          {s.has_form ? (
-            <Badge className="border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
-              Yes
-            </Badge>
-          ) : (
-            <span className="text-[11px] text-muted-foreground">No</span>
-          )}
-        </td>
-
         {/* Signature */}
         <td className="px-3 py-3">
           <SampleFileSlot
@@ -797,7 +789,7 @@ function SampleRow({
                 type="button"
                 onClick={onEdit}
                 className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                title="Edit"
+                title="View / Edit"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>

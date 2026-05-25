@@ -739,14 +739,13 @@ Re-submission after revision:
    ├─ Status filter: All / Pending / Completed
    └─ Date range filter
 
-3. SAMPLES TABLE (full CRUD via SamplingFormDrawer)
-   ├─ Columns: Party Name, Fabric, Qty, Status, Date, Actions
-   ├─ Row ⋮ menu: Edit / Delete
-   ├─ Add new: SamplingFormDrawer (Sheet-based)
-   │   ├─ Quick Add mode (minimal fields)
-   │   └─ Full Form mode (all fields)
-   │   └─ Batch entry (party_name persists between entries)
-   │   └─ File uploads (5x100MB to sample-files bucket)
+L742: 3. SAMPLES TABLE (full CRUD via SamplingFormDialog)
+L743:    ├─ Columns: Party Name, Fabric, Qty, Status, Date, Actions
+L744:    ├─ Row ⋮ menu: Edit / Delete
+L745:    ├─ Add new: SamplingFormDialog (Dialog-based)
+L746:    │   └─ Full Form mode (all fields)
+L747:    │   └─ Batch entry (party_name persists between entries)
+L748:    │   └─ File uploads (5x100MB to sample-files bucket)
    └─ TaskPicker: search-as-you-type to link samples to tasks
 
 4. TASKS IN SAMPLING STAGE
