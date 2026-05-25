@@ -24,14 +24,10 @@ const BAR_COLORS: Record<TaskStatus, string> = {
   done: "bg-success",
 };
 
-const PIPELINE_STATUSES: TaskStatus[] = [
-  "pool",
-  "todo",
-  "in_progress",
-  "full_kitting",
-  "sampling",
-  "done",
-];
+// Simplified visual pipeline (matches Kanban tabs): Pool → In Progress → Done.
+// Legacy statuses (todo, full_kitting, approved, sampling) are not surfaced
+// in dashboards; any historical rows in those buckets fold into In Progress.
+const PIPELINE_STATUSES: TaskStatus[] = ["pool", "in_progress", "done"];
 
 // ============================================================================
 // Component

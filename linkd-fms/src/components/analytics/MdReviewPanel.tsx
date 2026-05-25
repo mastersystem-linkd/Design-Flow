@@ -11,8 +11,8 @@ export function MdReviewPanel({ stats }: { stats: MdReviewStats }) {
 
   return (
     <Card>
-      <CardContent className="py-5">
-        <h3 className="text-sm font-semibold text-foreground mb-4">MD Review Performance</h3>
+      <CardContent className="py-4">
+        <h3 className="text-sm font-semibold text-foreground mb-3">MD Review Performance</h3>
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
           {/* Left: review speed */}
           <div className="flex items-center gap-4">

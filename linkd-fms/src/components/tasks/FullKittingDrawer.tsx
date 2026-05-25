@@ -182,7 +182,7 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
       return;
     }
 
-    toast.success("Full kitting details saved & task completed!");
+    toast.success("Full knitting details saved & task completed!");
     onOpenChange(false);
     onSaved();
   }
@@ -374,7 +374,7 @@ export function FullKittingDrawer({ task, open, onOpenChange, onSaved }: Props) 
                 Packing Type <span className="text-destructive">*</span>
               </Label>
               <select
-                value={packingType}
+                value={packingType ?? "standard"}
                 onChange={(e) => setPackingType(e.target.value as PackingType)}
                 disabled={saving}
                 className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"

@@ -66,6 +66,20 @@ const config: Config = {
         lg: "12px",
         md: "8px",
         sm: "6px",
+        pill: "20px",
+      },
+      boxShadow: {
+        // Spec-aligned aliases backed by CSS variables so they adapt
+        // per-theme. Use as `shadow-card` / `shadow-card-hover` etc.
+        card: "var(--shadow-card)",
+        "card-hover": "var(--shadow-card-hover)",
+        dropdown: "var(--shadow-dropdown)",
+        overlay: "var(--shadow-overlay)",
+      },
+      backgroundImage: {
+        // Brand-anchor gradient used by hero KPIs. Same in light + dark
+        // — see LINKD-FMS-UI-REDESIGN.md §5.3.
+        "hero-gradient": "var(--brand-gradient)",
       },
     },
   },

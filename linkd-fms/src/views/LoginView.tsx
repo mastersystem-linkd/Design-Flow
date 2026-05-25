@@ -188,42 +188,25 @@ export function LoginView() {
           style={{ animation: "floatOrb 15s ease-in-out infinite 3s" }}
         />
 
-        {/* Brand content */}
+        {/* Brand content — simplified per the latest brand direction:
+             transparent logo on the dark left panel, single app-name
+             line, no marketing stats. */}
         <div className="relative z-10 flex flex-col items-center px-12 text-center">
-          <div className="mb-8 w-48 overflow-hidden rounded-2xl bg-white p-4 shadow-2xl shadow-black/20">
-            <img
-              src="/logo.png"
-              alt="LinkD"
-              className="block h-auto w-full"
-              draggable={false}
-            />
-          </div>
+          {/* LinkD wordmark — transparent PNG so no white card needed. */}
+          <img
+            src="/logo.png"
+            alt="LinkD"
+            className="mb-6 block h-auto w-48 drop-shadow-2xl"
+            draggable={false}
+          />
 
           {/* Separator */}
           <div className="mb-5 h-[2px] w-12 rounded-full bg-white/30" />
 
-          <h1 className="text-4xl font-bold uppercase tracking-[0.15em] text-white">
-            LinkD
+          {/* Single app-name heading — replaces the prior "LinkD" + tagline. */}
+          <h1 className="text-3xl font-bold uppercase tracking-[0.15em] text-white">
+            Design Flow System
           </h1>
-          <p className="mt-3 text-[11px] uppercase tracking-[0.25em] text-white/60">
-            Design Flow, Visualized.
-          </p>
-
-          {/* Stats hint */}
-          <div className="mt-12 flex gap-8">
-            {[
-              { n: "3", label: "Systems" },
-              { n: "12", label: "Users" },
-              { n: "∞", label: "Designs" },
-            ].map((s) => (
-              <div key={s.label} className="text-center">
-                <p className="text-2xl font-bold text-white">{s.n}</p>
-                <p className="text-[9px] uppercase tracking-wider text-white/30">
-                  {s.label}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
 
         <p className="absolute bottom-8 text-xs tracking-wider text-white/25">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image as ImageIcon,
   Loader2,
@@ -7,11 +7,11 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "@/components/ui";
+import { Combobox } from "@/components/ui/Combobox";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
-import { useProfiles } from "@/hooks/useProfiles";
 import { useFormDraft } from "@/hooks/useFormDraft";
 import {
   Dialog,
@@ -27,7 +27,16 @@ import { Label } from "@/components/ui/label";
 import { ASSIGNED_BY_OPTIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { SubmitConceptInput } from "@/hooks/useConcepts";
-import type { TaskPriority } from "@/types/database";
+
+const DEFAULT_PARTY_NAME = "LD SILK MILLS";
+
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB, matches sample-files bucket
 const FK_BUCKET = "sample-files";
@@ -43,14 +52,12 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
   const { user, profile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // The Designer dropdown is an *assignment* control — useful when an admin
-  // or coordinator submits a concept on someone else's behalf. A designer
-  // submitting their own concept is always the designer, so we don't show
-  // the picker for them and just pass their own id at submit time.
-  const isDesigner = profile?.role === "designer";
+  // The Designer picker was removed — every concept is owned by the
+  // submitter (whether designer or coordinator). The `profile` lookup
+  // stays for any future role-conditional UI.
+  void profile;
 
   const { clients } = useClients();
-  const { profiles: designers } = useProfiles({ roles: ["designer"] });
 
   // ---------- form state ----------
   // Text fields live in a single draft object so we can persist the whole
@@ -60,19 +67,23 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
     title: string;
     description: string;
     startDate: string;
-    designerId: string;
     clientId: string;
     assignedBy: string;
-    priority: TaskPriority;
+    /** Number of designs this concept contains. Required at submit; MD
+     *  compares against `approved_designs_count` at final approval. */
+    designsCount: string;
   };
   const DEFAULT_DRAFT: Draft = {
     title: "",
     description: "",
-    startDate: "",
-    designerId: "",
+    startDate: todayISO(),
     clientId: "",
-    assignedBy: "",
-    priority: "normal",
+    // The concept's designer is always the submitter, so "SELF" is the
+    // natural default for the credit line at the bottom of the brief.
+    // Admin/coordinator can change it after open if they're capturing on
+    // behalf of someone else.
+    assignedBy: "SELF",
+    designsCount: "",
   };
   const [draft, setDraft, clearDraft, draftRestored] = useFormDraft<Draft>(
     user ? `concept-draft:${user.id}` : null,
@@ -84,11 +95,61 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
     title,
     description,
     startDate,
-    designerId,
     clientId,
     assignedBy,
-    priority,
+    designsCount,
   } = draft;
+
+  // One-shot defaulters — fire once per dialog open, never overwrite typed work.
+  const defaultClientAppliedRef = useRef(false);
+  const defaultStartAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      defaultClientAppliedRef.current = false;
+      defaultStartAppliedRef.current = false;
+    }
+  }, [open]);
+
+  // Auto-pick LD SILK MILLS when the client list arrives and nothing is set.
+  useEffect(() => {
+    if (
+      open &&
+      !defaultClientAppliedRef.current &&
+      !clientId &&
+      clients.length > 0
+    ) {
+      const match = clients.find(
+        (c) => c.party_name.trim().toUpperCase() === DEFAULT_PARTY_NAME
+      );
+      if (match) {
+        setField("clientId", match.id);
+        defaultClientAppliedRef.current = true;
+      }
+    }
+  }, [open, clients, clientId]);
+
+  // Restore start date to today if a draft came back empty.
+  useEffect(() => {
+    if (open && !defaultStartAppliedRef.current && !startDate) {
+      setField("startDate", todayISO());
+      defaultStartAppliedRef.current = true;
+    }
+  }, [open, startDate]);
+
+  // Pin LD SILK MILLS to the top of the Party list; alpha-sort the rest.
+  const clientOptions = useMemo(() => {
+    const sorted = [...clients].sort((a, b) =>
+      a.party_name.localeCompare(b.party_name)
+    );
+    const def = sorted.findIndex(
+      (c) => c.party_name.trim().toUpperCase() === DEFAULT_PARTY_NAME
+    );
+    if (def > 0) {
+      const [m] = sorted.splice(def, 1);
+      if (m) sorted.unshift(m);
+    }
+    return sorted.map((c) => ({ value: c.id, label: c.party_name }));
+  }, [clients]);
 
   /**
    * Selected files awaiting upload. Each entry pairs the raw File with an
@@ -199,8 +260,18 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       setError("Concept name is required");
       return;
     }
-    if (description.trim().length < 30) {
-      setError("Description must be at least 30 characters.");
+    if (!description.trim()) {
+      // Description is required — no minimum word count, just non-empty.
+      setError("Description is required");
+      return;
+    }
+    const designsCountNum = parseInt(designsCount, 10);
+    if (
+      !designsCount.trim() ||
+      Number.isNaN(designsCountNum) ||
+      designsCountNum < 1
+    ) {
+      setError("Enter how many designs are in this concept (minimum 1)");
       return;
     }
     if (pending.length === 0) {
@@ -269,10 +340,10 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
     // so the detail-drawer hero preview keeps working. Every path lands in
     // `files` so admins can grab the rest from the concept record.
     const primary = uploadedPaths[0]!;
-    // Designer submitting → ignore the picker (it isn't even rendered) and
-    // always assign the concept to themselves. Admin/coordinator → use whatever
-    // they selected from the dropdown (or null if unassigned).
-    const finalDesignerId = isDesigner ? user.id : designerId || null;
+    // Concept's designer = submitter, always. The Designer picker was
+    // removed because the submitter is by definition the designer working
+    // on this concept; an admin/coordinator submitting on behalf of a
+    // designer should ask that designer to submit it directly.
     const { error: submitErr } = await onSubmit({
       title: title.trim(),
       description: description.trim() || null,
@@ -280,10 +351,11 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       file_url: primary,
       files: uploadedPaths,
       start_date: startDate || null,
-      designer_id: finalDesignerId,
+      designer_id: user.id,
       client_id: clientId || null,
       assigned_by: assignedBy || null,
-      priority,
+      priority: "normal",
+      designs_count: designsCountNum,
     });
 
     setProgress(100);
@@ -410,7 +482,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
               />
             </div>
 
-            {/* Description */}
+            {/* Description — required, no word-count minimum */}
             <div className="sm:col-span-2 space-y-1.5">
               <Label htmlFor="concept-description">
                 Description <span className="text-destructive">*</span>
@@ -419,22 +491,14 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
                 id="concept-description"
                 value={description}
                 onChange={(e) => setField("description", e.target.value)}
-                placeholder="Mood, palette, references… (min 30 characters)"
+                placeholder="Mood, palette, references…"
                 rows={3}
                 disabled={uploading}
                 className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               />
-              <p className={cn(
-                "text-right text-[11px]",
-                description.trim().length < 30
-                  ? "text-destructive"
-                  : "text-muted-foreground"
-              )}>
-                {description.trim().length} / 30 min
-              </p>
             </div>
 
-            {/* Start Date */}
+            {/* Start Date — defaults to today */}
             <div className="space-y-1.5">
               <Label htmlFor="concept-start-date">Start date</Label>
               <Input
@@ -446,84 +510,64 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
               />
             </div>
 
-            {/* Priority */}
+            {/* Number of designs — denominator for "X of Y approved" at
+                final review. Required so MD always has a count to compare
+                approved_designs_count against. */}
             <div className="space-y-1.5">
-              <Label htmlFor="concept-priority">Priority</Label>
-              <select
-                id="concept-priority"
-                value={priority}
-                onChange={(e) =>
-                  setField("priority", e.target.value as TaskPriority)
-                }
+              <Label htmlFor="concept-designs-count">
+                Number of designs <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="concept-designs-count"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                value={designsCount}
+                onChange={(e) => setField("designsCount", e.target.value)}
+                placeholder="How many designs?"
                 disabled={uploading}
-                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+              />
+              <p className="text-[11px] text-muted-foreground">
+                How many designs are in this concept? Ma'am will see "X of {designsCount || "Y"} approved" at final review.
+              </p>
             </div>
 
-            {/* Designer — assignment control. Hidden for designers
-                submitting their own concept (auto-assigned to themselves
-                at submit time). Admin / coordinator can pick anyone. */}
-            {!isDesigner && (
-              <div className="space-y-1.5">
-                <Label htmlFor="concept-designer">Designer</Label>
-                <select
-                  id="concept-designer"
-                  value={designerId}
-                  onChange={(e) => setField("designerId", e.target.value)}
-                  disabled={uploading}
-                  className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                >
-                  <option value="">— Unassigned —</option>
-                  {designers.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.full_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Party Name (Client) */}
-            <div className="space-y-1.5">
+            {/* Party Name — searchable; default LD SILK MILLS. Full-width
+                now that the Designer picker is gone (the concept's designer
+                is always the submitter). */}
+            <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="concept-client">Party name</Label>
-              <select
+              <Combobox
                 id="concept-client"
                 value={clientId}
-                onChange={(e) => setField("clientId", e.target.value)}
+                onChange={(v) => setField("clientId", v)}
+                options={clientOptions}
+                placeholder="Search party…"
+                searchPlaceholder="Search party…"
+                emptyMessage="No parties match"
+                clearable
                 disabled={uploading}
-                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">— Choose a party —</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.party_name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
-            {/* Assigned By */}
+            {/* Assigned By — searchable */}
             <div className="sm:col-span-2 space-y-1.5">
               <Label htmlFor="concept-assigned-by">Assigned by</Label>
-              <select
+              <Combobox
                 id="concept-assigned-by"
                 value={assignedBy}
-                onChange={(e) => setField("assignedBy", e.target.value)}
+                onChange={(v) => setField("assignedBy", v)}
+                options={ASSIGNED_BY_OPTIONS.map((name) => ({
+                  value: name,
+                  label: name,
+                }))}
+                placeholder="— Select assignee —"
+                searchPlaceholder="Search…"
+                emptyMessage="No matches"
+                clearable
                 disabled={uploading}
-                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">— Select assignee —</option>
-                {ASSIGNED_BY_OPTIONS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             {/* File upload — supports multiple files; each ≤ 100 MB */}

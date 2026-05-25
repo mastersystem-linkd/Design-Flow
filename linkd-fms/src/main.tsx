@@ -5,6 +5,7 @@ import App from "@/App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { AuthProvider } from "@/hooks/useAuth";
+import { LoaderProvider } from "@/components/ui";
 import "@/index.css";
 
 const queryClient = new QueryClient({
@@ -24,7 +25,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <ThemeProvider defaultTheme="light">
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <App />
+            <LoaderProvider>
+              <App />
+            </LoaderProvider>
           </AuthProvider>
         </QueryClientProvider>
       </ThemeProvider>

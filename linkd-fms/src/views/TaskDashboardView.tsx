@@ -2,12 +2,13 @@ import { useMemo, useState } from "react";
 import {
   CheckCircle2, Clock, Timer, PlusCircle, AlertTriangle,
   LayoutGrid, Trophy, ChevronUp, ChevronDown, ChevronRight,
-  Package, Flame, Zap, Building2,
+  Package, Flame, Zap, Building2, Lightbulb,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { AnalyticsView } from "@/views/AnalyticsView";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useClients } from "@/hooks/useClients";
@@ -43,18 +44,36 @@ const PERIODS: { value: Period; label: string }[] = [
 
 const PIPELINE_BAR_COLOR: Record<string, string> = {
   pool: "bg-muted",
-  todo: "bg-warning",
   in_progress: "bg-primary",
-  full_kitting: "bg-[#7C5CFC]",
   done: "bg-success",
 };
+
+// Two faces of this page — Tasks (default) and Concepts (the former
+// /analytics view, now embedded here). State stored in the URL via the
+// `tab` search param so a) deep-links work, b) the browser back button
+// switches tabs, c) it survives a refresh.
+type DashTab = "tasks" | "concepts";
 
 export function TaskDashboardView() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const [urlParams, setUrlParams] = useSearchParams();
   const role = profile?.role ?? "designer";
   const isAdmin = isAdminOrCoordinator(role);
   const isDesigner = role === "designer";
+
+  // URL-bound tab state. `?tab=concepts` mounts the Concept Dashboard body
+  // (the AnalyticsView component); anything else (including missing) falls
+  // back to "tasks". setTabAndUrl keeps the URL in sync as the user clicks.
+  const rawTab = urlParams.get("tab");
+  const tab: DashTab = rawTab === "concepts" ? "concepts" : "tasks";
+  function setTab(next: DashTab) {
+    // Preserve any other params; only replace `tab`.
+    const params = new URLSearchParams(urlParams);
+    if (next === "tasks") params.delete("tab");
+    else params.set("tab", next);
+    setUrlParams(params, { replace: true });
+  }
 
   const [period, setPeriod] = useState<Period>("month");
   const a = useTaskAnalytics(period);
@@ -70,14 +89,83 @@ export function TaskDashboardView() {
     ? a.designerStats.find((d) => d.id === profile?.id) ?? null
     : null;
 
+  // Reusable period-pill cluster. Rendered inside the tab row so it sits on
+  // the same baseline as "Task Dashboard / Concept Dashboard" pills — saves
+  // the extra caption row that used to live below.
+  const taskPeriodPills = (
+    <div className="inline-flex shrink-0 rounded-lg bg-secondary p-1">
+      {PERIODS.map((p) => (
+        <button
+          key={p.value}
+          type="button"
+          onClick={() => setPeriod(p.value)}
+          className={cn(
+            // Touch-friendly on mobile (px-3 py-1.5) — keeps the 36-44px
+            // target the spec calls for, then shrinks slightly on sm+.
+            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:py-1",
+            period === p.value
+              ? "bg-primary text-white"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  // Tab strip rendered above both bodies. The right slot carries the active
+  // tab's period selector so the user sees their date scope at the same eye
+  // level as the tab they're standing on.
+  const tabsRow = (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border">
+      <div className="-mb-px flex items-center gap-1 overflow-x-auto">
+        <DashboardTabButton
+          active={tab === "tasks"}
+          onClick={() => setTab("tasks")}
+          icon={<LayoutGrid className="h-3.5 w-3.5" />}
+          label="Task Dashboard"
+        />
+        <DashboardTabButton
+          active={tab === "concepts"}
+          onClick={() => setTab("concepts")}
+          icon={<Lightbulb className="h-3.5 w-3.5" />}
+          label="Concept Dashboard"
+        />
+      </div>
+      {/* Right slot — task tab uses the inline pills here; concept tab keeps
+          its own (Analytics owns that state) so it stays below the strip in
+          AnalyticsView's embedded layout. */}
+      {tab === "tasks" && <div className="pb-2">{taskPeriodPills}</div>}
+    </div>
+  );
+
+  // ── Concept Dashboard tab ──
+  // Short-circuit BEFORE the task-data error / loading checks so the concept
+  // tab is reachable even when the task dataset has problems. AnalyticsView
+  // brings its own header + period filter + loading + error states, so we
+  // just mount it under our tab strip. Conditional mount (not display: none)
+  // means recharts initialises with real dimensions — no resize hacks needed.
+  if (tab === "concepts") {
+    return (
+      <div className="space-y-4">
+        {tabsRow}
+        <AnalyticsView embedded />
+      </div>
+    );
+  }
+
   if (a.error) {
     return (
-      <div className="mx-auto max-w-lg py-20">
-        <Card><CardContent className="flex flex-col items-center gap-3 py-8">
-          <AlertTriangle className="h-10 w-10 text-destructive" />
-          <p className="text-sm text-destructive">{a.error}</p>
-          <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
-        </CardContent></Card>
+      <div className="space-y-4">
+        {tabsRow}
+        <div className="mx-auto max-w-lg py-20">
+          <Card><CardContent className="flex flex-col items-center gap-3 py-8">
+            <AlertTriangle className="h-10 w-10 text-destructive" />
+            <p className="text-sm text-destructive">{a.error}</p>
+            <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+          </CardContent></Card>
+        </div>
       </div>
     );
   }
@@ -98,51 +186,34 @@ export function TaskDashboardView() {
 
   if (a.isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 animate-pulse rounded bg-secondary" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+      <div className="space-y-4">
+        {tabsRow}
+        <div className="space-y-4">
+          <div className="h-8 w-48 animate-pulse rounded bg-secondary" />
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className="lg:col-span-2"><SkeletonCard /></div>
+            <SkeletonCard />
+          </div>
+          <SkeletonTable rows={6} cols={7} />
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2"><SkeletonCard /></div>
-          <SkeletonCard />
-        </div>
-        <SkeletonTable rows={6} cols={7} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <LayoutGrid className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              {isDesigner ? "My Task Performance" : "Task Dashboard"}
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">{a.periodLabel}</p>
-          </div>
-        </div>
-        <div className="inline-flex rounded-lg bg-secondary p-1">
-          {PERIODS.map((p) => (
-            <button key={p.value} type="button" onClick={() => setPeriod(p.value)}
-              className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                period === p.value ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"
-              )}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="space-y-3 sm:space-y-4">
+      {tabsRow}
+      {/* Inter-section spacing: tighter on mobile (space-y-4) since each
+           section already has its own internal padding; roomier on sm+. */}
+      <div className="space-y-4 sm:space-y-6">
 
       {/* Designer personal view */}
       {isDesigner && myStats ? (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <KpiCard
               icon={<CheckCircle2 className="h-4 w-4 text-success" />}
               label="Completed"
@@ -190,18 +261,45 @@ export function TaskDashboardView() {
           {/* My active tasks */}
           <MyTasksTable tasks={tasks} userId={profile?.id ?? ""} />
 
-          {/* My pipeline snapshot */}
+          {/* My pipeline snapshot — simplified 3-stage (Pool → In Progress → Done).
+              Legacy todo/full_kitting/approved/sampling rows roll up into In Progress. */}
           <Card>
             <CardContent className="py-4">
               <h3 className="mb-3 text-sm font-semibold text-foreground">My Pipeline</h3>
               <div className="space-y-2">
-                {(["todo", "in_progress", "full_kitting", "done"] as const).map((s) => {
-                  const myCount = tasks.filter((t) => t.assigned_to === profile?.id && t.status === s).length;
+                {(["pool", "in_progress", "done"] as const).map((s) => {
+                  const mine = tasks.filter((t) => t.assigned_to === profile?.id);
+                  const myCount =
+                    s === "in_progress"
+                      ? mine.filter(
+                          (t) =>
+                            t.status === "in_progress" ||
+                            t.status === "todo" ||
+                            t.status === "full_kitting" ||
+                            t.status === "approved" ||
+                            t.status === "sampling"
+                        ).length
+                      : mine.filter((t) => t.status === s).length;
                   const label = STATUS_LABELS[s] ?? s;
-                  const barColor = s === "todo" ? "bg-warning" : s === "in_progress" ? "bg-primary" : s === "full_kitting" ? "bg-[#7C5CFC]" : "bg-success";
-                  const maxBar = Math.max(1, ...["todo", "in_progress", "full_kitting", "done"].map((st) =>
-                    tasks.filter((t) => t.assigned_to === profile?.id && t.status === st).length
-                  ));
+                  const barColor =
+                    s === "pool"
+                      ? "bg-muted"
+                      : s === "in_progress"
+                        ? "bg-primary"
+                        : "bg-success";
+                  const maxBar = Math.max(
+                    1,
+                    mine.filter((t) => t.status === "pool").length,
+                    mine.filter(
+                      (t) =>
+                        t.status === "in_progress" ||
+                        t.status === "todo" ||
+                        t.status === "full_kitting" ||
+                        t.status === "approved" ||
+                        t.status === "sampling"
+                    ).length,
+                    mine.filter((t) => t.status === "done").length
+                  );
                   return (
                     <div key={s} className="flex items-center gap-3">
                       <span className="w-[90px] shrink-0 text-xs text-foreground">{label}</span>
@@ -237,7 +335,7 @@ export function TaskDashboardView() {
           {/* KPIs — each card deep-links into /dashboard with the period
               date-range baked into the URL so the destination shows the same
               cohort the card counted. */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <KpiCard
               icon={<CheckCircle2 className="h-4 w-4 text-success" />}
               label="Tasks Completed"
@@ -268,6 +366,7 @@ export function TaskDashboardView() {
               tintClass="bg-primary/10"
               invertTrend
               to={dashLink({ status: "done", from: periodFrom, to: periodTo })}
+              sparklineData={a.sparklines.avgDelay}
               sub={
                 a.kpis.avgCycleDays.current > 0
                   ? `Cycle: ${a.kpis.avgCycleDays.current}d`
@@ -288,7 +387,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Charts */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-3">
             {/* Volume chart */}
             <Card className="lg:col-span-2">
               <CardContent className="py-4">
@@ -314,14 +413,16 @@ export function TaskDashboardView() {
               </CardContent>
             </Card>
 
-            {/* Pipeline health */}
-            <Card>
-              <CardContent className="py-4">
-                <div className="flex items-center justify-between mb-3">
+            {/* Pipeline health — flex column so the bar list centers
+                vertically when the sibling VolumeChart stretches this card
+                taller than its natural content height. */}
+            <Card className="h-full">
+              <CardContent className="flex h-full flex-col py-4">
+                <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-foreground">Pipeline</h3>
                   <Badge variant="secondary" className="text-[10px]">{a.pipeline.reduce((s, p) => s + p.count, 0)} total</Badge>
                 </div>
-                <div className="space-y-2">
+                <div className="flex flex-1 flex-col justify-center space-y-2 py-3">
                   {a.pipeline.map((item) => {
                     const maxCount = Math.max(1, ...a.pipeline.map((p) => p.count));
                     const pct = Math.max(8, (item.count / maxCount) * 100);
@@ -344,7 +445,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Workload + At-risk */}
-          <div className="grid gap-4 lg:grid-cols-5">
+          <div className="grid gap-3 lg:grid-cols-5">
             <div className="lg:col-span-3">
               <WorkloadDistribution
                 data={a.designerStats}
@@ -379,7 +480,44 @@ export function TaskDashboardView() {
         designerId={scorecardDesignerId}
         onClose={() => setScorecardDesignerId(null)}
       />
+      </div>
     </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// DashboardTabButton — pill in the top tab strip
+// ----------------------------------------------------------------------------
+
+function DashboardTabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        // -mb-px aligns the active bottom border with the parent border-b
+        // Mobile: tighter horizontal padding + smaller label so both tabs
+        // fit side-by-side on narrow screens without horizontal scroll.
+        "inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors sm:px-4 sm:text-sm",
+        active
+          ? "border-primary text-primary"
+          : "border-transparent text-muted-foreground hover:text-foreground"
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -681,7 +819,7 @@ function KittingMixCard({ data }: { data: KittingMix }) {
             <div className="flex-1 space-y-1.5 text-xs">
               <LegendRow
                 dot="bg-primary"
-                label="With kitting"
+                label="With knitting"
                 value={data.withKitting}
               />
               <LegendRow

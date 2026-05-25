@@ -46,8 +46,8 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
 
   return (
     <Card>
-      <CardContent className="py-5">
-        <div className="mb-4 flex items-center justify-between">
+      <CardContent className="py-4">
+        <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">

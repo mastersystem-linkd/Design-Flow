@@ -9,7 +9,7 @@ import {
   X,
   ArrowRight,
 } from "lucide-react";
-import { toast } from "@/components/ui";
+import { toast, Combobox } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
@@ -34,7 +34,15 @@ import {
   DialogContent,
 } from "@/components/ui/dialog";
 import { ROUTES } from "@/lib/routes";
+import { initiateKitting, submitKittingForm } from "@/lib/kittingQueries";
+import { sendNotificationToRole } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import {
+  FullKittingForm,
+  KITTING_DEFAULT_VALUES,
+  hasKittingFormContent,
+  type KittingFormValues,
+} from "@/components/tasks/FullKittingFormFields";
 import type { Task } from "@/types/database";
 
 const WHATSAPP_GROUPS = [
@@ -42,7 +50,18 @@ const WHATSAPP_GROUPS = [
   "Job Work Concept",
   "Linkd Design",
   "LD-Garments Sublimation Prints",
+  "LD Cotton Mills Design Group",
+  "Personal - Design Coordinator",
+  "Unplanned",
 ] as const;
+
+// Today as yyyy-MM-dd in local time — the format <input type="date"> expects.
+// Defined at module scope so initial useState evaluates it once per mount;
+// don't memoize beyond that since "today" can change while the form is open
+// (rare, but we re-read it for resets / start-fresh).
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 const FULL_KITTING_NOTES_MAX = 1000;
 const FULL_KITTING_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
@@ -54,6 +73,7 @@ type Priority = "normal" | "urgent";
 interface FormErrors {
   client_id?: string;
   concept?: string;
+  description?: string;
   fabric?: string;
   qty?: string;
   planned_deadline?: string;
@@ -77,7 +97,12 @@ export function NewBriefDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-y-auto p-0"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <BriefingForm
           onSuccess={() => {
             onOpenChange(false);
@@ -123,7 +148,10 @@ function BriefingForm({
   const [mtr, setMtr] = useState("");
   const [plannedDeadline, setPlannedDeadline] = useState("");
   const [dueTime, setDueTime] = useState("");
-  const [conceptStartDate, setConceptStartDate] = useState("");
+  // Default the concept start date to today; users can change it. Most
+  // briefs kick off the same day they're filed, so saving the click is
+  // worth more than the rare exception.
+  const [conceptStartDate, setConceptStartDate] = useState<string>(todayISO);
   const [priority, setPriority] = useState<Priority>("normal");
   const [whatsappGroup, setWhatsappGroup] = useState("");
   const [assignedBy, setAssignedBy] = useState(
@@ -143,6 +171,17 @@ function BriefingForm({
   const [dragActive, setDragActive] = useState(false);
   const fullKittingInputRef = useRef<HTMLInputElement | null>(null);
   const fullKittingSectionRef = useRef<HTMLDivElement | null>(null);
+
+  // Optional inline knitting-form digitization. When the coordinator fills any
+  // of these fields, brief submit also writes a `form_payload` so the row
+  // skips the DEO queue and lands as Completed.
+  const [showInlineKittingForm, setShowInlineKittingForm] = useState(false);
+  const [kittingFormValues, setKittingFormValues] = useState<KittingFormValues>(
+    KITTING_DEFAULT_VALUES
+  );
+  // Bumping this remounts the embedded FullKittingForm, which is the cheapest
+  // way to clear its internal state on reset / successful submit.
+  const [kittingFormResetKey, setKittingFormResetKey] = useState(0);
 
   // ---------------- ui state ----------------
   const [errors, setErrors] = useState<FormErrors>({});
@@ -206,7 +245,8 @@ function BriefingForm({
       setMtr(d.mtr ?? "");
       setPlannedDeadline(d.plannedDeadline ?? "");
       setDueTime(d.dueTime ?? "");
-      setConceptStartDate(d.conceptStartDate ?? "");
+      // Draft falls back to today when the saved value is missing/empty.
+      setConceptStartDate(d.conceptStartDate || todayISO());
       setPriority((d.priority === "urgent" ? "urgent" : "normal") as Priority);
       setWhatsappGroup(d.whatsappGroup ?? "");
       setAssignedBy(d.assignedBy ?? profile?.full_name ?? "");
@@ -265,12 +305,16 @@ function BriefingForm({
     savedDraftRef.current = null;
   }
 
+  // Client default removed by request — the user picks every time so the
+  // wrong party isn't accidentally submitted for non-LD briefs.
+
   const submitting = isPending("create");
 
   function validate(): FormErrors {
     const e: FormErrors = {};
     if (!clientId) e.client_id = "Pick a client.";
-    if (!concept.trim()) e.concept = "Concept is required.";
+    if (!concept.trim()) e.concept = "Design type is required.";
+    if (!description.trim()) e.description = "Description is required.";
     if (!fabric) e.fabric = "Pick a fabric.";
     const qtyNum = Number(qty);
     if (!qty || !Number.isFinite(qtyNum) || qtyNum < 1) {
@@ -288,7 +332,9 @@ function BriefingForm({
     setQty("");
     setMtr("");
     setPlannedDeadline("");
-    setConceptStartDate("");
+    // Reset still defaults to today, not blank — same reasoning as the
+    // initial state above.
+    setConceptStartDate(todayISO());
     setDueTime("");
     setPriority("normal");
     setWhatsappGroup("");
@@ -297,6 +343,9 @@ function BriefingForm({
     setRequiresFullKitting(false);
     clearFullKittingFile({ removeRemote: true });
     setFullKittingNotes("");
+    setShowInlineKittingForm(false);
+    setKittingFormValues(KITTING_DEFAULT_VALUES);
+    setKittingFormResetKey((k) => k + 1);
     setErrors({});
     setSubmitAttempted(false);
     setSuccess(null);
@@ -463,7 +512,7 @@ function BriefingForm({
       qty: Number(qty),
       fabric,
       priority,
-      assigned_to: assignedTo, // null → server sets status='pool', else 'todo'
+      assigned_to: assignedTo, // null → status='pool'; otherwise 'in_progress' (skips To-Do).
       planned_deadline: plannedDeadline,
       due_time: dueTime || null,
       whatsapp_group: whatsappGroup.trim() || null,
@@ -471,6 +520,13 @@ function BriefingForm({
       mtr: Number.isFinite(mtrNum as number) ? (mtrNum as number) : null,
       assigned_by: assignedBy.trim() || null,
       concept_start_date: conceptStartDate || null,
+      // Persist the FK flag + photo path onto the task itself so designers
+      // see the badge / drawer section even before the DEO digitizes.
+      requires_full_kitting: requiresFullKitting,
+      full_kitting_image_url: requiresFullKitting ? fullKittingPath : null,
+      full_kitting_notes: requiresFullKitting
+        ? fullKittingNotes.trim() || null
+        : null,
     });
 
     if (error) {
@@ -478,6 +534,56 @@ function BriefingForm({
       return;
     }
     if (data) {
+      // If the coordinator uploaded a kitting photo at brief time, also create
+      // a full_kitting_details row so the DEO sees it immediately in the
+      // Knitting Queue. Visible warning if it fails so the coordinator knows
+      // to retry via the row's ⋮ → "Full Knitting" action menu.
+      if (requiresFullKitting && fullKittingPath && user) {
+        const { data: kitRecord, error: kitErr } = await initiateKitting({
+          taskId: data.id,
+          submittedBy: user.id,
+          imageUrl: fullKittingPath,
+        });
+        if (kitErr || !kitRecord) {
+          // Brief was created, but DEO queue entry wasn't — warn instead of
+          // silently swallowing the error.
+          console.warn("[briefing] initiateKitting failed:", kitErr);
+          toast.warning(
+            `Brief created, but couldn't send to DEO queue: ${kitErr ?? "unknown error"}. Open the task and use ⋮ → Full Knitting to retry.`
+          );
+        } else {
+          // Did the coordinator also fill the form inline? If yes, write the
+          // payload now — the 0021 trigger flips status to 'completed' and
+          // we skip the DEO notification (no work left for them).
+          const coordinatorFilledForm =
+            showInlineKittingForm && hasKittingFormContent(kittingFormValues);
+          if (coordinatorFilledForm) {
+            const { error: submitErr } = await submitKittingForm({
+              recordId: kitRecord.id,
+              completedBy: user.id,
+              values: kittingFormValues,
+            });
+            if (submitErr) {
+              console.warn(
+                "[briefing] inline knitting form submit failed:",
+                submitErr
+              );
+              toast.warning(
+                `Brief created and image uploaded, but the knitting form couldn't be saved: ${submitErr}. Open the task to retry.`
+              );
+            }
+          } else {
+            void sendNotificationToRole(
+              ["deo"],
+              "New knitting form",
+              `${data.task_code} · ${data.concept ?? "task"} — form photo uploaded, ready to digitize.`,
+              "info",
+              ROUTES.kitting
+            );
+          }
+        }
+      }
+
       clearDraftOnSuccess();
       if (isDialog && onSuccess) {
         toast.success(`Brief created: ${data.task_code}`);
@@ -614,15 +720,15 @@ function BriefingForm({
       </header>
 
       <form onSubmit={handleSubmit} className={cn(isDialog ? "space-y-4" : "space-y-8")} noValidate>
-        {/* ============== CLIENT ============== */}
-        <FormSection title="Client" required>
+        {/* ============== PARTY NAME (was: Client) ============== */}
+        <FormSection title="Party Name" required>
           {!showAddClient ? (
             <div className="flex gap-2">
               <Picker
                 id="client"
                 value={clientId}
                 onChange={setClientId}
-                placeholder="Choose a client"
+                placeholder="Choose a party"
                 options={clients.map((c) => ({ value: c.id, label: c.party_name }))}
                 error={show("client_id")}
                 disabled={submitting}
@@ -704,7 +810,7 @@ function BriefingForm({
         {/* ============== WORK ============== */}
         <FormSection title="The work">
           <Field
-            label="Concept"
+            label="Design Type"
             htmlFor="concept"
             required
             error={show("concept")}
@@ -713,7 +819,7 @@ function BriefingForm({
               id="concept"
               value={concept}
               onChange={setConcept}
-              placeholder="Pick a concept"
+              placeholder="Pick a design type"
               options={conceptCategories.map((c) => ({
                 value: c.name,
                 label: c.name,
@@ -723,7 +829,12 @@ function BriefingForm({
             />
           </Field>
 
-          <Field label="Description" htmlFor="description">
+          <Field
+            label="Description"
+            htmlFor="description"
+            required
+            error={show("description")}
+          >
             <textarea
               id="description"
               value={description}
@@ -755,7 +866,7 @@ function BriefingForm({
               />
             </Field>
             <Field
-              label="Quantity (m)"
+              label="Quantity"
               htmlFor="qty"
               required
               error={show("qty")}
@@ -773,7 +884,7 @@ function BriefingForm({
             </Field>
           </div>
 
-          <Field label="Meters (Mtr)" htmlFor="mtr">
+          <Field label="Meters" htmlFor="mtr">
             <Input
               id="mtr"
               type="number"
@@ -912,6 +1023,39 @@ function BriefingForm({
           </Field>
         </FormSection>
 
+        {!isDialog && <Divider />}
+
+        {/* ============== FULL KITTING ============== */}
+        <FullKittingSection
+          enabled={requiresFullKitting}
+          onToggle={toggleFullKitting}
+          disabled={submitting}
+          sectionRef={fullKittingSectionRef}
+          inputRef={fullKittingInputRef}
+          file={fullKittingFile}
+          previewUrl={fullKittingPreviewUrl}
+          uploaded={!!fullKittingPath}
+          uploading={uploadingFullKitting}
+          progress={uploadProgress}
+          notes={fullKittingNotes}
+          onNotesChange={setFullKittingNotes}
+          onPick={onFullKittingPick}
+          onDrop={onFullKittingDrop}
+          dragActive={dragActive}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onRemove={() => clearFullKittingFile({ removeRemote: true })}
+          error={submitAttempted ? errors.full_kitting_image : undefined}
+          inlineFormEnabled={showInlineKittingForm}
+          onInlineFormToggle={setShowInlineKittingForm}
+          inlineFormResetKey={kittingFormResetKey}
+          inlineFormDefaults={kittingFormValues}
+          onInlineFormChange={setKittingFormValues}
+        />
+
         {/* ============== Submit ============== */}
         <div className={cn(
           "flex items-center justify-between",
@@ -1048,6 +1192,11 @@ function FullKittingSection({
   onDragLeave,
   onRemove,
   error,
+  inlineFormEnabled,
+  onInlineFormToggle,
+  inlineFormResetKey,
+  inlineFormDefaults,
+  onInlineFormChange,
 }: {
   enabled: boolean;
   onToggle: (next: boolean) => void;
@@ -1068,6 +1217,11 @@ function FullKittingSection({
   onDragLeave: () => void;
   onRemove: () => void;
   error?: string;
+  inlineFormEnabled: boolean;
+  onInlineFormToggle: (next: boolean) => void;
+  inlineFormResetKey: number;
+  inlineFormDefaults: KittingFormValues;
+  onInlineFormChange: (v: KittingFormValues) => void;
 }) {
   return (
     <section className="space-y-4" ref={sectionRef}>
@@ -1083,7 +1237,7 @@ function FullKittingSection({
             Requires Full Knitting submission?
           </p>
           <p className="text-xs text-muted-foreground">
-            Toggle on when a kitting reference image is needed before approval.
+            Toggle on when a knitting reference image is needed before approval.
           </p>
         </div>
         <button
@@ -1236,6 +1390,67 @@ function FullKittingSection({
                 {notes.length}/{FULL_KITTING_NOTES_MAX}
               </p>
             </div>
+
+            {/* Optional inline knitting-form digitization. When the
+                coordinator fills this in here, the row skips the DEO queue
+                and lands as Completed. */}
+            <div className="space-y-3 rounded-md border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">
+                    Digitize the knitting form now?
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Optional — fill the 12-section form here if details are
+                    ready. Leave off to let the DEO digitize it later.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={inlineFormEnabled}
+                  disabled={disabled}
+                  onClick={() => onInlineFormToggle(!inlineFormEnabled)}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+                    inlineFormEnabled ? "bg-primary" : "bg-muted"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-5 w-5 transform rounded-full bg-card shadow transition-transform duration-200 ease-in-out",
+                      inlineFormEnabled
+                        ? "translate-x-[22px]"
+                        : "translate-x-0.5"
+                    )}
+                  />
+                </button>
+              </div>
+
+              <div
+                className={cn(
+                  "grid overflow-hidden transition-[grid-template-rows] duration-300 ease-in-out",
+                  inlineFormEnabled ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                )}
+                aria-hidden={!inlineFormEnabled}
+              >
+                <div className="min-h-0">
+                  {inlineFormEnabled && (
+                    <div className="pt-3">
+                      <FullKittingForm
+                        key={inlineFormResetKey}
+                        embedded
+                        defaultValues={inlineFormDefaults}
+                        onValuesChange={onInlineFormChange}
+                        onSubmit={() => {
+                          /* outer brief form owns submit */
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1301,6 +1516,10 @@ function Field({
   );
 }
 
+// Picker — thin wrapper around the Combobox primitive. The original native
+// <select> couldn't keep up with the 1.6k-client list; the autocomplete
+// combobox replaces it everywhere this is used (Client, WhatsApp Group,
+// Concept Category, Fabric, Assigned By, Assignee) with one swap.
 function Picker({
   id,
   value,
@@ -1319,23 +1538,17 @@ function Picker({
   error?: string;
 }) {
   return (
-    <select
+    <Combobox
       id={id}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange}
+      options={options}
+      placeholder={placeholder}
+      searchPlaceholder={`Search ${placeholder?.toLowerCase().replace(/^choose a |^select /, "") ?? "options"}…`}
       disabled={disabled}
-      className={cn(
-        "h-10 w-full rounded-md border bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
-        error ? "border-destructive" : "border-input"
-      )}
-    >
-      <option value="">{placeholder ?? "Select…"}</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      error={!!error}
+      clearable
+    />
   );
 }
 

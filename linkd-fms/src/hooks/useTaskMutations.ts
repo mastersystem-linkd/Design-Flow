@@ -80,6 +80,7 @@ export interface UpdateTaskFields {
   description?: string | null;
   fabric?: string;
   qty?: number;
+  qty_completed?: number;
   mtr?: number | null;
   priority?: TaskPriority;
   planned_deadline?: string | null;
@@ -219,6 +220,21 @@ function isPoolCode(taskCode: string | null | undefined): boolean {
   return /^(DF \d+-)?P\d{3,}-/i.test(taskCode);
 }
 
+/**
+ * Did the designer claim/start this task after its planned kickoff?
+ * `claimedAtIso` is an ISO timestamp; `conceptStartDate` is a yyyy-MM-dd
+ * string (the form uses <input type="date">). Compares date-only, so a
+ * same-day claim is on time. Returns false when no kickoff date is set.
+ */
+function computeStartedLate(
+  conceptStartDate: string | null | undefined,
+  claimedAtIso: string
+): boolean {
+  if (!conceptStartDate) return false;
+  const claimDate = claimedAtIso.slice(0, 10); // yyyy-MM-dd
+  return claimDate > conceptStartDate;
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
@@ -287,7 +303,10 @@ export function useTaskMutations(): UseTaskMutations {
       }
 
       const assigned = input.assigned_to ?? null;
-      const status: TaskStatus = assigned ? "todo" : "pool";
+      // Simplified pipeline: assigned briefs go straight to In Progress;
+      // unassigned briefs sit in the Pool until claimed.
+      const status: TaskStatus = assigned ? "in_progress" : "pool";
+      const nowIso = new Date().toISOString();
 
       const requiresFullKitting = input.requires_full_kitting === true;
       const fullKittingImageUrl = input.full_kitting_image_url ?? null;
@@ -314,6 +333,10 @@ export function useTaskMutations(): UseTaskMutations {
         priority: input.priority ?? "normal",
         status,
         assigned_to: assigned,
+        // Stamp assignment + start timestamps for assigned briefs so the
+        // task is treated as actively in flight, not freshly created.
+        assigned_at: assigned ? nowIso : null,
+        started_at: assigned ? nowIso : null,
         planned_deadline: input.planned_deadline ?? null,
         due_time: input.due_time ?? null,
         whatsapp_group: input.whatsapp_group ?? null,
@@ -322,6 +345,9 @@ export function useTaskMutations(): UseTaskMutations {
         mtr: input.mtr ?? null,
         assigned_by: input.assigned_by ?? null,
         concept_start_date: input.concept_start_date ?? null,
+        started_late: assigned
+          ? computeStartedLate(input.concept_start_date ?? null, nowIso)
+          : false,
         requires_full_kitting: requiresFullKitting,
         full_kitting_image_url: fullKittingImageUrl,
         full_kitting_notes: input.full_kitting_notes ?? null,
@@ -511,7 +537,7 @@ export function useTaskMutations(): UseTaskMutations {
       try {
         const { data: current, error: fetchErr } = await supabase
           .from("tasks")
-          .select("status, task_code, concept, qty")
+          .select("status, task_code, concept, qty, concept_start_date")
           .eq("id", taskId)
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
@@ -521,11 +547,21 @@ export function useTaskMutations(): UseTaskMutations {
           assigned_to: string;
           status?: TaskStatus;
           task_code?: string;
+          assigned_at?: string;
+          started_at?: string;
+          started_late?: boolean;
         } = {
           assigned_to: designerId,
         };
         if (current.status === "pool") {
-          update.status = "todo";
+          const nowIso = new Date().toISOString();
+          update.status = "in_progress";
+          update.assigned_at = nowIso;
+          update.started_at = nowIso;
+          update.started_late = computeStartedLate(
+            current.concept_start_date,
+            nowIso
+          );
         }
 
         // If the existing code carries the "P" (Pool) designer letter, swap
@@ -583,7 +619,9 @@ export function useTaskMutations(): UseTaskMutations {
         // Fetch current state to validate
         const { data: current, error: fetchErr } = await supabase
           .from("tasks")
-          .select("status, started_at, assigned_to, task_code, concept, qty")
+          .select(
+            "status, started_at, assigned_to, task_code, concept, qty, concept_start_date"
+          )
           .eq("id", taskId)
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
@@ -612,13 +650,19 @@ export function useTaskMutations(): UseTaskMutations {
           qty: current.qty,
         });
 
+        const nowIso = new Date().toISOString();
         const { data, error } = await supabase
           .from("tasks")
           .update({
             assigned_to: profile.id,
             assigned_by: profile.full_name,
-            assigned_at: new Date().toISOString(),
-            status: "todo" as const,
+            assigned_at: nowIso,
+            started_at: nowIso,
+            started_late: computeStartedLate(
+              current.concept_start_date,
+              nowIso
+            ),
+            status: "in_progress" as const,
             task_code: newCode,
           })
           .eq("id", taskId)

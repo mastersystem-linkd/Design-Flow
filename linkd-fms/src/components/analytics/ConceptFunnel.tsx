@@ -39,8 +39,8 @@ export function ConceptFunnel({
 
   return (
     <Card>
-      <CardContent className="py-5">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Concept Pipeline</h3>
+      <CardContent className="py-4">
+        <h3 className="text-sm font-semibold text-foreground mb-3">Concept Pipeline</h3>
 
         {/* Funnel stages */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-0">

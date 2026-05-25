@@ -54,11 +54,9 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.taskDashboard, label: "Task Dashboard", icon: ClipboardList },
+            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
             { to: ROUTES.dashboard, label: "My Board", icon: LayoutGrid },
-            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
-            { to: ROUTES.analytics, label: "Concept Dashboard", icon: BarChart3 },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
           ],
         },
@@ -67,10 +65,9 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.taskDashboard, label: "Task Dashboard", icon: ClipboardList },
+            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
             { to: ROUTES.dashboard, label: "All Tasks", icon: LayoutGrid },
             { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
-            { to: ROUTES.analytics, label: "Concept Dashboard", icon: BarChart3 },
           ],
         },
         {
@@ -89,10 +86,9 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.taskDashboard, label: "Task Dashboard", icon: ClipboardList },
+            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
             { to: ROUTES.dashboard, label: "All Tasks", icon: LayoutGrid },
             { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
-            { to: ROUTES.analytics, label: "Concept Dashboard", icon: BarChart3 },
           ],
         },
         {
@@ -106,6 +102,17 @@ function getNavGroups(role: UserRole): NavGroup[] {
           ],
         },
       ];
+    case "deo":
+      // DEO sees ONLY the kitting queue + notifications. Per spec they have
+      // a restricted dashboard: view assigned kitting tasks, input data into
+      // the digital form. No access to tasks, concepts, files, team, etc.
+      return [
+        {
+          items: [
+            { to: ROUTES.kitting, label: "Knitting Queue", icon: ClipboardList },
+          ],
+        },
+      ];
   }
 }
 
@@ -114,6 +121,7 @@ const ROLE_AVATAR_CLASS: Record<UserRole, string> = {
   admin: "bg-primary text-white",
   design_coordinator: "bg-primary/20 text-primary",
   designer: "bg-white/20 text-white",
+  deo: "bg-warning/30 text-foreground",
 };
 
 // ============================================================================
@@ -176,15 +184,20 @@ export function Sidebar({
           className="flex w-full flex-col items-start gap-1.5 border-b border-white/[0.06] px-4 py-4 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10"
           aria-label="Go to home"
         >
-          <div className="w-full max-w-[170px] overflow-hidden rounded-lg bg-white shadow-sm">
-            <img
-              src="/logo.png"
-              alt="LinkD"
-              className="block h-auto w-full"
-              draggable={false}
-            />
-          </div>
-          <span className="pl-0.5 text-[13px] font-bold uppercase tracking-[0.14em] text-primary">
+          {/* LinkD wordmark — capped at 120px wide (was 170px). Sits
+               directly on the dark sidebar; the source PNG is transparent
+               so no halo. The smaller size also gives the subtitle room
+               to sit tighter underneath without crowding. */}
+          <img
+            src="/logo.png"
+            alt="LinkD"
+            className="block h-auto w-[120px] max-w-full"
+            draggable={false}
+          />
+          {/* Subtitle — 12px bold full-white, single line. Trimmed 1pt
+               from the prior 13px so it visually balances the smaller
+               wordmark above. */}
+          <span className="pl-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-white whitespace-nowrap">
             Design Flow System
           </span>
         </button>
@@ -326,9 +339,9 @@ function NavRow({
         onClick={onNavigate}
         className={({ isActive }) =>
           cn(
-            "flex min-h-[40px] items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
+            "relative flex min-h-[40px] items-center gap-3 rounded-lg pl-4 pr-3 py-2.5 text-[13px] font-medium transition-all duration-150",
             isActive
-              ? "bg-primary text-white shadow-sm shadow-primary/20"
+              ? "bg-[rgba(129,140,248,0.15)] text-[#A5B4FC] before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-r-full before:bg-[#6366F1]"
               : "text-white/60 hover:bg-white/[0.07] hover:text-white",
             isComingSoon && "pointer-events-none opacity-40"
           )

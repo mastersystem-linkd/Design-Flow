@@ -24,6 +24,13 @@ import {
 import { Card, CardContent, Badge, Button } from "@/components/ui";
 import { ConceptWorkflowStage } from "@/components/concepts/ConceptWorkflowStage";
 import { cn, formatDate } from "@/lib/utils";
+import { formatDistanceToNowStrict } from "date-fns";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  getInitials,
+} from "@/components/ui/avatar";
 import type { ConceptWithRelations, UserRole, Profile } from "@/types/database";
 
 // ============================================================================
@@ -260,15 +267,9 @@ function NudgeSection({
     );
   }
 
-  if (submitted === 0 && dayOfMonth > 7 && !allTargetMet) {
-    nudges.push(
-      <div key="start" className="flex items-center gap-3 rounded-xl border border-border bg-secondary/50 p-3">
-        <Lightbulb className="h-5 w-5 shrink-0 text-primary" />
-        <p className="flex-1 text-sm text-muted-foreground">Time to start! Submit your first concept this month.</p>
-        <Button size="sm" variant="outline" onClick={onSubmit}>Submit</Button>
-      </div>
-    );
-  }
+  // The "Time to start" nudge used to fire here, but it duplicated the
+  // top-of-card "No concepts submitted this month yet" warning. Suppressed
+  // so the dashboard doesn't show two CTAs with the same ask.
 
   for (const c of revisionStale.slice(0, 1)) {
     nudges.push(
@@ -468,6 +469,15 @@ export function AdminConceptDashboard({
     ? Math.floor(Math.max(...pending.map((c) => (now - new Date(c.created_at).getTime()) / 86400000)))
     : 0;
 
+  // Design Review queue — designers marked done, waiting for Ma'am's final
+  // verdict. Ordered oldest-first so stale rows surface naturally.
+  const designReviewQueue = concepts
+    .filter((c) => c.work_status === "in_revision")
+    .sort(
+      (a, b) =>
+        new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+    );
+
   return (
     <div className="space-y-4">
       {/* Urgency alerts */}
@@ -494,7 +504,104 @@ export function AdminConceptDashboard({
         <StatCard icon={<XCircle className="h-5 w-5 text-destructive" />} label="Rejected" value={concepts.filter((c) => c.md_status === "rejected" && isCurrentMonth(c.created_at)).length} />
         <StatCard icon={<TrendingUp className="h-5 w-5 text-primary" />} label="Total This Month" value={concepts.filter((c) => isCurrentMonth(c.created_at)).length} />
       </div>
+
+      {/* Design Review queue — concepts where the designer marked done and
+          the lifecycle is waiting on Ma'am's verdict. Distinct from "Pending
+          Review" above (which is the initial idea-approval step). */}
+      {designReviewQueue.length > 0 && (
+        <DesignReviewQueueCard items={designReviewQueue} />
+      )}
     </div>
+  );
+}
+
+// ============================================================================
+// Design Review queue — admin/coordinator's "designer marked done" inbox.
+// Renders a compact list with concept code, designer, revision round, time
+// since submitted. Clicking a row opens the standard ConceptDetailDrawer
+// (handled by ConceptsView's selection state — these cards don't own that).
+// For now the rows are read-only summaries; the verdict happens in the
+// drawer's WorkStatusActionPanel.
+// ============================================================================
+
+function DesignReviewQueueCard({
+  items,
+}: {
+  items: ConceptWithRelations[];
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <header className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+              <Lightbulb className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Design Review
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Designers marked done — your verdict closes the loop.
+              </p>
+            </div>
+          </div>
+          <Badge className="bg-destructive/15 text-destructive border border-destructive/30">
+            {items.length} waiting
+          </Badge>
+        </header>
+
+        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+          {items.slice(0, 6).map((c) => {
+            const designer = c.designer ?? c.submitter ?? null;
+            const updatedRel = c.updated_at
+              ? formatDistanceToNowStrict(new Date(c.updated_at), {
+                  addSuffix: true,
+                })
+              : "—";
+            return (
+              <li
+                key={c.id}
+                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-secondary/50"
+              >
+                <Avatar className="h-7 w-7 shrink-0">
+                  {designer?.avatar_url ? (
+                    <AvatarImage src={designer.avatar_url} />
+                  ) : null}
+                  <AvatarFallback className="text-[9px]">
+                    {getInitials(designer?.full_name ?? "?")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {c.title}
+                    </p>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {c.concept_code}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {designer?.full_name ?? "—"} · round{" "}
+                    {Math.max(1, c.revision_count ?? 1)} · {updatedRel}
+                  </p>
+                </div>
+                {(c.revision_count ?? 0) > 1 && (
+                  <Badge className="bg-warning/15 text-warning border border-warning/30 text-[10px]">
+                    revision
+                  </Badge>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {items.length > 6 && (
+          <p className="mt-2 text-right text-[11px] text-muted-foreground">
+            +{items.length - 6} more — open the In-Revision filter below
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -81,3 +81,5 @@ export { Pagination, type PaginationProps } from "./Pagination";
 export { Sparkline } from "./Sparkline";
 export { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
 export { LazyImage, type LazyImageProps } from "./LazyImage";
+export { TShirtLoader, LoaderProvider, useLoader } from "./TShirtLoader";
+export { Combobox, type ComboboxOption, type ComboboxProps } from "./Combobox";

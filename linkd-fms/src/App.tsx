@@ -8,7 +8,6 @@ import { DashboardView } from "@/views/DashboardView";
 import { KanbanView } from "@/views/KanbanView";
 import { BriefingView } from "@/views/BriefingView";
 import { ConceptsView } from "@/views/ConceptsView";
-import { AnalyticsView } from "@/views/AnalyticsView";
 import { ProductionView } from "@/views/ProductionView";
 import { TeamView } from "@/views/TeamView";
 import { NotificationsView } from "@/views/NotificationsView";
@@ -20,6 +19,8 @@ import { SalvedgeView } from "@/views/SalvedgeView";
 import { ProfileView } from "@/views/ProfileView";
 import { FilesView } from "@/views/FilesView";
 import { ResetPasswordView } from "@/views/ResetPasswordView";
+import FullKittingFormView from "@/views/FullKittingFormView";
+import KittingQueueView from "@/views/KittingQueueView";
 import { RootRedirect } from "@/components/layout/RootRedirect";
 import { ROUTES } from "@/lib/routes";
 
@@ -49,10 +50,12 @@ export default function App() {
           <Route path="/dashboard/tasks" element={<KanbanView />} />
         </Route>
 
-        {/* /brief/new — New task briefing form (admin + coordinator) */}
+        {/* /brief/new — New task briefing form (all roles can log briefs) */}
         <Route
           element={
-            <ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />
+            <ProtectedRoute
+              allowedRoles={["admin", "design_coordinator", "designer"]}
+            />
           }
         >
           <Route path={ROUTES.briefNew} element={<BriefingView />} />
@@ -83,7 +86,13 @@ export default function App() {
             />
           }
         >
-          <Route path={ROUTES.analytics} element={<AnalyticsView />} />
+          {/* /analytics is preserved as a redirect — the Concept Dashboard
+              now lives as a tab inside /task-dashboard. Old bookmarks and
+              outbound links continue to work; new sidebar entry is gone. */}
+          <Route
+            path={ROUTES.analytics}
+            element={<Navigate to={`${ROUTES.taskDashboard}?tab=concepts`} replace />}
+          />
         </Route>
 
         {/* /team — Team management (admin + coordinator) */}
@@ -155,9 +164,11 @@ export default function App() {
           <Route path={ROUTES.system} element={<SystemView />} />
         </Route>
 
-        {/* /salvedge — Salvedge records (all roles — designers see their own) */}
+        {/* /salvedge — admin + design_coordinator only. Designers no longer
+            see Salvedge in the sidebar; a direct URL visit lands on the
+            inline access-restricted panel. */}
         <Route
-          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
+          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />}
         >
           <Route path={ROUTES.salvedge} element={<SalvedgeView />} />
         </Route>
@@ -167,6 +178,22 @@ export default function App() {
           element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
         >
           <Route path={ROUTES.files} element={<FilesView />} />
+        </Route>
+
+        {/* /kitting — DEO queue (and admin/coordinator monitoring view).
+            /kitting/:recordId — edit a specific record's digital form. */}
+        <Route
+          element={
+            <ProtectedRoute
+              allowedRoles={["admin", "design_coordinator", "deo"]}
+            />
+          }
+        >
+          <Route path={ROUTES.kitting} element={<KittingQueueView />} />
+          <Route
+            path={`${ROUTES.kitting}/:recordId`}
+            element={<FullKittingFormView />}
+          />
         </Route>
 
         {/* Legacy aliases — old links still resolve */}

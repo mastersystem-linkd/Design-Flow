@@ -8,6 +8,7 @@ import { differenceInDays, parseISO } from "date-fns";
 import type {
   Concept,
   ConceptStatus,
+  ConceptWorkStatus,
   ConceptWithRelations,
   CompletionHistoryEntry,
   TaskPriority,
@@ -49,6 +50,7 @@ function isMissingRelationshipError(message: string | undefined): boolean {
 
 export interface ConceptFilters {
   status?: ConceptStatus | ConceptStatus[];
+  workStatus?: ConceptWorkStatus | ConceptWorkStatus[];
   submittedBy?: string;
   mySubmissionsOnly?: boolean;
 }
@@ -79,6 +81,8 @@ export interface SubmitConceptInput {
    * a payload without this column.
    */
   files?: string[];
+  /** Number of designs in the concept (denominator for final approval). 0028. */
+  designs_count?: number | null;
 }
 
 export interface ReviewInput {
@@ -112,8 +116,56 @@ export interface UseConcepts {
     conceptId: string,
     notes?: string | null
   ) => Promise<MutationResult<Concept>>;
-  /** Designer re-submits after addressing revision feedback — clears notes so MD sees "Pending". */
+  /** Designer re-submits after addressing FINAL-approval revision feedback — clears final_approval_notes. */
   resubmitConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
+  /**
+   * Designer re-submits after MD asked for changes on the *initial* concept
+   * submission (md_status='revision_requested'). Flips md_status back to
+   * 'pending' so MD sees it in the review queue again. Clears md_notes
+   * (the original feedback) — they're preserved in completion_history.
+   *
+   * Accepts the revised files (`newFiles`) — they're APPENDED to the
+   * existing `files` array so the audit trail of every revision survives,
+   * and `image_url` updates to the first new file so the hero preview
+   * shows the latest version. Optional `notes` describe what changed and
+   * land in the completion_history entry.
+   */
+  resubmitForReview: (
+    conceptId: string,
+    options?: { newFiles?: string[]; notes?: string }
+  ) => Promise<MutationResult<Concept>>;
+  // ── Work-status lifecycle (added 0025/0026) ──────────────────────────────
+  /** T6 — Designer starts an approved concept. */
+  startConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
+  /** T7 — Designer puts the in-progress concept on hold with optional reason. */
+  holdConcept: (
+    conceptId: string,
+    reason?: string | null
+  ) => Promise<MutationResult<Concept>>;
+  /** T8 — Designer resumes a held concept (adds hold duration to total). */
+  resumeConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
+  /** T9+T10 — Designer marks done; row auto-moves to in_revision for MD. */
+  markConceptDone: (conceptId: string) => Promise<MutationResult<Concept>>;
+  /** T11 — Admin approves the finished design (terminal). Optionally records
+   *  how many of the submitted designs were approved (compared to
+   *  `designs_count` at submission). */
+  approveDesign: (
+    conceptId: string,
+    approvedDesignsCount?: number | null
+  ) => Promise<MutationResult<Concept>>;
+  /** T12 — Admin suggests changes; designer reads md_feedback and reworks. */
+  suggestChanges: (
+    conceptId: string,
+    feedback: string
+  ) => Promise<MutationResult<Concept>>;
+  /** T13 — Designer starts implementing requested changes. */
+  startChanges: (conceptId: string) => Promise<MutationResult<Concept>>;
+  /** Hard-delete a concept (admin/coordinator only — gated by RLS). The
+   *  schema cascades attached files via FK rules, so this also removes
+   *  related concept_files. Returns the deleted id on success. */
+  deleteConcept: (
+    conceptId: string
+  ) => Promise<MutationResult<{ id: string }>>;
 }
 
 // ============================================================================
@@ -135,6 +187,13 @@ async function fetchConcepts(
         if (filters.status.length) q = q.in("md_status", filters.status);
       } else {
         q = q.eq("md_status", filters.status);
+      }
+    }
+    if (filters?.workStatus) {
+      if (Array.isArray(filters.workStatus)) {
+        if (filters.workStatus.length) q = q.in("work_status", filters.workStatus);
+      } else {
+        q = q.eq("work_status", filters.workStatus);
       }
     }
     if (filters?.mySubmissionsOnly && userId) {
@@ -230,6 +289,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         priority: input.priority ?? "normal",
         file_url: input.file_url ?? input.image_url,
         files: filesArray,
+        designs_count: input.designs_count ?? null,
       };
 
       let { data, error: err } = await supabase
@@ -239,16 +299,35 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .single();
 
       // Schema fallback ladder:
-      //   1. Full extendedPayload   — works post-0018
-      //   2. Drop `files` column    — works post-0012, pre-0018
-      //   3. basePayload only       — works pre-0012
+      //   1. Full extendedPayload    — works post-0028
+      //   2. Drop `designs_count`    — works post-0018, pre-0028
+      //   3. Drop `files` too        — works post-0012, pre-0018
+      //   4. basePayload only        — works pre-0012
+      if (err && /does not exist|schema cache/i.test(err.message) &&
+          /designs_count/i.test(err.message)) {
+        console.warn(
+          "[useConcepts] `designs_count` missing — retrying without it. " +
+            "Apply migration 0028 to persist concept design counts."
+        );
+        const { designs_count: _omitDc, ...withoutDc } = extendedPayload;
+        void _omitDc;
+        const retryDc = await supabase
+          .from("concepts")
+          .insert(withoutDc)
+          .select("*")
+          .single();
+        data = retryDc.data;
+        err = retryDc.error;
+      }
       if (err && /does not exist|schema cache/i.test(err.message)) {
         console.warn(
           "[useConcepts] schema missing — retrying without `files` column. " +
             "Apply migration 0018 to persist multi-file attachments."
         );
-        const { files: _omit, ...withoutFiles } = extendedPayload;
+        const { files: _omit, designs_count: _omitDc2, ...withoutFiles } =
+          extendedPayload;
         void _omit;
+        void _omitDc2;
         const retry1 = await supabase
           .from("concepts")
           .insert(withoutFiles)
@@ -292,13 +371,25 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
   const reviewConcept = useCallback<UseConcepts["reviewConcept"]>(
     async (conceptId, input) => {
       if (!user) return { data: null, error: "Not authenticated" };
+      // Client-side mirror of the 0029 DB trigger — when MD approves, the
+      // concept auto-starts (work_status='in_progress' + work_started_at).
+      // The trigger already does this server-side; setting it here too
+      // means the row we return to the caller reflects the new state
+      // immediately without a refetch.
+      const now = new Date().toISOString();
+      const update: Record<string, unknown> = {
+        md_status: input.status,
+        md_reviewed_by: user.id,
+        md_notes: input.notes?.trim() || null,
+      };
+      if (input.status === "approved") {
+        update.work_status = "in_progress";
+        update.work_started_at = now;
+      }
+
       const { data, error: err } = await supabase
         .from("concepts")
-        .update({
-          md_status: input.status,
-          md_reviewed_by: user.id,
-          md_notes: input.notes?.trim() || null,
-        })
+        .update(update)
         .eq("id", conceptId)
         .select("*")
         .single();
@@ -412,6 +503,11 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         by: user.user_metadata?.full_name || "Admin",
       });
 
+      // Legacy mutation now ALSO closes out the work-status lifecycle by
+      // flipping work_status to 'completed' (idempotent if it's already
+      // there). Without this, a coordinator clicking the legacy "Approve"
+      // card would leave work_status stuck at 'in_revision' and the table
+      // would keep showing "In Progress" forever.
       const { data, error: err } = await supabase
         .from("concepts")
         .update({
@@ -420,6 +516,9 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
           final_approval_notes: input?.notes?.trim() || null,
           approved_designs_count: input?.approved_designs_count ?? null,
           completion_history: history as unknown as any,
+          work_status: "completed",
+          work_completed_at: now,
+          md_feedback: null,
         })
         .eq("id", conceptId)
         .select("*")
@@ -537,6 +636,501 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
     [user, profile, invalidateAll]
   );
 
+  const resubmitForReview = useCallback<UseConcepts["resubmitForReview"]>(
+    async (conceptId, options) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const now = new Date().toISOString().slice(0, 10);
+      const newFiles = options?.newFiles ?? [];
+      const changesNotes = options?.notes?.trim() || undefined;
+
+      // Read previous state so we can append revised files to the existing
+      // `files` array and carry the prior md_notes into history before
+      // clearing them.
+      const { data: previous } = await supabase
+        .from("concepts")
+        .select("md_notes, files, image_url")
+        .eq("id", conceptId)
+        .single();
+
+      const existingFiles: string[] = Array.isArray(previous?.files)
+        ? (previous!.files as string[])
+        : previous?.image_url
+          ? [previous.image_url]
+          : [];
+      const mergedFiles = [...existingFiles, ...newFiles];
+      // First newly-uploaded file becomes the hero (image_url). If the
+      // designer didn't upload anything, keep the prior hero.
+      const newPrimary = newFiles[0] ?? previous?.image_url ?? null;
+
+      const history = await appendHistory(conceptId, {
+        type: "resubmit",
+        date: now,
+        by: profile?.full_name ?? "Designer",
+        // Original MD feedback preserved for audit. If designer added their
+        // own "what changed" notes, prepend them so the timeline reads as
+        // "designer addressed: <notes> · prior feedback: <md_notes>".
+        feedback: changesNotes
+          ? previous?.md_notes
+            ? `Changes: ${changesNotes} · Prior feedback: ${previous.md_notes}`
+            : `Changes: ${changesNotes}`
+          : previous?.md_notes ?? undefined,
+      });
+
+      // Schema-fallback for the files column (post-0018) — drop it if the
+      // DB doesn't have it yet.
+      const update: Record<string, unknown> = {
+        md_status: "pending",
+        md_notes: null,
+        md_reviewed_at: null,
+        md_reviewed_by: null,
+        md_actual_date: null,
+        completion_history: history as unknown as any,
+        files: mergedFiles,
+      };
+      if (newPrimary) update.image_url = newPrimary;
+
+      let { data, error: err } = await supabase
+        .from("concepts")
+        .update(update)
+        .eq("id", conceptId)
+        .eq("md_status", "revision_requested")
+        .select("*")
+        .single();
+
+      if (err && /does not exist|schema cache/i.test(err.message)) {
+        // Retry without `files` (pre-0018 DB)
+        const { files: _omit, ...withoutFiles } = update;
+        void _omit;
+        const retry = await supabase
+          .from("concepts")
+          .update(withoutFiles)
+          .eq("id", conceptId)
+          .eq("md_status", "revision_requested")
+          .select("*")
+          .single();
+        data = retry.data;
+        err = retry.error;
+      }
+
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return {
+          data: null,
+          error: "Concept is not awaiting designer revision",
+        };
+      }
+
+      const submitterName = profile?.full_name ?? "Designer";
+      void sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Concept Re-submitted",
+        `${submitterName} addressed feedback and re-submitted "${data.title}"`,
+        "info",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, profile, invalidateAll]
+  );
+
+  // ============================================================================
+  // Work-status lifecycle mutations (added 0025/0026)
+  // ============================================================================
+  //
+  // Pattern across all of these:
+  //   1. Update only the rows in the expected source state — the `.eq("work_status", ...)`
+  //      guard is a lightweight optimistic lock so two designers / two
+  //      browser tabs can't double-transition the same concept.
+  //   2. Return { data, error } and never throw — caller toasts the error.
+  //   3. Fire a notification (best-effort, void-awaited) so admin/designer
+  //      see the transition immediately even without a Realtime hop.
+
+  const startConcept = useCallback<UseConcepts["startConcept"]>(
+    async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const now = new Date().toISOString();
+      const history = await appendHistory(conceptId, {
+        type: "started",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Designer",
+      });
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          work_status: "in_progress",
+          work_started_at: now,
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .eq("md_status", "approved")
+        .eq("work_status", "not_started")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not in 'Ready' state" };
+      }
+
+      const designerName = profile?.full_name ?? "A designer";
+      void sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Concept started",
+        `${designerName} started working on ${data.concept_code}`,
+        "info",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, profile, invalidateAll]
+  );
+
+  const holdConcept = useCallback<UseConcepts["holdConcept"]>(
+    async (conceptId, reason) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const now = new Date().toISOString();
+
+      // Read current hold_count so we can increment client-side. (Supabase
+      // doesn't expose `column + 1` raw SQL via the JS client.)
+      const { data: row } = await supabase
+        .from("concepts")
+        .select("hold_count")
+        .eq("id", conceptId)
+        .single();
+      const nextHoldCount = (row?.hold_count ?? 0) + 1;
+      const history = await appendHistory(conceptId, {
+        type: "held",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Designer",
+        feedback: reason?.trim() || undefined,
+      });
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          work_status: "on_hold",
+          work_held_at: now,
+          hold_reason: reason?.trim() || null,
+          hold_count: nextHoldCount,
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .eq("work_status", "in_progress")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not currently in progress" };
+      }
+
+      const designerName = profile?.full_name ?? "A designer";
+      void sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Concept on hold",
+        `${designerName} paused ${data.concept_code}${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
+        "warning",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, profile, invalidateAll]
+  );
+
+  const resumeConcept = useCallback<UseConcepts["resumeConcept"]>(
+    async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const now = new Date().toISOString();
+
+      // Compute the held duration so total_hold_duration is updated correctly.
+      // Postgres `interval` doesn't have a great client-side helper, so we send
+      // the delta as an ISO-8601 interval string ("PT{seconds}S") which
+      // Postgres parses natively.
+      const { data: row } = await supabase
+        .from("concepts")
+        .select("work_held_at, total_hold_duration")
+        .eq("id", conceptId)
+        .single();
+      const heldAt = row?.work_held_at ? new Date(row.work_held_at) : null;
+      const heldSeconds = heldAt
+        ? Math.max(0, Math.floor((Date.now() - heldAt.getTime()) / 1000))
+        : 0;
+
+      // total_hold_duration is an interval; Postgres can accept a "{n} seconds"
+      // string added via raw SQL but the JS client doesn't expose that, so we
+      // overwrite with the running total expressed as a plain seconds string.
+      // The existing total is read, parsed loosely, and added to the new delta.
+      const existingSeconds = parseIntervalToSeconds(row?.total_hold_duration);
+      const newTotalSeconds = existingSeconds + heldSeconds;
+
+      const history = await appendHistory(conceptId, {
+        type: "resumed",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Designer",
+      });
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          work_status: "in_progress",
+          work_resumed_at: now,
+          work_held_at: null,
+          hold_reason: null,
+          total_hold_duration: `${newTotalSeconds} seconds`,
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .eq("work_status", "on_hold")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not on hold" };
+      }
+
+      const designerName = profile?.full_name ?? "A designer";
+      void sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Concept resumed",
+        `${designerName} resumed ${data.concept_code}`,
+        "info",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, profile, invalidateAll]
+  );
+
+  const markConceptDone = useCallback<UseConcepts["markConceptDone"]>(
+    async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      // T9+T10 in the spec — skip `done_partial` (transient) and go straight
+      // to `in_revision`. revision_count increments each round.
+      const { data: row } = await supabase
+        .from("concepts")
+        .select("revision_count")
+        .eq("id", conceptId)
+        .single();
+      const nextRevisionCount = (row?.revision_count ?? 0) + 1;
+      const now = new Date().toISOString();
+      const history = await appendHistory(conceptId, {
+        type: "marked_done",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Designer",
+        round: nextRevisionCount,
+      });
+
+      // Also stamp the legacy `designer_actual_date` so the four-stage
+      // pipeline UI (which reads that column for stage 3 = "Designer
+      // Completion") shows complete without a second click. We only do it
+      // on the FIRST done-mark per concept; later "marked done again"
+      // events after revisions keep the original timestamp.
+      const { data: existing } = await supabase
+        .from("concepts")
+        .select("designer_actual_date")
+        .eq("id", conceptId)
+        .single();
+      const designerActualDate =
+        existing?.designer_actual_date ?? now.slice(0, 10);
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          work_status: "in_revision",
+          revision_count: nextRevisionCount,
+          completion_history: history as unknown as any,
+          designer_actual_date: designerActualDate,
+        })
+        .eq("id", conceptId)
+        .eq("work_status", "in_progress")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not currently in progress" };
+      }
+
+      const designerName = profile?.full_name ?? "A designer";
+      void sendNotificationToRole(
+        ["admin"],
+        "Design ready for review",
+        `${designerName} completed ${data.concept_code}, awaiting your review`,
+        "info",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, profile, invalidateAll]
+  );
+
+  const approveDesign = useCallback<UseConcepts["approveDesign"]>(
+    async (conceptId, approvedDesignsCount) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const now = new Date().toISOString();
+      const history = await appendHistory(conceptId, {
+        type: "design_approved",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Admin",
+      });
+
+      // Stamp the legacy final-approval fields so the four-stage pipeline
+      // UI (`final_approved_at` drives stage 4 = "done") lights up without
+      // requiring a separate `finalApproveConcept` click. `approved_designs_count`
+      // is set only when MD provided it — null leaves the prior value in place.
+      const update: Record<string, unknown> = {
+        work_status: "completed",
+        work_completed_at: now,
+        md_feedback: null,
+        completion_history: history as unknown as any,
+        final_approved_at: now,
+        final_approval_actual_date: now.slice(0, 10),
+      };
+      if (
+        approvedDesignsCount !== undefined &&
+        approvedDesignsCount !== null &&
+        Number.isFinite(approvedDesignsCount)
+      ) {
+        update.approved_designs_count = approvedDesignsCount;
+      }
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update(update)
+        .eq("id", conceptId)
+        .eq("work_status", "in_revision")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not awaiting design review" };
+      }
+
+      // Notify the designer who built it (not the submitter — they may differ).
+      const designerId = data.designer_id ?? data.submitted_by;
+      void sendNotification(
+        designerId,
+        "Design approved!",
+        `Ma'am approved your design ${data.concept_code}`,
+        "success",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, invalidateAll]
+  );
+
+  const suggestChanges = useCallback<UseConcepts["suggestChanges"]>(
+    async (conceptId, feedback) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const trimmed = feedback?.trim();
+      if (!trimmed) {
+        return { data: null, error: "Feedback is required" };
+      }
+      const now = new Date().toISOString();
+      const history = await appendHistory(conceptId, {
+        type: "changes_requested",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Admin",
+        feedback: trimmed,
+      });
+
+      // Skip `changes_requested` and go straight back to `in_progress` so
+      // the designer's "Reworking — round N" banner (gated by
+      // revision_count >= 1) lights up immediately with MD's feedback.
+      // The legacy `changes_requested` enum value remains in case any
+      // pre-0030 row carries it, but the mutation no longer produces new
+      // ones.
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          work_status: "in_progress",
+          md_feedback: trimmed,
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .eq("work_status", "in_revision")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not awaiting design review" };
+      }
+
+      const designerId = data.designer_id ?? data.submitted_by;
+      void sendNotification(
+        designerId,
+        "Changes requested",
+        `Ma'am suggested changes on ${data.concept_code}: ${trimmed}`,
+        "warning",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, invalidateAll]
+  );
+
+  const startChanges = useCallback<UseConcepts["startChanges"]>(
+    async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const now = new Date().toISOString();
+      const history = await appendHistory(conceptId, {
+        type: "start_changes",
+        date: now.slice(0, 10),
+        by: profile?.full_name ?? "Designer",
+      });
+
+      // T13 — flip back to in_progress; md_feedback stays so designer can
+      // reference it while reworking.
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update({
+          work_status: "in_progress",
+          completion_history: history as unknown as any,
+        })
+        .eq("id", conceptId)
+        .eq("work_status", "changes_requested")
+        .select("*")
+        .single();
+      if (err) return { data: null, error: err.message };
+      if (!data) {
+        return { data: null, error: "Concept is not in 'Changes Needed' state" };
+      }
+
+      const designerName = profile?.full_name ?? "A designer";
+      void sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Implementing changes",
+        `${designerName} started working on changes for ${data.concept_code}`,
+        "info",
+        "/concepts"
+      );
+      invalidateAll();
+      return { data, error: null };
+    },
+    [user, profile, invalidateAll]
+  );
+
+  const deleteConcept = useCallback<UseConcepts["deleteConcept"]>(
+    async (conceptId) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+      const { error: err } = await supabase
+        .from("concepts")
+        .delete()
+        .eq("id", conceptId);
+      if (err) return { data: null, error: err.message };
+      invalidateAll();
+      return { data: { id: conceptId }, error: null };
+    },
+    [user, invalidateAll]
+  );
+
   const concepts = data ?? [];
   return {
     concepts,
@@ -550,5 +1144,44 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
     finalApproveConcept,
     finalReviseConcept,
     resubmitConcept,
+    resubmitForReview,
+    startConcept,
+    holdConcept,
+    resumeConcept,
+    markConceptDone,
+    approveDesign,
+    suggestChanges,
+    startChanges,
+    deleteConcept,
   };
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Loose parser for Postgres `interval` JSON shapes. Supabase returns
+ * `total_hold_duration` as either a serialized string ("01:23:45.6789") or an
+ * ISO-8601 duration ("PT5025S") depending on the rest config. We just need
+ * the total seconds — drift-tolerant since this is only used for cumulative
+ * hold tracking, not billing.
+ */
+function parseIntervalToSeconds(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  // ISO 8601: PT5025S / PT1H23M / etc.
+  const iso = raw.match(/^P(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/);
+  if (iso) {
+    const h = parseInt(iso[1] ?? "0", 10);
+    const m = parseInt(iso[2] ?? "0", 10);
+    const s = parseFloat(iso[3] ?? "0");
+    return h * 3600 + m * 60 + s;
+  }
+  // HH:MM:SS[.fff] or numeric-only ("5025" / "5025 seconds")
+  const hms = raw.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
+  if (hms) {
+    return parseInt(hms[1], 10) * 3600 + parseInt(hms[2], 10) * 60 + parseFloat(hms[3]);
+  }
+  const numeric = parseFloat(raw);
+  return Number.isFinite(numeric) ? numeric : 0;
 }

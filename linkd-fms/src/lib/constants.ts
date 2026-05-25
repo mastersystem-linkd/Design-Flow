@@ -3,6 +3,7 @@ import type {
   TaskPriority,
   UserRole,
   ConceptStatus,
+  ConceptWorkStatus,
 } from "@/types/database";
 
 // ============================================================================
@@ -102,6 +103,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Admin",
   design_coordinator: "Design Coordinator",
   designer: "Designer",
+  deo: "Data Entry Operator",
 };
 
 // ============================================================================
@@ -120,6 +122,47 @@ export const CONCEPT_STATUS_COLORS: Record<ConceptStatus, string> = {
   approved: "bg-success/20 text-success border border-success/30",
   rejected: "bg-destructive/20 text-destructive border border-destructive/30",
   revision_requested: "bg-warning/20 text-warning border border-warning/30",
+};
+
+// ============================================================================
+// Concept work-status — post-approval lifecycle (added 0025/0026).
+// `not_started`        Designer hasn't picked it up yet (Ready).
+// `in_progress`        Designer actively working.
+// `on_hold`            Paused — designer can resume.
+// `done_partial`       Transient state; UI never shows it (auto-flips to in_revision).
+// `in_revision`        MD final-review queue.
+// `changes_requested`  MD asked for changes; designer reads md_feedback.
+// `completed`          Terminal — design fully approved.
+// ============================================================================
+
+export const WORK_STATUS_LABELS: Record<ConceptWorkStatus, string> = {
+  not_started: "Ready",
+  in_progress: "In Progress",
+  on_hold: "On Hold",
+  done_partial: "Done",
+  in_revision: "In Revision",
+  changes_requested: "Changes Needed",
+  completed: "Completed",
+};
+
+export const WORK_STATUS_COLORS: Record<ConceptWorkStatus, string> = {
+  not_started:       "bg-muted/30 text-muted-foreground border border-border",
+  in_progress:       "bg-primary/15 text-primary border border-primary/30",
+  on_hold:           "bg-warning/15 text-warning border border-warning/30",
+  done_partial:      "bg-primary/10 text-primary border border-primary/20",
+  in_revision:       "bg-destructive/15 text-destructive border border-destructive/30",
+  changes_requested: "bg-warning/20 text-warning border border-warning/40",
+  completed:         "bg-success/15 text-success border border-success/30",
+};
+
+export const WORK_STATUS_DOT: Record<ConceptWorkStatus, string> = {
+  not_started:       "bg-muted-foreground",
+  in_progress:       "bg-primary",
+  on_hold:           "bg-warning",
+  done_partial:      "bg-primary",
+  in_revision:       "bg-destructive",
+  changes_requested: "bg-warning",
+  completed:         "bg-success",
 };
 
 // ============================================================================

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+﻿import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
+import ReactDOM from "react-dom";
 import {
   Plus,
   RefreshCw,
@@ -9,39 +10,44 @@ import {
   XCircle,
   RotateCcw,
   Download,
-  Check,
+  ChevronDown,
+  MoreVertical,
+  Eye,
+  Pencil,
+  Trash2,
+  Send,
+  Hammer,
+  Sparkles,
+  AlertCircle,
+  FilterX,
 } from "lucide-react";
 import { differenceInDays, format, parseISO } from "date-fns";
 import { useConcepts } from "@/hooks/useConcepts";
 import { useAuth } from "@/hooks/useAuth";
-import { useProfiles } from "@/hooks/useProfiles";
-import {
-  DesignerConceptDashboard,
-  CoordinatorConceptDashboard,
-  AdminConceptDashboard,
-} from "@/components/concepts/ConceptDashboard";
+// ConceptDashboard components moved to AnalyticsView (Concept Dashboard).
 import { Button } from "@/components/ui/button";
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
   Badge,
-  getInitials,
   EmptyState,
   ExportDialog,
   Pagination,
   toast,
+  ConfirmDialog,
 } from "@/components/ui";
 import { type CsvColumn } from "@/lib/exportCSV";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 import { usePagination } from "@/hooks/usePagination";
 import { SubmitConceptDialog } from "@/components/concepts/SubmitConceptDialog";
 import { ConceptDetailDrawer } from "@/components/concepts/ConceptDetailDrawer";
+import { ResubmitConceptDialog } from "@/components/concepts/ResubmitConceptDialog";
 import {
   CONCEPT_STATUS_LABELS,
   CONCEPT_STATUS_COLORS,
+  WORK_STATUS_LABELS,
+  WORK_STATUS_COLORS,
+  WORK_STATUS_DOT,
 } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, parseIntervalSeconds, formatDuration } from "@/lib/utils";
 import { CONCEPT_STATUSES } from "@/types/database";
 import type {
   ConceptStatus,
@@ -58,6 +64,22 @@ import type {
  *                      "approved" only shows live work-in-progress.
  */
 type Tab = "all" | ConceptStatus | "completed";
+
+// Work-status filter row — visible when the user is looking at approved
+// concepts (either explicitly or via the "All" tab). Mirrors the
+// `concept_work_status` enum + an "all" affordance.
+// Most options mirror `concept_work_status`; `rejected` is a hybrid shortcut
+// that filters md_status='rejected' (rejected concepts never enter the work
+// pipeline, but users still want a one-click subset).
+type WorkTab =
+  | "all"
+  | "not_started"
+  | "in_progress"
+  | "on_hold"
+  | "in_revision"
+  | "changes_requested"
+  | "completed"
+  | "rejected";
 
 /**
  * A concept is "completed" once both sides of the workflow have signed off:
@@ -85,7 +107,12 @@ function isCompleted(c: ConceptWithRelations): boolean {
 }
 
 // ============================================================================
-// Category accent colors — only used on the thin top-bar of merged headers
+// Stage visual identity — each lifecycle group gets:
+//   • a 3px top accent bar (CAT_ACCENT)
+//   • a soft gradient header background (CAT_GRADIENT) that ties the columns
+//     visually without distracting from the data
+//   • an icon (CAT_ICON) that reinforces the stage's meaning at a glance
+// All three tokens are co-located so adding a 5th stage is a one-spot edit.
 // ============================================================================
 
 const CAT_ACCENT = {
@@ -93,6 +120,31 @@ const CAT_ACCENT = {
   approval: "bg-[#7C5CFC]",
   completion: "bg-success",
   final: "bg-warning",
+} as const;
+
+const CAT_GRADIENT = {
+  creation:
+    "bg-gradient-to-b from-primary/[0.06] via-primary/[0.02] to-transparent",
+  approval:
+    "bg-gradient-to-b from-[#7C5CFC]/[0.07] via-[#7C5CFC]/[0.02] to-transparent",
+  completion:
+    "bg-gradient-to-b from-success/[0.06] via-success/[0.02] to-transparent",
+  final:
+    "bg-gradient-to-b from-warning/[0.07] via-warning/[0.02] to-transparent",
+} as const;
+
+const CAT_ICON = {
+  creation: Send,
+  approval: Eye,
+  completion: Hammer,
+  final: Sparkles,
+} as const;
+
+const CAT_ICON_COLOR = {
+  creation: "text-primary",
+  approval: "text-[#7C5CFC]",
+  completion: "text-success",
+  final: "text-warning",
 } as const;
 
 // ============================================================================
@@ -168,12 +220,20 @@ export function ConceptsView() {
     finalApproveConcept,
     finalReviseConcept,
     resubmitConcept,
+    resubmitForReview,
+    startConcept,
+    holdConcept,
+    resumeConcept,
+    markConceptDone,
+    approveDesign,
+    suggestChanges,
+    startChanges,
+    deleteConcept,
   } = useConcepts();
-  const { profiles: designers } = useProfiles({ roles: ["designer"] });
+  // designers no longer needed — dashboards moved to AnalyticsView.
 
   const role = profile?.role ?? "designer";
   const isAdmin = role === "admin" || role === "design_coordinator";
-  const isCoordinator = role === "design_coordinator";
   const isDesigner = role === "designer";
   const userId = profile?.id;
 
@@ -186,6 +246,15 @@ export function ConceptsView() {
   const initialTab: Tab = urlTab && validTabs.includes(urlTab) ? urlTab : "all";
 
   const [tab, setTab] = useState<Tab>(initialTab);
+  // Secondary tab — work-status. Drives the second chip row when md_status
+  // filter is "All" or "Approved". Stays "all" otherwise so switching back
+  // doesn't surprise the user with a hidden filter.
+  const [workTab, setWorkTab] = useState<WorkTab>("all");
+  // Admin "inbox" mode — when active, the table shows only the rows that
+  // need the admin's attention (pending initial review + work_status in
+  // final review). Overrides the Status + Stage chips while engaged so the
+  // admin gets a clean, focused queue with one click.
+  const [inboxMode, setInboxMode] = useState(false);
   useEffect(() => {
     if (urlTab && validTabs.includes(urlTab)) setTab(urlTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,9 +262,30 @@ export function ConceptsView() {
   const [submitOpen, setSubmitOpen] = useState(false);
   const [selected, setSelected] = useState<ConceptWithRelations | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const [completingId, setCompletingId] = useState<string | null>(null);
-  const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [resubmittingId, setResubmittingId] = useState<string | null>(null);
+  // Inline row-level action state removed — all lifecycle transitions now
+  // happen inside the centered detail modal (one click on any row opens
+  // it). This keeps the wide table read-only and free of edit shortcuts
+  // that bypassed the proper work-status pipeline.
+  //
+  // The row ⋮ Actions menu only does View / Edit / Delete — none of which
+  // mutate work_status. Delete target lives at view scope so the confirm
+  // dialog can be a single mount shared across rows.
+  const [deleteTarget, setDeleteTarget] =
+    useState<ConceptWithRelations | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  /** Concept currently in the Re-submit dialog (designer uploading revised files). */
+  const [resubmitTarget, setResubmitTarget] =
+    useState<ConceptWithRelations | null>(null);
+
+  /** Concept ownership check — used by the ⋮ Edit gate. The submitter or
+   *  the assigned designer counts as "owner". Admins can edit anything
+   *  regardless via the wide `isAdmin` flag below, but Edit here also
+   *  needs to be reachable for designers on their own rows. */
+  const isOwner = useCallback(
+    (c: ConceptWithRelations) =>
+      !!userId && (userId === c.submitted_by || userId === c.designer_id),
+    [userId]
+  );
 
   const canExport = isAdminOrCoordinator(role);
 
@@ -226,7 +316,7 @@ export function ConceptsView() {
     },
   ];
 
-  // ── Counts ──
+  // â”€â”€ Counts â”€â”€
   // `approved` here is "approved but NOT yet completed". Fully completed
   // concepts get their own bucket so the two tabs never double-count.
   const counts = useMemo(() => {
@@ -247,16 +337,77 @@ export function ConceptsView() {
     return map;
   }, [concepts]);
 
-  const allVisible = useMemo(() => {
-    if (tab === "all") return concepts;
-    if (tab === "completed") return concepts.filter(isCompleted);
-    // For status tabs: rows that match the status AND aren't yet completed.
-    // (Completed rows live in their own tab so they don't muddy the
-    // "Approved" view, which should be live work in progress.)
+  // Work-stage counts — most options derive from the approved subset so the
+  // chip row reflects the post-approval pipeline. `rejected` is the
+  // exception: it counts md_status='rejected' regardless of work_status,
+  // surfacing rejected concepts as a one-click subset.
+  const workCounts = useMemo(() => {
+    const approved = concepts.filter((c) => c.md_status === "approved");
+    const map: Record<Exclude<WorkTab, "all">, number> = {
+      not_started: 0,
+      in_progress: 0,
+      on_hold: 0,
+      in_revision: 0,
+      changes_requested: 0,
+      completed: 0,
+      rejected: 0,
+    };
+    for (const c of approved) {
+      const ws = c.work_status as Exclude<WorkTab, "all"> | "done_partial" | null;
+      if (ws && ws in map) {
+        map[ws as Exclude<WorkTab, "all">]++;
+      }
+    }
+    map.rejected = concepts.filter((c) => c.md_status === "rejected").length;
+    return map;
+  }, [concepts]);
+
+  // Admin inbox count — concepts the MD/coordinator must act on:
+  //   • md_status='pending'      → initial concept review queue
+  //   • work_status='in_revision' → designer marked done, final review queue
+  // Computed once per concepts change so the chip badge stays accurate.
+  const needsApprovalCount = useMemo(() => {
     return concepts.filter(
-      (c) => c.md_status === tab && !isCompleted(c)
-    );
-  }, [concepts, tab]);
+      (c) =>
+        c.md_status === "pending" ||
+        (c.md_status === "approved" && c.work_status === "in_revision")
+    ).length;
+  }, [concepts]);
+
+  const allVisible = useMemo(() => {
+    // Inbox mode short-circuits everything — admin sees only their queue.
+    if (inboxMode) {
+      return concepts.filter(
+        (c) =>
+          c.md_status === "pending" ||
+          (c.md_status === "approved" && c.work_status === "in_revision")
+      );
+    }
+    // First narrow by md_status tab.
+    let pool = concepts;
+    if (tab === "completed") {
+      pool = concepts.filter(isCompleted);
+    } else if (tab !== "all") {
+      pool = concepts.filter((c) => c.md_status === tab && !isCompleted(c));
+    }
+    // Then narrow further by Stage chip. Most chips filter by work_status
+    // and only apply under Status: All/Approved. `rejected` is a hybrid
+    // that filters by md_status — it works under Status: All so the user
+    // can jump straight to rejected concepts without re-picking the
+    // Status dropdown.
+    if (workTab === "rejected" && tab === "all") {
+      pool = pool.filter((c) => c.md_status === "rejected");
+    } else {
+      const workActive =
+        workTab !== "all" &&
+        workTab !== "rejected" &&
+        (tab === "all" || tab === "approved");
+      if (workActive) {
+        pool = pool.filter((c) => c.work_status === workTab);
+      }
+    }
+    return pool;
+  }, [concepts, tab, workTab, inboxMode]);
 
   const conceptPg = usePagination(allVisible.length, 25);
 
@@ -266,47 +417,19 @@ export function ConceptsView() {
   );
 
   const pendingCount = counts.pending;
+  // Legacy `handleMarkDone` removed — completion is now driven exclusively
+  // by the work-status lifecycle through the modal's "Mark done" button.
+  // The `finalizeConcept` mutation is still exposed on useConcepts and the
+  // drawer wires it for back-compat with pre-0026 rows.
 
-  // ── Done handler ──
-  const handleMarkDone = useCallback(
-    async (conceptId: string) => {
-      setCompletingId(conceptId);
-      const { error: err } = await finalizeConcept(conceptId);
-      setCompletingId(null);
-      if (err) toast.error(err);
-      else toast.success("Concept marked as completed");
-    },
-    [finalizeConcept]
-  );
-
-  // ── Re-submit handler (designer addresses revision) ──
-  const handleResubmit = useCallback(
-    async (conceptId: string) => {
-      setResubmittingId(conceptId);
-      const { error: err } = await resubmitConcept(conceptId);
-      setResubmittingId(null);
-      if (err) toast.error(err);
-      else toast.success("Re-submitted for final approval");
-    },
-    [resubmitConcept]
-  );
-
-  // ── Final Approve handler ──
-  const handleFinalApprove = useCallback(
-    async (conceptId: string) => {
-      setApprovingId(conceptId);
-      const { error: err } = await finalApproveConcept(conceptId);
-      setApprovingId(null);
-      if (err) toast.error(err);
-      else toast.success("Final approval granted");
-    },
-    [finalApproveConcept]
-  );
+  // Final-approval table handlers removed with the column.
+  // ConceptDetailDrawer still drives finalApproveConcept / resubmitConcept
+  // for any remaining workflow that lives outside the table.
 
 
   return (
     <div className="space-y-5">
-      {/* ── Header ── */}
+      {/* â”€â”€ Header â”€â”€ */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -354,61 +477,169 @@ export function ConceptsView() {
         </div>
       </div>
 
-      {/* ── Role-specific dashboard ── */}
-      {isDesigner && userId && (
-        <DesignerConceptDashboard
-          concepts={concepts}
-          userId={userId}
-          onSubmit={() => setSubmitOpen(true)}
-          onConceptSelect={(c) => setSelected(c)}
-        />
-      )}
-      {isCoordinator && (
-        <CoordinatorConceptDashboard
-          concepts={concepts}
-          designers={designers}
-          onDesignerFilter={() => {}}
-        />
-      )}
-      {isAdmin && !isCoordinator && (
-        <AdminConceptDashboard concepts={concepts} designers={designers} />
+      {/* Role-specific dashboards (KPI cards + Concept Progress bars) moved
+          to the Concept Dashboard (Dashboards â†’ Concepts tab). Concepts page
+          now stays focused on the list / workflow table. */}
+
+      {/* ── Admin inbox quick-filter — surfaces the two queues that need
+           MD action (initial review + final design review) as one chip.
+           Admin/coordinator only since designers don't have approval
+           power. Auto-hides when there's nothing in the queue so it
+           doesn't read as broken. ── */}
+      {isAdmin && (needsApprovalCount > 0 || inboxMode) && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setInboxMode((v) => !v)}
+            aria-pressed={inboxMode}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
+              inboxMode
+                ? "border-primary bg-primary text-white shadow-card-soft"
+                : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+            )}
+          >
+            <span
+              className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-md",
+                inboxMode ? "bg-white/20" : "bg-primary/15"
+              )}
+            >
+              <AlertCircle className="h-3 w-3" />
+            </span>
+            <span>Needs your approval</span>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums",
+                inboxMode ? "bg-white/25 text-white" : "bg-primary text-white"
+              )}
+            >
+              {needsApprovalCount}
+            </span>
+            {inboxMode && (
+              <span className="text-[10px] font-normal opacity-80">
+                · click to exit
+              </span>
+            )}
+          </button>
+          {inboxMode && (
+            <p className="text-[11px] text-muted-foreground">
+              Showing only concepts pending your review (initial) or your
+              final verdict (designer marked done). Status &amp; Stage
+              filters are paused.
+            </p>
+          )}
+        </div>
       )}
 
-      {/* ── Status filter tabs ── */}
-      <div className="flex flex-wrap gap-1.5">
-        <FilterChip
-          label="All"
-          count={concepts.length}
-          active={tab === "all"}
-          onClick={() => setTab("all")}
-        />
-        {CONCEPT_STATUSES.map((s) => (
-          <FilterChip
-            key={s}
-            label={CONCEPT_STATUS_LABELS[s]}
-            count={counts[s]}
-            active={tab === s}
-            onClick={() => setTab(s)}
-            dotColor={STATUS_DOT_COLOR[s]}
-          />
-        ))}
-        <FilterChip
-          label="Completed"
-          count={counts.completed}
-          active={tab === "completed"}
-          onClick={() => setTab("completed")}
-          dotColor="bg-success"
-        />
+      {/* ── Filter row — md_status dropdown + work-stage chips on one line.
+           The dropdown handles the primary "what status" question; the
+           chips refine the post-approval lifecycle and are shown only when
+           "All" or "Approved" is selected (the chips are meaningless for
+           pending/rejected/revision). Hidden in Inbox mode since the
+           inbox overrides both anyway. ── */}
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-3",
+          inboxMode && "pointer-events-none opacity-40"
+        )}
+      >
+        {/* Status dropdown — modern styled native select, count rendered
+            as right-aligned suffix on each option so users see the
+            distribution while choosing. */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Status
+          </span>
+          <div className="relative">
+            <select
+              value={tab}
+              onChange={(e) => setTab(e.target.value as Tab)}
+              className="h-9 cursor-pointer appearance-none rounded-lg border border-border bg-card pl-3 pr-8 text-sm font-medium text-foreground shadow-card-soft transition-colors hover:border-[var(--border-hover)] focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">All · {concepts.length}</option>
+              {CONCEPT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {CONCEPT_STATUS_LABELS[s]} · {counts[s]}
+                </option>
+              ))}
+              <option value="completed">Completed · {counts.completed}</option>
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+          </div>
+        </div>
+
+        {/* Work-stage chips — only meaningful for the approved bucket.
+            Render inline on the same row as the status dropdown, separated
+            by a divider so the two filter scopes stay visually distinct.
+            Hidden when there are no approved AND no rejected concepts —
+            otherwise the row would only show "0" chips. */}
+        {(tab === "all" || tab === "approved") &&
+          Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
+          <>
+            <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Stage
+              </span>
+              <FilterChip
+                label="All"
+                count={Object.values(workCounts).reduce((a, b) => a + b, 0)}
+                active={workTab === "all"}
+                onClick={() => setWorkTab("all")}
+                hint="Every approved concept, across all work stages."
+              />
+              {WORK_TAB_ORDER.map((w) => (
+                <FilterChip
+                  key={w}
+                  label={
+                    w === "rejected"
+                      ? "Rejected"
+                      : WORK_STATUS_LABELS[w]
+                  }
+                  count={workCounts[w]}
+                  active={workTab === w}
+                  onClick={() => setWorkTab(w)}
+                  dotColor={WORK_DOT_COLOR[w]}
+                  hint={WORK_TAB_HINT[w]}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Clear-all filters — appears only when at least one filter is
+             engaged (Status != all OR Stage != all). Hidden when Inbox
+             mode is on because (a) the Inbox chip has its own "click to
+             exit" affordance and (b) the filter row dims while Inbox is
+             active, so this button would be unclickable anyway. */}
+        {!inboxMode && (tab !== "all" || workTab !== "all") && (
+          <button
+            type="button"
+            onClick={() => {
+              setTab("all");
+              setWorkTab("all");
+            }}
+            title="Reset Status and Stage filters"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
+          >
+            <FilterX className="h-3.5 w-3.5" />
+            Clear filters
+          </button>
+        )}
       </div>
 
-      {/* ── Error ── */}
+      {/* â”€â”€ Error â”€â”€ */}
       {error && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
 
-      {/* ── Pipeline Table ── */}
+      {/* â”€â”€ Pipeline Table â”€â”€ */}
       {isLoading && concepts.length === 0 ? (
         <LoadingSkeleton />
       ) : visible.length === 0 ? (
@@ -439,79 +670,81 @@ export function ConceptsView() {
         />
       ) : (
         <>
-        <div className="hidden md:block overflow-x-auto rounded-xl border border-border shadow-sm">
-          <table className="w-full min-w-[1800px] border-collapse text-[13px]">
+        <div className="hidden md:block overflow-x-auto rounded-2xl border border-border bg-card shadow-card-soft transition-shadow hover:shadow-card-soft-hover">
+          <table className="w-full min-w-[2600px] border-collapse text-[13px]">
             <caption className="sr-only">Design concepts with approval workflow</caption>
             <thead>
-              {/* ── Row 1: Merged category headers ── */}
+              {/* â”€â”€ Row 1: Merged category headers â”€â”€ */}
               <tr>
                 <th
                   rowSpan={2}
-                  className="sticky left-0 z-20 w-[42px] bg-card border-b border-border px-2 py-3 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+                  className="sticky left-0 z-20 w-[42px] border-b border-r border-border bg-card/95 px-2 py-3 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-foreground backdrop-blur-sm"
                 >
                   #
                 </th>
 
-                {/* Concept Creation — 6 cols */}
-                <th colSpan={6} className="relative border-b border-border p-0">
-                  <div className={cn("absolute inset-x-0 top-0 h-[3px]", CAT_ACCENT.creation)} />
-                  <div className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-widest text-foreground">
-                    Concept Creation
-                  </div>
-                </th>
+                <StageHeader
+                  stage="creation"
+                  colSpan={6}
+                  step={1}
+                  label="Concept Submitted"
+                />
+                <StageHeader
+                  stage="approval"
+                  colSpan={3}
+                  step={2}
+                  label="MD Approval"
+                />
+                <StageHeader
+                  stage="completion"
+                  colSpan={4}
+                  step={3}
+                  label="Designer Working"
+                />
+                <StageHeader
+                  stage="final"
+                  colSpan={4}
+                  step={4}
+                  label="Final Approval"
+                />
 
-                {/* Approval — 3 cols */}
-                <th colSpan={3} className="relative border-b border-l border-border p-0">
-                  <div className={cn("absolute inset-x-0 top-0 h-[3px]", CAT_ACCENT.approval)} />
-                  <div className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-widest text-foreground">
-                    Approval
-                  </div>
-                </th>
-
-                {/* Concept Completion — 4 cols */}
-                <th colSpan={4} className="relative border-b border-l border-border p-0">
-                  <div className={cn("absolute inset-x-0 top-0 h-[3px]", CAT_ACCENT.completion)} />
-                  <div className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-widest text-foreground">
-                    Concept Completion
-                  </div>
-                </th>
-
-                {/* Final Approval — 5 cols */}
-                <th colSpan={5} className="relative border-b border-l border-border p-0">
-                  <div className={cn("absolute inset-x-0 top-0 h-[3px]", CAT_ACCENT.final)} />
-                  <div className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-widest text-foreground">
-                    Final Approval
-                  </div>
+                {/* Sticky right Actions column — outside any lifecycle
+                     group because the menu controls row-level operations,
+                     not stage data. */}
+                <th
+                  rowSpan={2}
+                  className="sticky right-0 z-20 w-[68px] border-b border-l border-border bg-card/95 px-2 py-3 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-foreground backdrop-blur-sm"
+                >
+                  Actions
                 </th>
               </tr>
 
               {/* ── Row 2: Sub-column headers ── */}
               <tr className="bg-secondary/40">
-                {/* Concept Creation */}
-                <ColHead>Start</ColHead>
+                {/* 1 · Concept Submitted */}
+                <ColHead>Submitted</ColHead>
                 <ColHead>Designer</ColHead>
                 <ColHead>Concept</ColHead>
-                <ColHead wider>Description</ColHead>
-                <ColHead>Party Name</ColHead>
+                <ColHead>Party</ColHead>
+                <ColHead center>Designs</ColHead>
                 <ColHead border>Assigned By</ColHead>
 
-                {/* Approval */}
-                <ColHead>Status</ColHead>
+                {/* 2 · MD Approval (Idea) */}
+                <ColHead>Decision</ColHead>
                 <ColHead>Planned</ColHead>
-                <ColHead border>Actual</ColHead>
+                <ColHead border>Reviewed</ColHead>
 
-                {/* Concept Completion */}
-                <ColHead center>Done</ColHead>
-                <ColHead>Due Date</ColHead>
-                <ColHead>Done Date</ColHead>
-                <ColHead border>Delayed</ColHead>
+                {/* 3 · Designer Working — lifecycle-driven */}
+                <ColHead>Work Status</ColHead>
+                <ColHead>Started</ColHead>
+                <ColHead center>Holds</ColHead>
+                <ColHead border>Marked Done</ColHead>
 
-                {/* Final Approval */}
-                <ColHead>Status</ColHead>
-                <ColHead center>Re-submit</ColHead>
-                <ColHead>Re-submitted</ColHead>
-                <ColHead center>Approved #</ColHead>
-                <ColHead>Feedback</ColHead>
+                {/* 4 · Final Approval */}
+                <ColHead>Decision</ColHead>
+                <ColHead center>Approved</ColHead>
+                <ColHead wider>MD Feedback</ColHead>
+                <ColHead border>Completed</ColHead>
               </tr>
             </thead>
 
@@ -522,47 +755,25 @@ export function ConceptsView() {
                   c.md_planned_date,
                   c.md_actual_date
                 );
-                const completionDelay = computeDelay(
-                  c.designer_planned_date,
-                  c.designer_actual_date
-                );
-                const compStatus = deriveCompletionStatus(c);
-                const finalStatus = deriveFinalStatus(c);
-                const isOwner =
-                  userId === c.submitted_by || userId === c.designer_id;
-                const canDone =
-                  c.md_status === "approved" &&
-                  !c.designer_actual_date &&
-                  isOwner;
-
                 return (
                   <tr
                     key={c.id}
-                    className="group border-b border-border/40 transition-colors hover:bg-secondary/30 cursor-pointer"
+                    className="group relative border-b border-border/40 cursor-pointer transition-colors duration-150 ease-out hover:bg-secondary/40 even:bg-secondary/[0.04]"
                     onClick={() => setSelected(c)}
                   >
-                    {/* # */}
-                    <td className="sticky left-0 z-10 bg-card group-hover:bg-secondary/30 px-2 py-3 text-center text-xs tabular-nums text-muted-foreground transition-colors">
-                      {idx + 1}
+                    {/* # — zero-padded monospace for visual alignment */}
+                    <td className="sticky left-0 z-10 border-r border-border/40 bg-card px-2 py-3 text-center font-mono text-[11px] tabular-nums text-muted-foreground/60 transition-colors group-hover:bg-secondary/40 group-hover:text-muted-foreground">
+                      {String(conceptPg.from + idx + 1).padStart(2, "0")}
                     </td>
 
-                    {/* ── Concept Creation ── */}
+                    {/* â”€â”€ Concept Creation â”€â”€ */}
+                    {/* ── Stage 1 · Concept Submitted ── */}
                     <Cell>{fmtDate(c.start_date ?? c.created_at)}</Cell>
                     <td className="px-3 py-3">
                       {submitter ? (
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-6 w-6 ring-1 ring-border">
-                            {submitter.avatar_url ? (
-                              <AvatarImage src={submitter.avatar_url} />
-                            ) : null}
-                            <AvatarFallback className="text-[8px] bg-secondary">
-                              {getInitials(submitter.full_name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="truncate text-xs font-medium">
-                            {submitter.full_name}
-                          </span>
-                        </div>
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {submitter.full_name}
+                        </span>
                       ) : (
                         <Dash />
                       )}
@@ -576,146 +787,138 @@ export function ConceptsView() {
                           {c.concept_code}
                         </span>
                       )}
-                    </td>
-                    <td className="px-3 py-3 max-w-[200px]">
-                      <span className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                        {c.description || "—"}
-                      </span>
+                      {c.description && (
+                        <span className="mt-0.5 block max-w-[260px] truncate text-[11px] italic text-muted-foreground/80">
+                          {c.description}
+                        </span>
+                      )}
                     </td>
                     <Cell>{c.client?.party_name || "—"}</Cell>
+                    <td className="px-3 py-3 text-center">
+                      {c.designs_count != null ? (
+                        <span className="inline-flex h-6 min-w-[28px] items-center justify-center rounded-md bg-primary/8 px-2 text-xs font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">
+                          {c.designs_count}
+                        </span>
+                      ) : (
+                        <Dash />
+                      )}
+                    </td>
                     <Cell border>{c.assigned_by || "—"}</Cell>
 
-                    {/* ── Approval ── */}
+                    {/* ── Stage 2 · MD Approval (Idea) ── */}
                     <td className="px-3 py-3 border-l border-border/20">
                       <StatusPill status={c.md_status} />
                     </td>
                     <Cell>{fmtDate(c.md_planned_date)}</Cell>
-                    <td className={cn("px-3 py-3", "border-r border-border/20")}>
+                    <td className="px-3 py-3 border-r border-border/20">
                       <span className="text-xs">{fmtDate(c.md_actual_date)}</span>
                       {approvalDelay !== null && (
                         <DelayLabel days={approvalDelay} />
                       )}
                     </td>
 
-                    {/* ── Concept Completion ── */}
-                    <td
-                      className="px-3 py-3 text-center border-l border-border/20"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {c.designer_actual_date ? (
-                        <CheckCircle2 className="mx-auto h-4.5 w-4.5 text-success" />
-                      ) : canDone ? (
-                        <button
-                          type="button"
-                          onClick={() => handleMarkDone(c.id)}
-                          disabled={completingId === c.id}
-                          className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-all hover:bg-success/90 hover:shadow active:scale-95 disabled:opacity-50"
+                    {/* ── Stage 3 · Designer Working — lifecycle-driven. The
+                         legacy "Done / Done Date / Delayed" columns are gone;
+                         work-status, started_at, hold_count, revision_count,
+                         and designer_actual_date (set automatically by
+                         markConceptDone) now drive the picture. ── */}
+                    <td className="px-3 py-3 border-l border-border/20 whitespace-nowrap">
+                      {c.md_status === "approved" ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset transition-shadow",
+                            WORK_STATUS_COLORS[c.work_status]
+                          )}
                         >
-                          <Check className="h-3 w-3" />
-                          Done
-                        </button>
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              WORK_STATUS_DOT[c.work_status],
+                              c.work_status === "in_progress" &&
+                                "animate-pulse"
+                            )}
+                            aria-hidden
+                          />
+                          {WORK_STATUS_LABELS[c.work_status]}
+                        </span>
                       ) : (
                         <Dash />
                       )}
                     </td>
-                    <Cell>{fmtDate(c.designer_planned_date)}</Cell>
-                    <Cell>{fmtDate(c.designer_actual_date)}</Cell>
-                    <td className="px-3 py-3 border-r border-border/20">
-                      {completionDelay !== null ? (
-                        <DelayLabel days={completionDelay} />
-                      ) : c.md_status === "approved" &&
-                        !c.designer_actual_date &&
-                        c.designer_planned_date ? (
-                        <span
-                          className={cn(
-                            "text-[11px] font-medium",
-                            compStatus.cls
-                          )}
-                        >
-                          {compStatus.label}
+                    <Cell>{fmtDate(c.work_started_at)}</Cell>
+                    <td className="px-3 py-3 text-center whitespace-nowrap">
+                      <HoldCell concept={c} />
+                    </td>
+                    <td className="px-3 py-3 border-r border-border/20 whitespace-nowrap">
+                      {c.designer_actual_date ? (
+                        <span className="text-xs">
+                          {fmtDate(c.designer_actual_date)}
                         </span>
                       ) : (
                         <Dash />
                       )}
                     </td>
 
-                    {/* ── Final Approval ── */}
-                    {/* Status */}
-                    <td
-                      className="px-3 py-3 border-l border-border/20"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {c.final_approved_at ? (
-                        <StatusPill status="approved" label="Approved" />
-                      ) : c.designer_actual_date ? (
-                        c.final_approval_notes ? (
-                          <StatusPill status="revision_requested" label="Revision" />
-                        ) : isAdmin ? (
-                          <button
-                            type="button"
-                            onClick={() => handleFinalApprove(c.id)}
-                            disabled={approvingId === c.id}
-                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50"
-                          >
-                            {approvingId === c.id ? (
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Check className="h-3 w-3" />
-                            )}
-                            Approve
-                          </button>
-                        ) : (
-                          <StatusPill status="pending" label="Pending" />
-                        )
+                    {/* ── Stage 4 · Final Approval ── */}
+                    <td className="px-3 py-3 border-l border-border/20 whitespace-nowrap">
+                      <FinalDecisionPill concept={c} />
+                    </td>
+                    <td className="px-3 py-3 text-center text-xs tabular-nums text-foreground">
+                      {c.work_status === "completed" ? (
+                        <span className="font-semibold text-success">
+                          {c.approved_designs_count ?? "—"}
+                          <span className="text-muted-foreground/60">
+                            {c.designs_count != null
+                              ? ` / ${c.designs_count}`
+                              : ""}
+                          </span>
+                        </span>
+                      ) : c.designs_count != null ? (
+                        <span className="text-muted-foreground/60">
+                          — / {c.designs_count}
+                        </span>
                       ) : (
                         <Dash />
                       )}
                     </td>
-                    {/* Re-submit button */}
-                    <td
-                      className="px-3 py-3 text-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {c.final_approval_notes && !c.final_approved_at && c.designer_actual_date && isOwner ? (
-                        <button
-                          type="button"
-                          onClick={() => handleResubmit(c.id)}
-                          disabled={resubmittingId === c.id}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-50"
+                    <td className="max-w-[220px] px-3 py-3 text-xs text-muted-foreground">
+                      {c.md_feedback ? (
+                        <span
+                          className="line-clamp-2 italic"
+                          title={c.md_feedback}
                         >
-                          {resubmittingId === c.id ? (
-                            <RefreshCw className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-3 w-3" />
-                          )}
-                          Re-submit
-                        </button>
-                      ) : c.final_approval_notes && !c.final_approved_at && c.designer_actual_date ? (
-                        <span className="text-[10px] text-muted-foreground">Awaiting</span>
+                          "{c.md_feedback}"
+                        </span>
                       ) : (
                         <Dash />
                       )}
                     </td>
-                    {/* Re-submitted date */}
-                    <Cell>
-                      {c.final_approval_planned_date
-                        ? fmtDate(c.final_approval_planned_date)
-                        : "—"}
-                    </Cell>
-                    {/* Approved # */}
-                    <td className="px-3 py-3 text-center">
-                      <span className="text-xs tabular-nums">
-                        {c.approved_designs_count != null
-                          ? c.approved_designs_count
-                          : "—"}
-                      </span>
+                    <td className="px-3 py-3 border-r border-border/20 whitespace-nowrap">
+                      {c.work_completed_at ? (
+                        <span className="text-xs font-medium text-success">
+                          {fmtDate(c.work_completed_at)}
+                        </span>
+                      ) : (
+                        <Dash />
+                      )}
                     </td>
-                    {/* Feedback */}
-                    <td className="px-3 py-3 max-w-[150px]">
-                      <span className="text-xs text-muted-foreground line-clamp-1">
-                        {c.final_approval_notes || "—"}
-                      </span>
+
+                    {/* Sticky right Actions cell — ⋮ menu with View / Edit /
+                         Delete. stopPropagation everywhere so a menu click
+                         doesn't also open the row's detail modal. */}
+                    <td
+                      className="sticky right-0 z-10 border-l border-border/40 bg-card px-2 py-2.5 text-center transition-colors group-hover:bg-secondary/40"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ConceptRowActionsMenu
+                        canEdit={isOwner(c)}
+                        canDelete={isAdmin}
+                        onView={() => setSelected(c)}
+                        onEdit={() => setSelected(c)}
+                        onDelete={() => setDeleteTarget(c)}
+                      />
                     </td>
+
                   </tr>
                 );
               })}
@@ -757,7 +960,7 @@ export function ConceptsView() {
         </>
       )}
 
-      {/* ── Pagination ── */}
+      {/* â”€â”€ Pagination â”€â”€ */}
       {allVisible.length > 0 && (
         <Pagination
           page={conceptPg.page}
@@ -771,7 +974,7 @@ export function ConceptsView() {
         />
       )}
 
-      {/* ── Dialogs / Drawers ── */}
+      {/* â”€â”€ Dialogs / Drawers â”€â”€ */}
       <SubmitConceptDialog
         open={submitOpen}
         onOpenChange={setSubmitOpen}
@@ -786,6 +989,19 @@ export function ConceptsView() {
         onFinalApprove={finalApproveConcept}
         onFinalRevise={finalReviseConcept}
         onResubmit={resubmitConcept}
+        /* Pass the dialog-opener as the resubmit handler — the dialog
+           collects revised files + notes, then calls resubmitForReview
+           with them. This keeps the drawer's button click cheap (just
+           opens the dialog) and the file-upload concern co-located in
+           ResubmitConceptDialog. */
+        onOpenResubmitForReview={(c) => setResubmitTarget(c)}
+        onStart={startConcept}
+        onHold={holdConcept}
+        onResume={resumeConcept}
+        onMarkDone={markConceptDone}
+        onApproveDesign={approveDesign}
+        onSuggestChanges={suggestChanges}
+        onStartChanges={startChanges}
       />
 
       <ExportDialog
@@ -800,6 +1016,42 @@ export function ConceptsView() {
         defaultFilename="linkd-concepts"
         dateField="created_at"
       />
+
+      {/* Designer's revision re-submit — collects new file(s) + optional
+           "what I changed" notes, then calls resubmitForReview. */}
+      <ResubmitConceptDialog
+        concept={resubmitTarget}
+        open={!!resubmitTarget}
+        onOpenChange={(o) => !o && setResubmitTarget(null)}
+        onResubmit={resubmitForReview}
+      />
+
+      {/* Hard-delete confirmation — admin/coordinator only per RLS. */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete this concept?"
+        description={
+          deleteTarget
+            ? `"${deleteTarget.title}" (${deleteTarget.concept_code}) will be permanently removed. This cannot be undone.`
+            : ""
+        }
+        confirmLabel={deleting ? "Deleting…" : "Delete concept"}
+        variant="danger"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          setDeleting(true);
+          const { error: err } = await deleteConcept(deleteTarget.id);
+          setDeleting(false);
+          if (err) {
+            toast.error(err);
+            return;
+          }
+          toast.success("Concept deleted");
+          setDeleteTarget(null);
+        }}
+      />
+
     </div>
   );
 }
@@ -807,6 +1059,58 @@ export function ConceptsView() {
 // ============================================================================
 // Tiny reusable cell components
 // ============================================================================
+
+/**
+ * Stage group header — top-row `<th>` with a thin accent strip, icon-tagged
+ * label, and soft gradient wash. Step number (1–4) is rendered as a small
+ * monospace chip so the lifecycle sequence is unmistakable at a glance.
+ */
+function StageHeader({
+  stage,
+  colSpan,
+  step,
+  label,
+}: {
+  stage: keyof typeof CAT_ACCENT;
+  colSpan: number;
+  step: number;
+  label: string;
+}) {
+  const Icon = CAT_ICON[stage];
+  const isFirst = step === 1;
+  return (
+    <th
+      colSpan={colSpan}
+      className={cn(
+        "relative border-b border-border p-0",
+        !isFirst && "border-l"
+      )}
+    >
+      <div className={cn("absolute inset-x-0 top-0 h-[3px]", CAT_ACCENT[stage])} />
+      <div
+        className={cn(
+          "flex items-center justify-center gap-2 px-4 py-3",
+          CAT_GRADIENT[stage]
+        )}
+      >
+        <span
+          className={cn(
+            "flex h-5 w-5 items-center justify-center rounded-md bg-card/80 shadow-card-soft ring-1 ring-border/60",
+            CAT_ICON_COLOR[stage]
+          )}
+        >
+          <Icon className="h-3 w-3" />
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+          {String(step).padStart(2, "0")}
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-foreground">
+          {label}
+        </span>
+      </div>
+    </th>
+  );
+}
 
 /** Standard text cell. */
 function Cell({
@@ -843,10 +1147,10 @@ function ColHead({
   return (
     <th
       className={cn(
-        "px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border",
+        "px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-foreground border-b border-border bg-secondary/40 backdrop-blur-sm",
         center ? "text-center" : "text-left",
         border && "border-r border-border/20",
-        wider && "min-w-[180px]"
+        wider && "min-w-[200px]"
       )}
     >
       {children}
@@ -854,9 +1158,17 @@ function ColHead({
   );
 }
 
-/** Em-dash placeholder for empty values. */
+/** Em-dash placeholder for empty values — minimal so it doesn't compete
+ *  with real data when scanning the table. */
 function Dash() {
-  return <span className="text-xs text-muted-foreground/50">—</span>;
+  return (
+    <span
+      className="text-xs text-muted-foreground/30 select-none"
+      aria-label="No value"
+    >
+      —
+    </span>
+  );
 }
 
 // ============================================================================
@@ -864,32 +1176,43 @@ function Dash() {
 // ============================================================================
 
 function StatusPill({ status, label }: { status: ConceptStatus; label?: string }) {
-  const map: Record<ConceptStatus, { label: string; cls: string }> = {
+  const map: Record<
+    ConceptStatus,
+    { label: string; cls: string; dot: string }
+  > = {
     pending: {
       label: "Pending",
-      cls: "bg-warning/10 text-warning ring-warning/20",
+      cls: "bg-warning/10 text-warning ring-warning/25 shadow-[0_0_0_3px_rgb(var(--warning)/0.04)]",
+      dot: "bg-warning",
     },
     approved: {
       label: "Approved",
-      cls: "bg-success/10 text-success ring-success/20",
+      cls: "bg-success/10 text-success ring-success/25 shadow-[0_0_0_3px_rgb(var(--success)/0.04)]",
+      dot: "bg-success",
     },
     rejected: {
       label: "Rejected",
-      cls: "bg-destructive/10 text-destructive ring-destructive/20",
+      cls: "bg-destructive/10 text-destructive ring-destructive/25 shadow-[0_0_0_3px_rgb(var(--destructive)/0.04)]",
+      dot: "bg-destructive",
     },
     revision_requested: {
       label: "Revision",
-      cls: "bg-warning/10 text-warning ring-warning/20",
+      cls: "bg-warning/10 text-warning ring-warning/25 shadow-[0_0_0_3px_rgb(var(--warning)/0.04)]",
+      dot: "bg-warning",
     },
   };
   const s = map[status];
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset transition-shadow",
         s.cls
       )}
     >
+      <span
+        className={cn("h-1.5 w-1.5 rounded-full", s.dot, status === "pending" && "animate-pulse")}
+        aria-hidden
+      />
       {label ?? s.label}
     </span>
   );
@@ -924,17 +1247,21 @@ function FilterChip({
   active,
   onClick,
   dotColor,
+  hint,
 }: {
   label: string;
   count: number;
   active: boolean;
   onClick: () => void;
   dotColor?: string;
+  /** Native browser tooltip explaining what this filter shows. */
+  hint?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={hint}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
         active
@@ -967,6 +1294,44 @@ const STATUS_DOT_COLOR: Record<ConceptStatus, string> = {
   approved: "bg-success",
   rejected: "bg-destructive",
   revision_requested: "bg-primary",
+};
+
+const WORK_DOT_COLOR: Record<Exclude<WorkTab, "all">, string> = {
+  not_started: "bg-muted-foreground",
+  in_progress: "bg-primary",
+  on_hold: "bg-warning",
+  in_revision: "bg-destructive",
+  changes_requested: "bg-warning",
+  completed: "bg-success",
+  rejected: "bg-destructive",
+};
+
+// `not_started` removed from the visible filter row — migration 0029 auto-
+// starts work the moment MD approves. `changes_requested` also removed —
+// migration 0030 collapsed it into `in_progress` (with the rework banner
+// + md_feedback inline). Both enum values stay on the DB type for
+// back-compat but no longer surface as filters.
+const WORK_TAB_ORDER: readonly Exclude<WorkTab, "all">[] = [
+  "in_progress",
+  "on_hold",
+  "in_revision",
+  "completed",
+  "rejected",
+];
+
+/** Hover tooltip copy per work-stage chip — explains what the user is
+ *  filtering to in one sentence. Title attribute keeps it native, no
+ *  extra component required. */
+const WORK_TAB_HINT: Record<Exclude<WorkTab, "all">, string> = {
+  not_started: "Approved but designer hasn't begun yet (legacy state).",
+  in_progress:
+    "Designer is actively working — first pass or reworking MD's feedback.",
+  on_hold: "Designer paused the work — they'll resume later.",
+  in_revision: "Designer marked it done; waiting for Ma'am's verdict.",
+  changes_requested:
+    "MD asked for changes (legacy — collapsed into In Progress in 0030).",
+  completed: "Fully approved by Ma'am — terminal state.",
+  rejected: "Ma'am rejected the initial concept — terminal, no further work.",
 };
 
 // ============================================================================
@@ -1014,5 +1379,232 @@ function LoadingSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+// ============================================================================
+// FinalDecisionPill — single-cell summary of where stage 4 stands. The
+// row's md_status + work_status together pick the right pill:
+//
+//   md_status != approved          → "—" (stage 4 not reachable yet)
+//   work_status === in_revision    → Awaiting MD (review queue)
+//   work_status === completed      → Completed (terminal)
+//   anything else (still working)  → "—" (stage 4 not in play yet)
+// ============================================================================
+
+/**
+ * HoldCell — Holds column body. Shows count + cumulative duration so the
+ * reader knows both "how many times" and "for how long" at a glance.
+ * When the concept is currently on_hold, the duration includes the live
+ * delta from work_held_at to now (the DB only flushes total_hold_duration
+ * on resume, so we add the running sliver client-side).
+ *
+ *   0 holds                       → "—"
+ *   1 hold completed              → "1"        title="3d total on hold"
+ *   2 holds + currently on hold   → "2 · 5d"   title="…"
+ *   1 hold + currently on hold    → "1 · live" title="…"
+ */
+function HoldCell({ concept }: { concept: ConceptWithRelations }) {
+  const count = concept.hold_count ?? 0;
+  if (count === 0) return <Dash />;
+
+  const isOnHold = concept.work_status === "on_hold";
+  const heldAt = concept.work_held_at
+    ? new Date(concept.work_held_at).getTime()
+    : null;
+  const currentSliverSec = isOnHold && heldAt
+    ? Math.max(0, Math.floor((Date.now() - heldAt) / 1000))
+    : 0;
+  const cumulativeSec =
+    parseIntervalSeconds(concept.total_hold_duration) + currentSliverSec;
+  const totalLabel = cumulativeSec > 0 ? formatDuration(cumulativeSec) : null;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs"
+      title={
+        totalLabel
+          ? `${count} hold${count === 1 ? "" : "s"} · ${totalLabel} total${
+              isOnHold ? " (currently on hold)" : ""
+            }`
+          : `${count} hold${count === 1 ? "" : "s"}`
+      }
+    >
+      <span className="font-semibold tabular-nums text-foreground">
+        {count}
+      </span>
+      {totalLabel && (
+        <span className="text-muted-foreground">· {totalLabel}</span>
+      )}
+      {isOnHold && (
+        <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+      )}
+    </span>
+  );
+}
+
+function FinalDecisionPill({ concept }: { concept: ConceptWithRelations }) {
+  if (concept.md_status !== "approved") return <Dash />;
+  const ws = concept.work_status;
+  if (ws === "completed") {
+    return (
+      <Badge className="border border-success/30 bg-success/10 text-success text-[10px]">
+        Completed
+      </Badge>
+    );
+  }
+  if (ws === "in_revision") {
+    return (
+      <Badge className="border border-destructive/30 bg-destructive/10 text-destructive text-[10px]">
+        Awaiting MD
+      </Badge>
+    );
+  }
+  return <Dash />;
+}
+
+// ============================================================================
+// ConceptRowActionsMenu — per-row ⋮ menu with View / Edit / Delete.
+// Portal-rendered so the open menu can escape the table's overflow clipping
+// and the sticky right column. Same pattern as KanbanView's row actions.
+// ============================================================================
+
+function ConceptRowActionsMenu({
+  canEdit,
+  canDelete,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  canEdit: boolean;
+  canDelete: boolean;
+  onView: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Outside-click + Escape closes the menu. We bind these only while the
+  // menu is open so the rest of the page isn't paying for unmounted rows.
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function handleToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const menuHeight = 132; // ~3 items × ~38px + padding
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUp = spaceBelow < menuHeight + 8;
+      setPos({
+        top: openUp ? rect.top - menuHeight - 4 : rect.bottom + 4,
+        left: rect.right - 160,
+      });
+    }
+    setOpen(true);
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleToggle}
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-[var(--border-hover)] hover:bg-secondary hover:text-foreground"
+        aria-label="Concept actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <MoreVertical className="h-3.5 w-3.5" />
+      </button>
+
+      {open &&
+        ReactDOM.createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{ position: "fixed", top: pos.top, left: pos.left }}
+            className="z-[9999] min-w-[160px] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-dropdown animate-fade-in"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onView();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+              View details
+            </button>
+            {canEdit && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  onEdit();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+              >
+                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                Edit concept
+              </button>
+            )}
+            {canDelete && (
+              <>
+                <div className="my-1 h-px bg-border" aria-hidden />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(false);
+                    onDelete();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete concept
+                </button>
+              </>
+            )}
+          </div>,
+          document.body
+        )}
+    </>
   );
 }

@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Download,
   Keyboard,
+  Layers,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -32,7 +33,9 @@ import {
   type Shortcut,
 } from "@/hooks/useKeyboardShortcuts";
 import { FullKittingModal } from "@/components/tasks/FullKittingModal";
-import { FullKittingDrawer } from "@/components/tasks/FullKittingDrawer";
+import { KittingStageADialog } from "@/components/tasks/KittingStageADialog";
+import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
+import { supabase } from "@/lib/supabase";
 import { EditTaskDialog } from "@/components/tasks/EditTaskDialog";
 import { NewBriefDialog } from "@/views/BriefingView";
 import {
@@ -60,8 +63,8 @@ import {
   PRIORITY_COLORS,
 } from "@/lib/constants";
 import { ROUTES } from "@/lib/routes";
-import { cn, formatDate } from "@/lib/utils";
-import { isAdminOrCoordinator } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
+import { isAdminOrCoordinator, canCreateBriefs } from "@/lib/permissions";
 
 /** Compact creation timestamp for the Date/Time column (Indian locale). */
 function formatDateTime(iso: string | null | undefined): string {
@@ -78,17 +81,6 @@ function formatDateTime(iso: string | null | undefined): string {
   });
 }
 
-/** Time-only (HH:MM, 24-hour) component of a timestamp. */
-function formatTimeOfDay(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
 import type {
   TaskStatus,
   TaskWithRelations,
@@ -99,6 +91,17 @@ function isAdminRole(role: UserRole | null | undefined): boolean {
   return isAdminOrCoordinator(role);
 }
 
+/** Options for the inline WhatsApp Group cell editor. */
+const WHATSAPP_GROUP_OPTIONS = [
+  "New Creation",
+  "Job Work Concept",
+  "Linkd Design",
+  "LD-Garments Sublimation Prints",
+  "LD Cotton Mills Design Group",
+  "Personal - Design Coordinator",
+  "Unplanned",
+] as const;
+
 type FilterTab = "mine" | "all" | "urgent";
 
 /**
@@ -108,7 +111,6 @@ type FilterTab = "mine" | "all" | "urgent";
  */
 const DASHBOARD_STATUSES: readonly TaskStatus[] = [
   "pool",
-  "todo",
   "in_progress",
   "done",
 ] as const;
@@ -170,6 +172,40 @@ export function KanbanView() {
     roles: ["designer"],
   });
 
+  // ── Kitting status per task ──────────────────────────────────────────
+  // Used to color the FK badge in the task row: red when pending DEO,
+  // blue (default) when completed. One batched query — cheap enough to
+  // run alongside the task list, and refreshes whenever the task list
+  // does so newly-uploaded kitting forms reflect immediately.
+  const [kittingByTask, setKittingByTask] = useState<
+    Map<string, "pending_image" | "pending_deo" | "in_progress" | "completed">
+  >(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("full_kitting_details")
+        .select("task_id, data_entry_status");
+      if (cancelled || !data) return;
+      const next = new Map<
+        string,
+        "pending_image" | "pending_deo" | "in_progress" | "completed"
+      >();
+      for (const row of data) {
+        if (row.task_id) {
+          next.set(row.task_id, row.data_entry_status);
+        }
+      }
+      setKittingByTask(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch whenever the task list re-fetches (covers Stage A uploads
+    // that didn't change the task list but did change a kitting row).
+  }, [tasks]);
+
   const role: UserRole = profile?.role ?? "designer";
   const isAdmin = isAdminRole(role);
 
@@ -177,9 +213,10 @@ export function KanbanView() {
   // mount (or whenever the search-string changes) and seed the filter/state.
   // Local UI mutations don't write back — the URL is treated as the entry
   // intent, not a live mirror of the user's clicks.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get("status") as TaskStatus | null;
   const urlFilter = searchParams.get("filter") as FilterTab | null;
+  const urlTab = searchParams.get("tab"); // "kitting" → Full Kitting sub-folder
   const urlOverdue = searchParams.get("overdue") === "1";
   const urlFrom = searchParams.get("from"); // ISO yyyy-mm-dd
   const urlTo = searchParams.get("to");
@@ -191,6 +228,11 @@ export function KanbanView() {
   const [statusTab, setStatusTab] = useState<TaskStatus>(
     urlStatus ?? defaultStatusTabForRole(role)
   );
+  // When true the body swaps from the task table to CompletedKittingPanel.
+  // Lives alongside statusTab rather than being a `TaskStatus | "kitting"`
+  // union so the existing status-tab plumbing stays simple. Synced with the
+  // URL via ?tab=kitting so /kitting/:id can navigate back to the right tab.
+  const [kittingView, setKittingView] = useState(urlTab === "kitting");
   const [designerFilter, setDesignerFilter] = useState<string>(urlDesigner ?? "");
   const [search, setSearch] = useState("");
   const [overdueOnly, setOverdueOnly] = useState<boolean>(urlOverdue);
@@ -440,8 +482,10 @@ export function KanbanView() {
   }
 
   async function handleAdvance(task: TaskWithRelations, next: TaskStatus) {
-    // If advancing to 'done', use markTaskDone (calculates delay_days) then
-    // open the FullKittingModal to ask about kitting.
+    // If advancing to 'done', use markTaskDone (calculates delay_days).
+    // Designers go straight to Done with no Full-Kitting prompt — the
+    // design coordinator fills in kitting details later. Admins / coordinators
+    // still see the modal so they can capture kitting info up front if needed.
     if (next === "done") {
       const { data, error } = await markTaskDone(task.id);
       if (error) {
@@ -450,8 +494,11 @@ export function KanbanView() {
       }
       await refetch();
       markEntering(task.id);
-      // Open the kitting modal — pass the UPDATED task (with completed_at etc.)
-      setKittingTask(data ? { ...task, ...data } : task);
+      if (isAdminRole(role)) {
+        setKittingTask(data ? { ...task, ...data } : task);
+      } else {
+        toast.success(`${task.task_code} marked done ✓`);
+      }
       return;
     }
 
@@ -466,13 +513,19 @@ export function KanbanView() {
   }
 
   function handleSubmitForReview(task: TaskWithRelations) {
-    const hasFile = (task.files?.length ?? 0) > 0;
-    if (!hasFile) {
-      toast.info("Upload your design file before submitting.");
-      setSelectedTaskId(task.id);
+    // Designers must finish every unit before completing. Admins/coordinators
+    // can override (e.g. to close a cancelled or paused task).
+    const elevated = isAdminRole(role);
+    const allComplete = (task.qty_completed ?? 0) >= (task.qty ?? 0);
+    if (!elevated && !allComplete) {
+      const remaining = Math.max(0, (task.qty ?? 0) - (task.qty_completed ?? 0));
+      toast.info(
+        `Update Completed to ${task.qty} (still ${remaining} pending) before marking done.`
+      );
       return;
     }
-    void handleAdvance(task, "full_kitting");
+    // Simplified pipeline: In Progress → Done.
+    void handleAdvance(task, "done");
   }
 
   async function handleDeleteConfirm() {
@@ -773,38 +826,81 @@ export function KanbanView() {
         <>
           <StatusTabs
             value={statusTab}
-            onChange={setStatusTab}
+            onChange={(s) => {
+              // Picking a task status implicitly leaves the Kitting sub-folder.
+              setKittingView(false);
+              setStatusTab(s);
+              // Drop the ?tab=kitting param if it was set.
+              setSearchParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.delete("tab");
+                  return next;
+                },
+                { replace: true }
+              );
+            }}
             counts={DASHBOARD_STATUSES.reduce(
               (acc, s) => ({ ...acc, [s]: grouped[s]?.length ?? 0 }),
               {} as Record<TaskStatus, number>
             )}
+            kittingActive={kittingView}
+            onKittingClick={() => {
+              setKittingView(true);
+              // Persist into the URL so /kitting/:id can navigate back to
+              // this same tab via /dashboard?tab=kitting.
+              setSearchParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.set("tab", "kitting");
+                  return next;
+                },
+                { replace: true }
+              );
+            }}
           />
-          <TaskTableSection
-            key={statusTab}
-            status={statusTab}
-            tasks={grouped[statusTab]}
-            sort={sorts[statusTab]}
-            onSortChange={(k) => updateSort(statusTab, k)}
-            search={search}
-            matchesSearch={matchesSearch}
-            enteringIds={enteringIds}
-            activeRowIndex={activeRowIndex}
-            onSelectTask={setSelectedTaskId}
-            onAccept={handleAccept}
-            onSelfAssign={handleSelfAssign}
-            onAdvance={handleAdvance}
-            onSubmitReview={handleSubmitForReview}
-            onEdit={setEditTask}
-            onDelete={setDeleteTask}
-            onFullKitting={setFkDrawerTask}
-            currentUserId={user?.id ?? null}
-            role={role}
-            isPending={isPending}
-            canBulk={canBulk}
-            selectedIds={selectedIds}
-            onToggleRow={toggleRowSelection}
-            onToggleAll={toggleAllVisible}
-          />
+          {kittingView ? (
+            // Sub-folder body: completed kitting records mapped by UID +
+            // Party Name. Search + CSV export live inside the panel.
+            <CompletedKittingPanel />
+          ) : (
+            <TaskTableSection
+              key={statusTab}
+              status={statusTab}
+              tasks={grouped[statusTab]}
+              sort={sorts[statusTab]}
+              onSortChange={(k) => updateSort(statusTab, k)}
+              search={search}
+              matchesSearch={matchesSearch}
+              enteringIds={enteringIds}
+              activeRowIndex={activeRowIndex}
+              onSelectTask={setSelectedTaskId}
+              onAccept={handleAccept}
+              onSelfAssign={handleSelfAssign}
+              onAdvance={handleAdvance}
+              onSubmitReview={handleSubmitForReview}
+              onEdit={setEditTask}
+              onDelete={setDeleteTask}
+              onFullKitting={setFkDrawerTask}
+              onCellUpdate={async (taskId, fields) => {
+                const { error } = await updateTask(taskId, fields);
+                if (error) {
+                  toast.error(error);
+                  return;
+                }
+                await refetch();
+              }}
+              designers={designers}
+              kittingByTask={kittingByTask}
+              currentUserId={user?.id ?? null}
+              role={role}
+              isPending={isPending}
+              canBulk={canBulk}
+              selectedIds={selectedIds}
+              onToggleRow={toggleRowSelection}
+              onToggleAll={toggleAllVisible}
+            />
+          )}
         </>
       )}
 
@@ -881,14 +977,14 @@ export function KanbanView() {
         dateField="created_at"
       />
 
-      <FullKittingDrawer
+      {/* Coordinator's Stage A: upload the kitting form photo from the
+          task row. Creates a full_kitting_details row with status
+          'pending_deo' so the DEO sees it in the Kitting Queue. */}
+      <KittingStageADialog
         task={fkDrawerTask}
         open={!!fkDrawerTask}
         onOpenChange={(o) => !o && setFkDrawerTask(null)}
-        onSaved={() => {
-          setFkDrawerTask(null);
-          void refetch();
-        }}
+        onChange={() => void refetch()}
       />
 
       <NewBriefDialog
@@ -943,7 +1039,7 @@ function TopBar({
   onNewBrief,
   onOpenShortcuts,
 }: TopBarProps) {
-  const canCreate = isAdminOrCoordinator(role);
+  const canCreate = canCreateBriefs(role);
 
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1036,7 +1132,6 @@ interface BulkActionBarProps {
 
 const BULK_MOVE_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "pool", label: "Pool" },
-  { value: "todo", label: "To-Do" },
   { value: "in_progress", label: "In Progress" },
   { value: "full_kitting", label: "Full Knitting" },
   { value: "done", label: "Done" },
@@ -1242,10 +1337,18 @@ function StatusTabs({
   value,
   onChange,
   counts,
+  kittingActive,
+  onKittingClick,
 }: {
   value: TaskStatus;
   onChange: (s: TaskStatus) => void;
   counts: Record<TaskStatus, number>;
+  /** When the user is viewing the Full Kitting sub-folder, all task tabs
+   *  render inactive. Click handler swaps the board body back to the task
+   *  table for whichever task status they pick. */
+  kittingActive?: boolean;
+  /** Activates the Full Kitting sub-folder (CompletedKittingPanel). */
+  onKittingClick?: () => void;
 }) {
   return (
     <div
@@ -1254,7 +1357,8 @@ function StatusTabs({
       className="flex flex-wrap gap-1.5 border-b border-border pb-0"
     >
       {DASHBOARD_STATUSES.map((s) => {
-        const active = s === value;
+        // Task tabs go inactive when the Full Kitting sub-folder is open.
+        const active = !kittingActive && s === value;
         const count = counts[s] ?? 0;
         return (
           <button
@@ -1297,6 +1401,32 @@ function StatusTabs({
           </button>
         );
       })}
+
+      {/* Full Kitting sub-folder — sits next to the task tabs but swaps the
+          board body to the CompletedKittingPanel when active. */}
+      {onKittingClick && (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!!kittingActive}
+          onClick={onKittingClick}
+          className={cn(
+            "relative inline-flex items-center gap-2 rounded-t-md border border-b-0 px-3.5 py-2 text-sm font-medium transition-colors -mb-px",
+            kittingActive
+              ? "border-border bg-card text-foreground"
+              : "border-transparent bg-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Layers className="h-3.5 w-3.5" aria-hidden />
+          Full Knitting
+          {kittingActive && (
+            <span
+              className="absolute inset-x-0 -top-px h-[2px] bg-primary"
+              aria-hidden
+            />
+          )}
+        </button>
+      )}
     </div>
   );
 }
@@ -1328,6 +1458,19 @@ interface SectionProps {
   onEdit: (t: TaskWithRelations) => void;
   onDelete: (t: TaskWithRelations) => void;
   onFullKitting: (t: TaskWithRelations) => void;
+  /** Inline cell-edit handler (Google Sheets style). */
+  onCellUpdate: (
+    taskId: string,
+    fields: Parameters<ReturnType<typeof useTaskMutations>["updateTask"]>[1]
+  ) => Promise<void>;
+  /** task_id → kitting data_entry_status. Drives FK badge color. Tasks
+   *  flagged but missing a kitting row default to "pending". */
+  kittingByTask: Map<
+    string,
+    "pending_image" | "pending_deo" | "in_progress" | "completed"
+  >;
+  /** Designer roster for the inline assignee picker. */
+  designers: { id: string; full_name: string }[];
   currentUserId: string | null;
   role: UserRole;
   isPending: ReturnType<typeof useTaskMutations>["isPending"];
@@ -1389,7 +1532,7 @@ function TaskTableSection(props: SectionProps) {
           <table className="w-full min-w-[2800px] text-sm">
             <caption className="sr-only">Tasks organized by status</caption>
             <thead>
-              <tr className="border-b border-border bg-card/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+              <tr className="border-b border-border bg-secondary/60 text-left text-[11px] font-bold uppercase tracking-wider text-foreground whitespace-nowrap [&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
                 {canBulk && (
                   <th className="w-[32px] px-2 py-2 text-center font-medium">
                     <input
@@ -1403,39 +1546,34 @@ function TaskTableSection(props: SectionProps) {
                     />
                   </th>
                 )}
-                <th className="px-3 py-2 font-medium">Date/Time</th>
-                <th className="px-3 py-2 font-medium">Designer</th>
-                <th className="px-3 py-2 font-medium">Concept</th>
-                <th className="px-3 py-2 font-medium">Description</th>
-                <th className="px-3 py-2 font-medium">Party Name</th>
-                <th className="px-3 py-2 font-medium">Fabric</th>
+                <th className="px-3 py-2 text-left font-bold">Date/Time</th>
+                <th className="px-3 py-2 text-left font-bold">Designer</th>
+                <th className="px-3 py-2 text-left font-bold">Concept</th>
+                <th className="px-3 py-2 text-left font-bold">Description</th>
+                <th className="px-3 py-2 text-left font-bold">Party Name</th>
+                <th className="px-3 py-2 text-left font-bold">Fabric</th>
                 <SortableHeader
                   label="Mtr"
                   active={sort.key === "qty"}
                   dir={sort.dir}
                   onClick={() => props.onSortChange("qty")}
-                  className="w-[70px] px-3 py-2"
+                  className="w-[70px] px-2 py-1.5"
                 />
-                <th className="px-3 py-2 font-medium">WhatsApp Group</th>
-                <th className="w-[120px] px-3 py-2 font-medium">Date</th>
-                <th className="w-[80px] px-3 py-2 font-medium">Time</th>
-                <th className="px-3 py-2 font-medium">Assigned By</th>
-                <th className="w-[80px] px-3 py-2 font-medium">QTY</th>
+                <th className="px-3 py-2 text-left font-bold">WhatsApp Group</th>
+                <th className="px-3 py-2 text-left font-bold">Assigned By</th>
+                <th className="w-[80px] px-3 py-2 text-left font-bold">QTY</th>
                 <SortableHeader
                   label="Due Date"
                   active={sort.key === "deadline"}
                   dir={sort.dir}
                   onClick={() => props.onSortChange("deadline")}
-                  className="w-[130px] px-3 py-2"
+                  className="w-[130px] px-2 py-1.5"
                 />
-                <th className="px-3 py-2 font-medium">Completion Timestamp</th>
-                <th className="w-[80px] px-3 py-2 font-medium">Completed</th>
-                <th className="w-[80px] px-3 py-2 font-medium">Pending</th>
-                <th className="w-[70px] px-3 py-2 font-medium">Done?</th>
-                <th className="w-[90px] px-3 py-2 font-medium">Started Late</th>
-                <th className="w-[80px] px-3 py-2 font-medium">Full Knitting</th>
-                <th className="px-3 py-2 font-medium">FK Form</th>
-                <th className="w-[180px] px-3 py-2 text-right font-medium sticky right-0 bg-card/30">
+                <th className="px-3 py-2 text-left font-bold">Completion Timestamp</th>
+                <th className="w-[80px] px-3 py-2 text-left font-bold">Completed</th>
+                <th className="w-[80px] px-3 py-2 text-left font-bold">Pending</th>
+                <th className="w-[90px] px-3 py-2 text-left font-bold">Started Late</th>
+                <th className="w-[140px] px-3 py-2 text-right font-bold sticky right-0 bg-card shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
                   Action
                 </th>
               </tr>
@@ -1462,6 +1600,13 @@ function TaskTableSection(props: SectionProps) {
                   onFullKitting={() => props.onFullKitting(task)}
                   onEdit={() => props.onEdit(task)}
                   onDelete={() => props.onDelete(task)}
+                  onCellUpdate={(fields) =>
+                    props.onCellUpdate(task.id, fields)
+                  }
+                  designers={props.designers}
+                  kittingStatus={
+                    props.kittingByTask.get(task.id) ?? null
+                  }
                   currentUserId={props.currentUserId}
                   role={props.role}
                   isPending={props.isPending}
@@ -1796,9 +1941,252 @@ interface RowProps {
   onFullKitting: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCellUpdate: (
+    fields: Parameters<ReturnType<typeof useTaskMutations>["updateTask"]>[1]
+  ) => Promise<void>;
+  designers: { id: string; full_name: string }[];
+  /** Kitting data_entry_status for this row, or null if no kitting record
+   *  exists. Drives the FK badge color (red=pending, blue=completed). */
+  kittingStatus:
+    | "pending_image"
+    | "pending_deo"
+    | "in_progress"
+    | "completed"
+    | null;
   currentUserId: string | null;
   role: UserRole;
   isPending: ReturnType<typeof useTaskMutations>["isPending"];
+}
+
+// ----------------- inline cell editor (Google Sheets style) -----------------
+
+type EditableCellValue = string | number | null;
+
+interface EditableCellProps {
+  value: EditableCellValue;
+  type?: "text" | "number" | "date" | "textarea" | "select";
+  options?: ReadonlyArray<{ value: string; label: string }>;
+  canEdit: boolean;
+  pending?: boolean;
+  onSave: (next: EditableCellValue) => Promise<void> | void;
+  placeholder?: string;
+  align?: "left" | "right" | "center";
+  display?: React.ReactNode;
+  maxWidth?: string;
+}
+
+function EditableCell({
+  value,
+  type = "text",
+  options,
+  canEdit,
+  pending,
+  onSave,
+  placeholder = "—",
+  align = "left",
+  display,
+  maxWidth,
+}: EditableCellProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(
+    value == null ? "" : String(value)
+  );
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<
+    HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
+  >(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(value == null ? "" : String(value));
+      // Focus + select on next tick so the field is ready immediately.
+      const id = window.setTimeout(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        if (
+          el instanceof HTMLInputElement ||
+          el instanceof HTMLTextAreaElement
+        ) {
+          try {
+            el.select();
+          } catch {
+            /* select() not supported on some input types (date, etc.) */
+          }
+        }
+      }, 0);
+      return () => window.clearTimeout(id);
+    }
+    return;
+  }, [editing, value]);
+
+  async function commit() {
+    const current = value == null ? "" : String(value);
+    if (draft === current) {
+      setEditing(false);
+      return;
+    }
+    let next: EditableCellValue = draft;
+    if (type === "number") {
+      if (draft.trim() === "") {
+        next = null;
+      } else {
+        const n = Number(draft);
+        if (!Number.isFinite(n)) {
+          setEditing(false);
+          return;
+        }
+        next = n;
+      }
+    } else if (type === "select") {
+      next = draft;
+    } else {
+      next = draft.trim() === "" ? null : draft;
+    }
+    setSaving(true);
+    try {
+      await onSave(next);
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }
+
+  const inputClass = cn(
+    "block w-full rounded-md border border-primary bg-card px-2 py-1 text-[12px] text-foreground outline-none ring-2 ring-primary/30",
+    align === "right" && "text-right",
+    align === "center" && "text-center"
+  );
+
+  if (!canEdit) {
+    return (
+      <span
+        className={cn(
+          "block px-2 py-1 text-[12px]",
+          align === "right" && "text-right",
+          align === "center" && "text-center",
+          maxWidth && "truncate"
+        )}
+        style={maxWidth ? { maxWidth } : undefined}
+      >
+        {display ??
+          (value == null || value === "" ? (
+            <span className="text-muted-foreground">{placeholder}</span>
+          ) : (
+            <>{value}</>
+          ))}
+      </span>
+    );
+  }
+
+  if (editing) {
+    if (type === "select" && options) {
+      return (
+        <select
+          ref={(el) => {
+            inputRef.current = el;
+          }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void commit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+          disabled={saving}
+          className={inputClass}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (type === "textarea") {
+      return (
+        <textarea
+          ref={(el) => {
+            inputRef.current = el;
+          }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void commit();
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+          disabled={saving}
+          rows={2}
+          className={inputClass}
+        />
+      );
+    }
+    return (
+      <input
+        ref={(el) => {
+          inputRef.current = el;
+        }}
+        type={type === "number" ? "number" : type === "date" ? "date" : "text"}
+        inputMode={type === "number" ? "numeric" : undefined}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        disabled={saving}
+        className={inputClass}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!pending && !saving) setEditing(true);
+      }}
+      disabled={pending || saving}
+      title="Click to edit"
+      className={cn(
+        "block w-full rounded-md border border-transparent px-2 py-1 text-[12px] transition-colors",
+        "hover:border-border hover:bg-background/60 focus:border-primary focus:outline-none",
+        align === "right" && "text-right",
+        align === "center" && "text-center",
+        maxWidth && "truncate"
+      )}
+      style={maxWidth ? { maxWidth } : undefined}
+    >
+      {display ??
+        (value == null || value === "" ? (
+          <span className="text-muted-foreground">{placeholder}</span>
+        ) : (
+          <>{value}</>
+        ))}
+    </button>
+  );
 }
 
 function TaskRow({
@@ -1818,6 +2206,9 @@ function TaskRow({
   onFullKitting,
   onEdit,
   onDelete,
+  onCellUpdate,
+  designers,
+  kittingStatus,
   currentUserId,
   role,
   isPending,
@@ -1825,6 +2216,8 @@ function TaskRow({
   const isMine = currentUserId !== null && task.assigned_to === currentUserId;
   const isUnassigned = !task.assigned_to;
   const isAdmin = isAdminRole(role);
+  const canEditCell = isAdmin || isMine;
+  const cellPending = isPending("updateTask", task.id);
   const fileCount = task.files?.length ?? 0;
   const isUrgent = task.priority === "urgent";
 
@@ -1855,6 +2248,14 @@ function TaskRow({
   return (
     <tr
       ref={rowRef}
+      tabIndex={0}
+      role="button"
+      aria-label={`Open ${task.task_code}`}
+      aria-selected={active || selected || undefined}
+      data-zebra={rowIndex % 2 === 1 ? "alt" : "primary"}
+      // Click anywhere on the row → open the task detail popup. Action
+      // cells inside (checkbox, ⋮ menu, ctas) stop propagation themselves
+      // so they don't trigger this. Keyboard equivalent: Enter / Space.
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -1862,18 +2263,14 @@ function TaskRow({
           onClick();
         }
       }}
-      tabIndex={0}
-      aria-selected={active || selected || undefined}
       className={cn(
-        "group cursor-pointer border-b border-border/60 transition-colors",
-        "hover:bg-card/60 focus:bg-card/60 focus:outline-none",
+        "group cursor-pointer border-b border-border/40 transition-colors [&>td]:border-r [&>td]:border-border/20 [&>td:last-child]:border-r-0",
+        rowIndex % 2 === 1 && "bg-background/40",
+        "hover:bg-primary/[0.04] focus-within:bg-primary/[0.05] focus:outline-none",
         entering && "animate-highlight-pulse",
         active && "ring-2 ring-inset ring-primary",
-        // Bulk-selection tint (separate from the keyboard active ring so both
-        // can coexist visually).
-        selected && "bg-primary/[0.04]",
-        // Keep the soft tint when keyboard-active but not bulk-selected.
-        active && !selected && "bg-primary/[0.04]",
+        selected && "bg-primary/[0.06]",
+        active && !selected && "bg-primary/[0.06]",
         dimmed && "opacity-30 pointer-events-none"
       )}
     >
@@ -1901,14 +2298,18 @@ function TaskRow({
       )}
 
       {/* 1. Date/Time (created_at) */}
-      <td className="whitespace-nowrap px-3 py-3 align-middle text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle text-[12px] text-muted-foreground">
         {formatDateTime(task.created_at)}
       </td>
 
+      {/* All cells below are read-only. Click the row to open the task
+          detail popup where everything is editable in one place. Every cell
+          is left-aligned + uses consistent padding for a clean grid feel. */}
+
       {/* 2. Designer */}
-      <td className="px-3 py-3 align-middle whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle">
         {task.assignee ? (
-          <div className="flex items-center gap-2">
+          <span className="flex items-center gap-2">
             <Avatar className="h-6 w-6">
               {task.assignee.avatar_url ? (
                 <AvatarImage src={task.assignee.avatar_url} />
@@ -1920,14 +2321,14 @@ function TaskRow({
             <span className="max-w-[120px] truncate text-xs text-foreground">
               {task.assignee.full_name}
             </span>
-          </div>
+          </span>
         ) : (
           <span className="text-xs italic text-muted-foreground">Open</span>
         )}
       </td>
 
       {/* 3. Concept */}
-      <td className="px-3 py-3 align-middle">
+      <td className="px-3 py-2 text-left align-middle">
         <div className="flex items-center gap-2 whitespace-nowrap">
           <span className="font-medium text-foreground">{task.concept}</span>
           {fileCount > 0 && (
@@ -1939,91 +2340,100 @@ function TaskRow({
               {fileCount}
             </span>
           )}
+          {/* FK badge — color tracks the DEO workflow:
+                • Red  — DEO hasn't digitized yet
+                • Blue — DEO has submitted (data_entry_status = completed) */}
+          {task.requires_full_kitting && (() => {
+            const isCompleted = kittingStatus === "completed";
+            return (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
+                  isCompleted
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-destructive/30 bg-destructive/10 text-destructive"
+                )}
+                title={
+                  isCompleted
+                    ? "Full knitting digitized — see task details"
+                    : "Full knitting required — DEO hasn't digitized yet"
+                }
+              >
+                <Layers className="h-2.5 w-2.5" />
+                FK
+              </span>
+            );
+          })()}
         </div>
       </td>
 
       {/* 4. Description */}
-      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground">
-        <span className="block max-w-[260px] truncate" title={task.description ?? ""}>
+      <td className="px-3 py-2 text-left align-middle text-[12px] text-muted-foreground">
+        <span
+          className="block max-w-[260px] truncate"
+          title={task.description ?? ""}
+        >
           {task.description || "—"}
         </span>
       </td>
 
       {/* 5. Party Name */}
-      <td className="px-3 py-3 align-middle text-muted-foreground whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle text-muted-foreground">
         {task.client?.party_name ?? "—"}
       </td>
 
       {/* 6. Fabric */}
-      <td className="px-3 py-3 align-middle whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle">
         <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground">
           {task.fabric}
         </span>
       </td>
 
       {/* 7. Mtr */}
-      <td className="px-3 py-3 align-middle tabular-nums text-[12px]">
-        {task.mtr != null ? task.mtr : "—"}
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle tabular-nums text-[12px]">
+        {task.mtr ?? "—"}
       </td>
 
       {/* 8. WhatsApp Group */}
-      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle text-[12px] text-muted-foreground">
         {task.whatsapp_group || "—"}
       </td>
 
-      {/* 9. Date — when the coordinator added the task (created_at) */}
-      <td className="whitespace-nowrap px-3 py-3 align-middle text-[12px]">
-        {formatDate(task.created_at)}
-      </td>
-
-      {/* 10. Time — when the coordinator added the task (created_at) */}
-      <td className="px-3 py-3 align-middle tabular-nums text-[12px] text-muted-foreground whitespace-nowrap">
-        {formatTimeOfDay(task.created_at)}
-      </td>
-
       {/* 11. Assigned By */}
-      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle text-[12px] text-muted-foreground">
         {task.assigned_by || "—"}
       </td>
 
       {/* 12. QTY */}
-      <td className="px-3 py-3 align-middle tabular-nums text-foreground whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle tabular-nums text-foreground">
         {task.qty}M
       </td>
 
       {/* 12b. Due Date */}
-      <td className="px-3 py-3 align-middle whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle">
         <DeadlineCell deadline={task.planned_deadline} />
       </td>
 
       {/* 13. Completion Timestamp */}
-      <td className="px-3 py-3 align-middle text-[12px] text-muted-foreground whitespace-nowrap">
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle text-[12px] text-muted-foreground">
         {task.status === "done" ? formatDateTime(task.updated_at) : "—"}
       </td>
 
-      {/* 14. How many Completed */}
-      <td className="px-3 py-3 align-middle tabular-nums text-[12px]">
+      {/* 14. Completed */}
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle tabular-nums text-[12px]">
         {task.qty_completed ?? 0}
       </td>
 
-      {/* 15. Pending */}
-      <td className="px-3 py-3 align-middle tabular-nums text-[12px]">
+      {/* 15. Pending (derived) */}
+      <td className="whitespace-nowrap px-3 py-2 text-left align-middle tabular-nums text-[12px] text-muted-foreground">
         {Math.max(0, (task.qty ?? 0) - (task.qty_completed ?? 0))}
       </td>
 
-      {/* 16. Tickbox if completed */}
-      <td className="px-3 py-3 align-middle text-center">
-        {task.status === "done" ? (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-success bg-success text-white">
-            <Check className="h-3 w-3" strokeWidth={3} />
-          </span>
-        ) : (
-          <span className="inline-block h-4 w-4 rounded border border-border" />
-        )}
-      </td>
+      {/* Done? checkbox removed — completion is now driven from inside the
+          task detail popup. Click the row to open it, then mark complete. */}
 
       {/* 17. Started Late */}
-      <td className="px-3 py-3 align-middle">
+      <td className="px-3 py-2 text-left align-middle">
         {task.started_late ? (
           <Badge className="bg-destructive/10 text-destructive border border-destructive/40 px-1.5 py-0 text-[10px]">
             Yes
@@ -2033,25 +2443,15 @@ function TaskRow({
         )}
       </td>
 
-      {/* 19 + 20. Full Knitting toggle + FK Form (shared optimistic state)
-          `canEdit` gates the editable <select>: per RLS, designers can only
-          update tasks they're assigned to (or created). Letting them toggle
-          a row they don't own triggers the "Cannot coerce" RLS error in the
-          UPDATE→SELECT chain. Admins/coordinators see the toggle everywhere. */}
-      <FullKnittingCells
-        task={task}
-        isAdmin={isAdmin}
-        canEdit={isAdmin || isMine}
-        onFullKitting={onFullKitting}
-      />
+      {/* Full Knitting moved to the ⋮ action menu — no longer a table column. */}
 
-      {/* Action (sticky to right edge) */}
+      {/* Action — sticky right edge, single row, never wraps */}
       <td
-        className="px-3 py-3 align-middle text-right sticky right-0 bg-card/95 backdrop-blur"
+        className="sticky right-0 bg-card px-3 py-2 align-middle shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-          {/* Status CTAs (Accept/Start/Submit/Completed/Claim) */}
+        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+          {/* Status CTAs (Accept/Claim/Completed) — icon-only when space tight */}
           {ctas.map((cta) => {
             const Icon = cta.icon;
             const pending = cta.pendingOp ? opPending(cta.pendingOp) : false;
@@ -2064,8 +2464,9 @@ function TaskRow({
                   cta.onClick();
                 }}
                 disabled={pending}
+                title={cta.label}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
+                  "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors disabled:opacity-50",
                   CTA_CLASSES[cta.variant]
                 )}
               >
@@ -2079,12 +2480,27 @@ function TaskRow({
             );
           })}
 
-          {/* ⋮ Dropdown — Edit / Delete / View */}
+          {/* 👁 View detail — opens task in centered popup */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+            title="View task detail"
+            aria-label="View task detail"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </button>
+
+          {/* ⋮ Dropdown — View / Edit / Full Kitting / Delete */}
           <RowActionMenu
             role={role}
             onView={onClick}
             onEdit={onEdit}
             onDelete={onDelete}
+            onFullKitting={onFullKitting}
           />
         </div>
       </td>
@@ -2179,17 +2595,8 @@ function getCtasForRow(args: {
       return [];
 
     case "in_progress":
-      if (isMine || isAdmin) {
-        return [
-          {
-            label: "Completed",
-            variant: "gold",
-            icon: Send,
-            onClick: onSubmitReview,
-            pendingOp: "updateStatus",
-          },
-        ];
-      }
+      // Completion is now driven by the inline Done? checkbox in the table,
+      // so no CTA button is rendered in the action cell for in-progress rows.
       return [];
 
     case "full_kitting":
@@ -2247,11 +2654,13 @@ function RowActionMenu({
   onView,
   onEdit,
   onDelete,
+  onFullKitting,
 }: {
   role: UserRole;
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onFullKitting: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -2315,10 +2724,10 @@ function RowActionMenu({
         ref={triggerRef}
         type="button"
         onClick={handleToggle}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-border hover:bg-secondary hover:text-foreground"
         aria-label="Task actions"
       >
-        <MoreVertical className="h-4 w-4" />
+        <MoreVertical className="h-3.5 w-3.5" />
       </button>
 
       {open &&
@@ -2354,6 +2763,22 @@ function RowActionMenu({
               Edit Task
             </button>
           )}
+          {/* Full Kitting — admin/coordinator only. Opens the Stage A dialog
+              (upload form photo → kitting record → DEO queue). */}
+          {isAdminRole(role) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onFullKitting();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+              Full Knitting
+            </button>
+          )}
           {canDelete && (
             <button
               type="button"
@@ -2375,141 +2800,10 @@ function RowActionMenu({
   );
 }
 
-// ============================================================================
-// Full Knitting cell — toggle + conditional sub-fields
-// ============================================================================
-
-// ── Full Knitting toggle + FK Form (renders 2 <td> elements with shared state) ──
-
-function FullKnittingCells({
-  task,
-  isAdmin,
-  canEdit,
-  onFullKitting,
-}: {
-  task: TaskWithRelations;
-  isAdmin: boolean;
-  /**
-   * Whether the current user is allowed to update this task's full_kitting
-   * fields. False for designers viewing a teammate's or pool task — they
-   * should see the value but not get an editable control that would error
-   * on submit (RLS hides the SELECT-after-UPDATE row → "Cannot coerce").
-   */
-  canEdit: boolean;
-  onFullKitting: () => void;
-}) {
-  const { updateTask } = useTaskMutations();
-  const [toggling, setToggling] = useState(false);
-  const [localYes, setLocalYes] = useState<boolean | null>(null);
-
-  const isYes = localYes ?? !!task.requires_full_kitting;
-
-  useEffect(() => { setLocalYes(null); }, [task.requires_full_kitting]);
-
-  async function handleToggle(value: string) {
-    const newVal = value === "yes";
-    if (newVal === isYes) return;
-
-    setLocalYes(newVal);
-    setToggling(true);
-
-    if (newVal) {
-      const { error } = await updateTask(task.id, { requires_full_kitting: true });
-      if (error) { setLocalYes(null); toast.error(error); }
-    } else {
-      const { error } = await updateTask(task.id, {
-        requires_full_kitting: false,
-        full_kitting_image_url: null,
-        full_kitting_notes: null,
-      });
-      if (error) { setLocalYes(null); toast.error(error); }
-    }
-    setToggling(false);
-  }
-
-  return (
-    <>
-      {/* Full Knitting toggle (editable only when user owns the task or is admin) */}
-      <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
-        {canEdit ? (
-          <select
-            value={isYes ? "yes" : "no"}
-            onChange={(e) => void handleToggle(e.target.value)}
-            disabled={toggling}
-            className={cn(
-              "h-7 rounded-md border px-1.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
-              isYes
-                ? "border-primary/40 bg-primary/10 text-primary"
-                : "border-border bg-card text-muted-foreground",
-              toggling && "opacity-50"
-            )}
-          >
-            <option value="no">No</option>
-            <option value="yes">Yes</option>
-          </select>
-        ) : (
-          <span
-            className={cn(
-              "inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium",
-              isYes
-                ? "border-primary/40 bg-primary/10 text-primary"
-                : "border-border bg-secondary/40 text-muted-foreground"
-            )}
-            title="Only the task's assignee or an admin can change this."
-          >
-            {isYes ? "Yes" : "No"}
-          </span>
-        )}
-      </td>
-
-      {/* FK Form — appears instantly when Yes; shows saved data if submitted */}
-      <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
-        {isYes ? (
-          <div className="space-y-1 animate-fade-in">
-            {/* Show saved notes summary if any */}
-            {task.full_kitting_notes && (
-              <span
-                className="block max-w-[180px] truncate text-[10px] text-muted-foreground"
-                title={task.full_kitting_notes}
-              >
-                {task.full_kitting_notes}
-              </span>
-            )}
-            {/* Show file indicator if uploaded */}
-            {task.full_kitting_image_url && (
-              <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[10px] text-success border border-success/30">
-                <Check className="h-3 w-3" />
-                File attached
-              </span>
-            )}
-            {/* Knitting Form button — non-owners get a read-only "View"
-                variant only when a kitting record exists; otherwise hidden. */}
-            {canEdit ? (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onFullKitting(); }}
-                className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
-              >
-                <Plus className="h-3 w-3" />
-                {task.full_kitting_submitted_at ? "View / Edit" : "Knitting Form"}
-              </button>
-            ) : task.full_kitting_submitted_at ? (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onFullKitting(); }}
-                className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/80"
-              >
-                View
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <span className="text-[11px] text-muted-foreground">—</span>
-        )}
-      </td>
-    </>
-  );
-}
+// FullKnittingCells removed — Full Kitting now opens from the row ⋮ menu
+// (see RowActionMenu's "Full Kitting" item). The two table columns it
+// rendered are gone; coordinator/admin trigger the Stage A dialog via
+// the action menu, which loads existing kitting status on demand.
 
 function MiniProgress({ done, total }: { done: number; total: number }) {
   const pct = Math.min(100, (done / total) * 100);

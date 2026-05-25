@@ -142,6 +142,63 @@ export interface ConceptDashboardMetrics {
     distinctSubmitters: number;
     reviewedCount: number;
   };
+  /**
+   * Work-status lifecycle KPIs (added with migration 0026). Drawn from the
+   * post-approval pipeline columns (`work_status`, `hold_count`,
+   * `revision_count`, etc.). Counts are across ALL approved concepts, not
+   * period-scoped, so the dashboard reflects the live pipeline.
+   */
+  workStatus: {
+    /** Approved concepts the designer hasn't started yet. Legacy — 0029
+     *  auto-starts work on MD approval, so this is ~always 0 for new rows. */
+    notStarted: number;
+    /** Active concepts (in_progress + on_hold + in_revision). */
+    inFlight: number;
+    /** Designer is paused — admins should see this. */
+    onHold: number;
+    /** Sitting in MD's design-review inbox. */
+    inRevision: number;
+    /** Legacy — 0030 collapsed changes_requested into in_progress, so this
+     *  is ~always 0 for new rows. Kept exposed for any pre-0030 rows. */
+    changesRequested: number;
+    /** Fully completed. */
+    completed: number;
+    /** MD-rejected concepts (md_status='rejected') — terminal, no work pipeline. */
+    rejected: number;
+    /**
+     * First-pass approval rate — % of completed concepts that finished with
+     * exactly one revision round. Higher = designers nail it first try.
+     * Returns null when there are no completed concepts.
+     */
+    firstPassRate: number | null;
+    /**
+     * Average revision rounds across completed concepts. 1 = nailed first
+     * time; higher = more cycles. Returns null when no completed concepts.
+     */
+    avgRevisionRounds: number | null;
+    /**
+     * Average actual working days for completed concepts
+     * (`work_completed_at - work_started_at - total_hold_duration`).
+     * Returns null when no completed concepts.
+     */
+    avgDesignDays: number | null;
+    /** % of in-flight concepts that have been held at least once. */
+    holdRate: number | null;
+    /** Total hold events across all concepts (sum of `hold_count`). */
+    totalHolds: number;
+    /**
+     * Avg hours from MD approval (`md_actual_date`) to designer kickoff
+     * (`work_started_at`). Lower = designers pick up faster. Null when no
+     * approved concept has been started yet.
+     */
+    avgTimeToStartHours: number | null;
+    /**
+     * Avg hours from designer marking done to MD's final verdict
+     * (work_completed_at − last `marked_done` event from `completion_history`).
+     * Lower = MD reviews fast. Null when no rows have completed the loop.
+     */
+    avgReviewTurnaroundHours: number | null;
+  };
   statusDistribution: StatusDistribution[];
   volumeData: VolumePoint[];
   designerStats: DesignerConceptStat[];
@@ -150,7 +207,13 @@ export interface ConceptDashboardMetrics {
   conversionRates: ConversionRates;
   mdReview: MdReviewStats;
   targetRace: TargetRaceEntry[];
-  sparklines: { submitted: number[]; approved: number[] };
+  sparklines: {
+    submitted: number[];
+    approved: number[];
+    completed: number[];
+    approvalRate: number[];
+    avgReviewHours: number[];
+  };
   periodStart: Date;
   periodEnd: Date;
   periodLabel: string;
@@ -309,6 +372,175 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
       reviewedCount: currReviewed.length,
     };
   }, [concepts, start, end, prevStart, prevEnd]);
+
+  // ── Work-status lifecycle KPIs (post-approval pipeline) ────────────
+  //
+  // Snapshot across ALL approved concepts — the work-status pipeline isn't
+  // period-scoped because the designer board needs the live state, not a
+  // rolling window. The `firstPassRate` etc. derivatives ARE period-agnostic
+  // for the same reason: they describe the team's overall quality bar.
+
+  const workStatus = useMemo(() => {
+    const approved = concepts.filter((c) => c.md_status === "approved");
+    const rejected = concepts.filter((c) => c.md_status === "rejected").length;
+
+    const buckets = {
+      notStarted: approved.filter((c) => c.work_status === "not_started").length,
+      inProgress: approved.filter((c) => c.work_status === "in_progress").length,
+      onHold: approved.filter((c) => c.work_status === "on_hold").length,
+      inRevision: approved.filter((c) => c.work_status === "in_revision").length,
+      changesRequested: approved.filter((c) => c.work_status === "changes_requested").length,
+      completed: approved.filter((c) => c.work_status === "completed").length,
+    };
+
+    // "In flight" = anything actively in the pipeline (not Ready/legacy,
+    // not Completed). `changesRequested` survives in the formula so any
+    // legacy pre-0030 row still counts as in-flight.
+    const inFlight =
+      buckets.inProgress +
+      buckets.onHold +
+      buckets.inRevision +
+      buckets.changesRequested;
+
+    // First-pass rate — `revision_count == 1` means designer marked done once
+    // and MD approved without sending it back. Anything > 1 = had to rework.
+    const completedRows = approved.filter((c) => c.work_status === "completed");
+    const firstPass = completedRows.filter(
+      (c) => (c.revision_count ?? 0) === 1
+    ).length;
+    const firstPassRate = completedRows.length
+      ? Math.round((firstPass / completedRows.length) * 100)
+      : null;
+
+    // Avg revision rounds — mean of revision_count among completed rows.
+    const avgRevisionRounds = completedRows.length
+      ? Number(
+          (
+            completedRows.reduce(
+              (sum, c) => sum + (c.revision_count ?? 1),
+              0
+            ) / completedRows.length
+          ).toFixed(1)
+        )
+      : null;
+
+    // Avg design days — (completed_at - started_at) - total_hold_duration,
+    // averaged across completed rows. Hold-aware so heavy-hold designers
+    // aren't unfairly tagged as slow.
+    const designDayValues = completedRows
+      .map((c) => {
+        if (!c.work_started_at || !c.work_completed_at) return null;
+        const start = new Date(c.work_started_at).getTime();
+        const end = new Date(c.work_completed_at).getTime();
+        if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
+        const elapsedMs = end - start;
+        const holdSeconds = parseIntervalToSecondsLocal(c.total_hold_duration);
+        const workingMs = Math.max(0, elapsedMs - holdSeconds * 1000);
+        return workingMs / 86_400_000; // → days
+      })
+      .filter((v): v is number => v !== null);
+    const avgDesignDays = designDayValues.length
+      ? Number(
+          (
+            designDayValues.reduce((a, b) => a + b, 0) / designDayValues.length
+          ).toFixed(1)
+        )
+      : null;
+
+    // Hold rate — fraction of in-flight concepts that have been held ≥ once.
+    // High value = designers context-switching too much / urgent work
+    // displacing committed work.
+    const inFlightRows = approved.filter(
+      (c) =>
+        c.work_status === "in_progress" ||
+        c.work_status === "on_hold" ||
+        c.work_status === "in_revision" ||
+        c.work_status === "changes_requested"
+    );
+    const heldAtLeastOnce = inFlightRows.filter(
+      (c) => (c.hold_count ?? 0) > 0
+    ).length;
+    const holdRate = inFlightRows.length
+      ? Math.round((heldAtLeastOnce / inFlightRows.length) * 100)
+      : null;
+
+    const totalHolds = approved.reduce(
+      (sum, c) => sum + (c.hold_count ?? 0),
+      0
+    );
+
+    // Time-to-Start — hours between MD approval (`md_actual_date` stored
+    // as yyyy-MM-dd) and the designer's kickoff (`work_started_at`).
+    const ttsValues = approved
+      .map((c) => {
+        if (!c.md_actual_date || !c.work_started_at) return null;
+        const approvedAt = new Date(c.md_actual_date).getTime();
+        const startedAt = new Date(c.work_started_at).getTime();
+        if (
+          Number.isNaN(approvedAt) ||
+          Number.isNaN(startedAt) ||
+          startedAt < approvedAt
+        ) {
+          return null;
+        }
+        return (startedAt - approvedAt) / 3_600_000;
+      })
+      .filter((v): v is number => v !== null);
+    const avgTimeToStartHours = ttsValues.length
+      ? Number(
+          (ttsValues.reduce((a, b) => a + b, 0) / ttsValues.length).toFixed(1)
+        )
+      : null;
+
+    // Review-Turnaround — hours from designer's most recent `marked_done`
+    // event (read from completion_history) to MD's verdict
+    // (`work_completed_at`). Rows from before this lifecycle existed have no
+    // `marked_done` entry and skip naturally.
+    const rtValues = completedRows
+      .map((c) => {
+        if (!c.work_completed_at) return null;
+        const history = Array.isArray(c.completion_history)
+          ? c.completion_history
+          : [];
+        const markedDone = [...history]
+          .reverse()
+          .find((e) => e?.type === "marked_done");
+        if (!markedDone?.date) return null;
+        const sentAt = new Date(markedDone.date).getTime();
+        const closedAt = new Date(c.work_completed_at).getTime();
+        if (
+          Number.isNaN(sentAt) ||
+          Number.isNaN(closedAt) ||
+          closedAt < sentAt
+        ) {
+          return null;
+        }
+        return (closedAt - sentAt) / 3_600_000;
+      })
+      .filter((v): v is number => v !== null);
+    const avgReviewTurnaroundHours = rtValues.length
+      ? Number(
+          (rtValues.reduce((a, b) => a + b, 0) / rtValues.length).toFixed(1)
+        )
+      : null;
+
+    return {
+      notStarted: buckets.notStarted,
+      inFlight,
+      onHold: buckets.onHold,
+      inRevision: buckets.inRevision,
+      changesRequested: buckets.changesRequested,
+      completed: buckets.completed,
+      rejected,
+      firstPassRate,
+      avgRevisionRounds,
+      avgDesignDays,
+      holdRate,
+      totalHolds,
+      avgTimeToStartHours,
+      avgReviewTurnaroundHours,
+    };
+  }, [concepts]);
 
   // ── Status distribution ───────────────────────────────────────────
 
@@ -541,20 +773,58 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
 
     const submitted: number[] = [];
     const approved: number[] = [];
+    const completed: number[] = [];
+    const approvalRate: number[] = [];
+    const avgReviewHours: number[] = [];
 
     for (let i = 0; i < buckets; i++) {
       const bStart = new Date(start.getTime() + i * step);
       const bEnd = new Date(start.getTime() + (i + 1) * step);
 
-      submitted.push(concepts.filter((c) => inRange(c.created_at, bStart, bEnd)).length);
-      approved.push(concepts.filter((c) => c.md_status === "approved" && inRange(c.md_reviewed_at ?? c.md_actual_date, bStart, bEnd)).length);
+      const submittedInBucket = concepts.filter((c) =>
+        inRange(c.created_at, bStart, bEnd)
+      );
+      const reviewedInBucket = concepts.filter((c) =>
+        inRange(c.md_reviewed_at ?? c.md_actual_date, bStart, bEnd)
+      );
+      const approvedInBucket = reviewedInBucket.filter(
+        (c) => c.md_status === "approved"
+      );
+      const completedInBucket = concepts.filter(
+        (c) =>
+          conceptIsCompleted(c) &&
+          inRange(c.designer_actual_date ?? c.final_approved_at, bStart, bEnd)
+      );
+
+      submitted.push(submittedInBucket.length);
+      approved.push(approvedInBucket.length);
+      completed.push(completedInBucket.length);
+
+      // Approval-rate spark: % approved out of reviewed in this bucket.
+      // Falls back to 0 if no reviews happened (keeps the line continuous).
+      approvalRate.push(
+        reviewedInBucket.length > 0
+          ? Math.round((approvedInBucket.length / reviewedInBucket.length) * 100)
+          : 0
+      );
+
+      // Avg review hours for concepts reviewed in this bucket.
+      const hours = reviewedInBucket
+        .map(approvalHours)
+        .filter((h): h is number => h !== null);
+      avgReviewHours.push(
+        hours.length > 0
+          ? Math.round(hours.reduce((a, b) => a + b, 0) / hours.length)
+          : 0
+      );
     }
 
-    return { submitted, approved };
+    return { submitted, approved, completed, approvalRate, avgReviewHours };
   }, [concepts, start, end]);
 
   return {
     kpis,
+    workStatus,
     statusDistribution,
     volumeData,
     designerStats,
@@ -570,4 +840,35 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
     isLoading,
     error,
   };
+}
+
+// ============================================================================
+// Helpers (work-status KPIs)
+// ============================================================================
+
+/**
+ * Loose interval-to-seconds parser. Postgres returns `interval` columns in
+ * either ISO 8601 ("PT5025S"), HH:MM:SS ("01:23:45"), or numeric-string
+ * ("5025") shapes depending on the rest config. Mirrors the parser in
+ * useConcepts so the analytics hook stays self-contained.
+ */
+function parseIntervalToSecondsLocal(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const iso = raw.match(/^P(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/);
+  if (iso) {
+    const h = parseInt(iso[1] ?? "0", 10);
+    const m = parseInt(iso[2] ?? "0", 10);
+    const s = parseFloat(iso[3] ?? "0");
+    return h * 3600 + m * 60 + s;
+  }
+  const hms = raw.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
+  if (hms) {
+    return (
+      parseInt(hms[1], 10) * 3600 +
+      parseInt(hms[2], 10) * 60 +
+      parseFloat(hms[3])
+    );
+  }
+  const numeric = parseFloat(raw);
+  return Number.isFinite(numeric) ? numeric : 0;
 }

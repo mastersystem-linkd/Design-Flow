@@ -57,6 +57,7 @@ import { sendNotification } from "@/lib/notifications";
 import { exportToCSV, type CsvColumn } from "@/lib/exportCSV";
 import { isAdmin as isAdminCheck } from "@/lib/permissions";
 import { ROLE_LABELS } from "@/lib/constants";
+import type { UserRole } from "@/types/database";
 import { scorecardDetailPath } from "@/lib/routes";
 import { useConcepts } from "@/hooks/useConcepts";
 import { useTasks } from "@/hooks/useTasks";
@@ -1014,7 +1015,7 @@ function HeroBlock({
   rank,
   hasActivity,
 }: {
-  profile: { id: string; full_name: string; avatar_url: string | null; role: "admin" | "design_coordinator" | "designer" };
+  profile: { id: string; full_name: string; avatar_url: string | null; role: UserRole };
   designerCodes: string[];
   isSelf: boolean;
   joinedDate: string;

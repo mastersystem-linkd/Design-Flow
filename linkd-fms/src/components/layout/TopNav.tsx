@@ -41,7 +41,7 @@ function getPageTitle(pathname: string, role: UserRole): RouteTitle {
     return { title: "Concept Dashboard" };
   }
   if (pathname.startsWith(ROUTES.taskDashboard)) {
-    return { title: "Task Dashboard" };
+    return { title: "Dashboards" };
   }
   if (pathname.startsWith(ROUTES.system)) {
     return { title: "Settings & Admin" };
@@ -96,9 +96,10 @@ export function TopNav({ profile, onMobileMenuClick }: TopNavProps) {
     <>
       <header
         className={cn(
-          "fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl",
+          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b px-4",
           "md:left-[220px] md:px-6"
         )}
+        style={{ borderColor: "var(--border-default)" }}
       >
         {/* Mobile hamburger */}
         <button

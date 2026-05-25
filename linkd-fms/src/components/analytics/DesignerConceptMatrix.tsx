@@ -169,10 +169,10 @@ export function DesignerConceptMatrix() {
   }
 
   return (
-    <Card className="h-full overflow-hidden">
-      <CardContent className="py-5">
+    <Card className="overflow-hidden">
+      <CardContent className="py-4">
         {/* ── Header ── */}
-        <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
@@ -206,7 +206,7 @@ export function DesignerConceptMatrix() {
         </div>
 
         {/* ── Team totals strip ── */}
-        <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/30 p-2.5 sm:grid-cols-4">
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-border bg-secondary/30 p-2 sm:grid-cols-4">
           <TotalStat
             label="Submitted"
             value={totals.submitted}
@@ -245,9 +245,9 @@ export function DesignerConceptMatrix() {
 
         {/* ── Champion call-out ── */}
         {champion && champion.approved > 0 && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg border border-warning/25 bg-warning/[0.06] px-3 py-2">
-            <Trophy className="h-4 w-4 text-warning" />
-            <p className="text-xs text-foreground">
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-warning/25 bg-warning/[0.06] px-2.5 py-1.5">
+            <Trophy className="h-3.5 w-3.5 shrink-0 text-warning" />
+            <p className="text-[11px] text-foreground">
               Top performer{" "}
               <b>{champion.full_name}</b> — {champion.approved} approved,{" "}
               {champion.approvalRate}% rate
@@ -298,7 +298,7 @@ export function DesignerConceptMatrix() {
             description={`No concepts submitted ${label.toLowerCase()}.`}
           />
         ) : (
-          <ul className="space-y-2.5">
+          <ul className="space-y-1.5">
             {designers.map((d) => (
               <DesignerRow
                 key={d.id}
@@ -310,13 +310,8 @@ export function DesignerConceptMatrix() {
           </ul>
         )}
 
-        {/* ── Legend ── */}
-        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-          <LegendDot color="bg-success" label="Approved" />
-          <LegendDot color="bg-warning" label="Revision" />
-          <LegendDot color="bg-destructive" label="Rejected" />
-          <LegendDot color="bg-muted/60" label="Pending review" />
-        </div>
+        {/* Legend removed — bar segments are explained by the right-hand
+            count columns (Apprv / Rej. / Rate) and per-segment tooltips. */}
       </CardContent>
 
       <DesignerScorecardDrawer
@@ -346,12 +341,12 @@ function DesignerRow({
   return (
     <li
       className={cn(
-        "group rounded-lg border border-border bg-card px-3 py-2.5 transition-all hover:border-primary/30 hover:shadow-sm",
+        "group rounded-lg border border-border bg-card px-2.5 py-1.5 transition-all hover:border-primary/30 hover:shadow-sm",
         !hasData && "opacity-60"
       )}
     >
-      <div className="flex items-center gap-3">
-        {/* Avatar + name */}
+      <div className="flex items-center gap-2.5">
+        {/* Avatar + name — name + code on a single line to save vertical */}
         <button
           type="button"
           onClick={onClickName}
@@ -362,71 +357,55 @@ function DesignerRow({
           )}
           title={onClickName ? "View scorecard" : undefined}
         >
-          <Avatar className="h-8 w-8">
+          <Avatar className="h-6 w-6">
             {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
-            <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
+            <AvatarFallback className="bg-primary/10 text-primary text-[9px]">
               {getInitials(d.full_name)}
             </AvatarFallback>
           </Avatar>
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1.5">
             <p
               className={cn(
-                "truncate text-xs font-medium leading-tight text-foreground",
+                "truncate text-xs font-medium text-foreground",
                 onClickName && "group-hover:text-primary group-hover:underline"
               )}
             >
               {d.full_name.split(" ")[0]}
             </p>
-            <Badge variant="outline" className="mt-0.5 text-[8px] px-1 py-0">
+            <span className="rounded border border-border bg-secondary/40 px-1 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">
               {d.designerCode}
-            </Badge>
+            </span>
           </div>
         </button>
 
-        {/* Stacked bar */}
+        {/* Stacked bar — single-line, no secondary legend (counts on the right) */}
         <div className="min-w-0 flex-1">
           {hasData ? (
-            <>
+            <div
+              className="flex h-4 overflow-hidden rounded-md border border-border/50 bg-secondary/30 transition-[width] duration-[600ms] ease-out"
+              style={{ width: `${Math.max(20, widthPct)}%` }}
+            >
               <div
-                className="flex h-5 overflow-hidden rounded-md border border-border/50 bg-secondary/30 transition-[width] duration-[600ms] ease-out"
-                style={{ width: `${Math.max(20, widthPct)}%` }}
-              >
-                <div
-                  className="h-full bg-success"
-                  style={{ width: `${seg(d.approved)}%` }}
-                  title={`${d.approved} approved`}
-                />
-                <div
-                  className="h-full bg-warning"
-                  style={{ width: `${seg(d.revisions)}%` }}
-                  title={`${d.revisions} revision`}
-                />
-                <div
-                  className="h-full bg-destructive"
-                  style={{ width: `${seg(d.rejected)}%` }}
-                  title={`${d.rejected} rejected`}
-                />
-                <div
-                  className="h-full bg-muted/60"
-                  style={{ width: `${seg(d.pending)}%` }}
-                  title={`${d.pending} pending`}
-                />
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
-                {d.approved > 0 && (
-                  <span className="text-success">✓ {d.approved}</span>
-                )}
-                {d.revisions > 0 && (
-                  <span className="text-warning">↻ {d.revisions}</span>
-                )}
-                {d.rejected > 0 && (
-                  <span className="text-destructive">✗ {d.rejected}</span>
-                )}
-                {d.pending > 0 && (
-                  <span className="text-muted-foreground">⊙ {d.pending} pending</span>
-                )}
-              </div>
-            </>
+                className="h-full bg-success"
+                style={{ width: `${seg(d.approved)}%` }}
+                title={`${d.approved} approved`}
+              />
+              <div
+                className="h-full bg-warning"
+                style={{ width: `${seg(d.revisions)}%` }}
+                title={`${d.revisions} revision`}
+              />
+              <div
+                className="h-full bg-destructive"
+                style={{ width: `${seg(d.rejected)}%` }}
+                title={`${d.rejected} rejected`}
+              />
+              <div
+                className="h-full bg-muted/60"
+                style={{ width: `${seg(d.pending)}%` }}
+                title={`${d.pending} pending`}
+              />
+            </div>
           ) : (
             <p className="text-[10px] italic text-muted-foreground">
               No submissions in this period

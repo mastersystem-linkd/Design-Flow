@@ -18,11 +18,17 @@ export const ROUTES = {
   system: "/system",
   profile: "/profile",
   files: "/files",
+  kitting: "/kitting",
 } as const;
 
 /** Helper for the dynamic `/scorecards/:designerId` route. */
 export function scorecardDetailPath(designerId: string): string {
   return `${ROUTES.scorecards}/${designerId}`;
+}
+
+/** Helper for the dynamic `/kitting/:recordId` route used by the DEO. */
+export function kittingDetailPath(recordId: string): string {
+  return `${ROUTES.kitting}/${recordId}`;
 }
 
 /**
@@ -35,5 +41,9 @@ export function roleHomePath(role: UserRole): string {
     case "design_coordinator":
     case "designer":
       return ROUTES.taskDashboard;
+    case "deo":
+      // DEO lands directly on the kitting queue — that's the entirety of
+      // their workflow per the spec (view assigned kitting forms, digitize).
+      return ROUTES.kitting;
   }
 }

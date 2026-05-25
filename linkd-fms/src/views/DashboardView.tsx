@@ -89,14 +89,18 @@ export function DashboardView() {
       (t) => t.completed_at && t.completed_at.slice(0, 10) === todayStr
     ).length;
 
-    // All status counts for pipeline
+    // Visual pipeline (Pool → In Progress → Done). Legacy buckets
+    // (todo / full_kitting / approved / sampling) fold into in_progress so
+    // historical rows still register on the dashboard chart.
+    const inProgressVisual =
+      inProgress + todo + fullKitting + approved + sampling;
     const counts: Record<TaskStatus, number> = {
       pool,
-      todo,
-      in_progress: inProgress,
-      full_kitting: fullKitting,
-      approved,
-      sampling,
+      todo: 0,
+      in_progress: inProgressVisual,
+      full_kitting: 0,
+      approved: 0,
+      sampling: 0,
       done,
     };
 
@@ -132,7 +136,7 @@ export function DashboardView() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* ═══ Section 1: Greeting ═══ */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -185,7 +189,7 @@ export function DashboardView() {
         </div>
 
         {/* ═══ Sidebar: Quick Actions + Pipeline ═══ */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* ═══ Section 6: Quick Actions ═══ */}
           <div>
             <h2 className="text-base font-semibold text-foreground">
@@ -320,7 +324,7 @@ function QuickAction({
 
 function DashboardSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="space-y-2">
         <Skeleton className="h-7 w-64" />
         <Skeleton className="h-4 w-80" />

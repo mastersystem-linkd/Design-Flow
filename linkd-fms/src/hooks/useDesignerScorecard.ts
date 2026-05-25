@@ -114,6 +114,31 @@ export interface DesignerScorecardData {
     score: number;
     monthlyTargetProgress: number;
     breakdown: ScoreBreakdown;
+    // ── Work-status lifecycle metrics (post-approval pipeline; added 0026) ──
+    /**
+     * % of completed work where MD approved on the first review round
+     * (revision_count === 1). Null when no completed work in the period.
+     */
+    firstPassRate: number | null;
+    /**
+     * Mean working days per completed concept, with hold time subtracted.
+     * Null when no completed work in the period.
+     */
+    avgDesignDays: number | null;
+    /**
+     * % of in-flight approved concepts that have been held at least once.
+     * Null when nothing in flight.
+     */
+    holdRate: number | null;
+    /**
+     * Total hold events across the designer's approved concepts in-period.
+     */
+    totalHolds: number;
+    /**
+     * Mean revision rounds across completed work. 1.0 = always nails it.
+     * Null when no completed work.
+     */
+    avgRevisionRounds: number | null;
   };
 
   task: {
@@ -560,6 +585,11 @@ export function useDesignerScorecard(
         score: 0,
         monthlyTargetProgress: 0,
         breakdown: { volume: 0, approval: 0, speed: 0, lowRev: 0 },
+        firstPassRate: null,
+        avgDesignDays: null,
+        holdRate: null,
+        totalHolds: 0,
+        avgRevisionRounds: null,
       };
     }
     const mine = concepts.filter(
@@ -606,6 +636,65 @@ export function useDesignerScorecard(
         inRange(c.created_at, ms, me)
     ).length;
 
+    // ── Work-status lifecycle derivatives (designer's own approved rows) ──
+    // Pipeline rows are not period-scoped — `firstPassRate` etc. describe the
+    // designer's overall delivery quality, which is more useful than a
+    // wobbly period slice when the concept count is small.
+    const myApproved = concepts.filter(
+      (c) => c.submitted_by === designerId && c.md_status === "approved"
+    );
+    const myCompleted = myApproved.filter(
+      (c) => c.work_status === "completed"
+    );
+    const inFlight = myApproved.filter(
+      (c) =>
+        c.work_status === "in_progress" ||
+        c.work_status === "on_hold" ||
+        c.work_status === "in_revision" ||
+        c.work_status === "changes_requested"
+    );
+
+    const firstPassCount = myCompleted.filter(
+      (c) => (c.revision_count ?? 0) === 1
+    ).length;
+    const firstPassRate = myCompleted.length
+      ? Math.round((firstPassCount / myCompleted.length) * 100)
+      : null;
+    const avgRevisionRounds = myCompleted.length
+      ? Number(
+          (
+            myCompleted.reduce(
+              (sum, c) => sum + (c.revision_count ?? 1),
+              0
+            ) / myCompleted.length
+          ).toFixed(1)
+        )
+      : null;
+    const designDays = myCompleted
+      .map((c) => {
+        if (!c.work_started_at || !c.work_completed_at) return null;
+        const sStart = new Date(c.work_started_at).getTime();
+        const sEnd = new Date(c.work_completed_at).getTime();
+        if (Number.isNaN(sStart) || Number.isNaN(sEnd) || sEnd < sStart) return null;
+        const holdSeconds = parseIntervalToSecondsLocal(c.total_hold_duration);
+        const workingMs = Math.max(0, sEnd - sStart - holdSeconds * 1000);
+        return workingMs / 86_400_000;
+      })
+      .filter((v): v is number => v !== null);
+    const avgDesignDays = designDays.length
+      ? Number((designDays.reduce((a, b) => a + b, 0) / designDays.length).toFixed(1))
+      : null;
+    const totalHolds = myApproved.reduce(
+      (sum, c) => sum + (c.hold_count ?? 0),
+      0
+    );
+    const heldInFlight = inFlight.filter(
+      (c) => (c.hold_count ?? 0) > 0
+    ).length;
+    const holdRate = inFlight.length
+      ? Math.round((heldInFlight / inFlight.length) * 100)
+      : null;
+
     return {
       submitted,
       approved,
@@ -620,6 +709,11 @@ export function useDesignerScorecard(
       score,
       monthlyTargetProgress,
       breakdown,
+      firstPassRate,
+      avgDesignDays,
+      holdRate,
+      totalHolds,
+      avgRevisionRounds,
     };
   }, [concepts, designerId, start, end, now, teamStats.maxSubmitted]);
 
@@ -908,3 +1002,33 @@ export function useDesignerScorecard(
 
 // Re-exported so other hooks can compose their own ranges if needed
 export { subWeeks, subMonths, subQuarters, subYears };
+
+// ============================================================================
+// Helpers (work-status KPIs)
+// ============================================================================
+
+/**
+ * Loose Postgres `interval` parser. Mirrors the implementation in
+ * useConcepts/useAnalytics so the scorecard hook stays self-contained when
+ * computing per-designer `total_hold_duration` averages.
+ */
+function parseIntervalToSecondsLocal(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const iso = raw.match(/^P(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/);
+  if (iso) {
+    const h = parseInt(iso[1] ?? "0", 10);
+    const m = parseInt(iso[2] ?? "0", 10);
+    const s = parseFloat(iso[3] ?? "0");
+    return h * 3600 + m * 60 + s;
+  }
+  const hms = raw.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
+  if (hms) {
+    return (
+      parseInt(hms[1], 10) * 3600 +
+      parseInt(hms[2], 10) * 60 +
+      parseFloat(hms[3])
+    );
+  }
+  const numeric = parseFloat(raw);
+  return Number.isFinite(numeric) ? numeric : 0;
+}

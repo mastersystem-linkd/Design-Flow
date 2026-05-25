@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Search,
@@ -18,6 +18,7 @@ import {
   TrendingUp,
   PieChart as PieChartIcon,
   Layers,
+  Upload,
 } from "lucide-react";
 import {
   BarChart,
@@ -27,18 +28,15 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
-import { useTasks } from "@/hooks/useTasks";
 import {
   useSamples,
-  getTaskFiles,
   type SampleFilters,
   type SampleWithTask,
-  type TaskFileWithUploader,
 } from "@/hooks/useSamples";
 import { useProfiles } from "@/hooks/useProfiles";
-import { useTaskMutations } from "@/hooks/useTaskMutations";
-import { TaskDetailDrawer } from "@/components/tasks/TaskDetailDrawer";
 import { SamplingFormDrawer } from "@/components/sampling/SamplingFormDrawer";
 import {
   Badge,
@@ -76,12 +74,20 @@ import type {
 
 export function ProductionView() {
   const { profile, user } = useAuth();
-  const { tasks, isLoading: tasksLoading, refetch: refetchTasks } = useTasks();
-  const { updateTaskStatus, isPending } = useTaskMutations();
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
 
   const role: UserRole = profile?.role ?? "designer";
   const isAdmin = isAdminOrCoordinator(role);
+
+  // Lookup map for "Sample Entry By" column. `created_by` on samples stores
+  // the auth.users uuid of whoever clicked Save in the form — we resolve it
+  // to a friendly name via the profiles table. Cached by React Query.
+  const { profiles: allProfiles } = useProfiles();
+  const profileMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of allProfiles ?? []) m.set(p.id, p.full_name);
+    return m;
+  }, [allProfiles]);
 
   // Top-level view tabs. "samples" = entries + active sampling queue (the
   // operational view). "dashboard" = analytics rollups. Two distinct mental
@@ -122,7 +128,6 @@ export function ProductionView() {
   const [formOpen, setFormOpen] = useState(false);
   const [editSample, setEditSample] = useState<SampleWithTask | Sample | null>(null);
   const [deletingSample, setDeletingSample] = useState<SampleWithTask | Sample | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
   const sampleExportColumns: CsvColumn<Sample>[] = [
@@ -137,13 +142,6 @@ export function ProductionView() {
     { key: "is_completed", label: "Status" },
     { key: "additional_comments", label: "Notes" },
   ];
-
-  // ── Computed ──
-  const samplingTasks = useMemo(
-    () => tasks.filter((t) => t.status === "sampling"),
-    [tasks]
-  );
-
 
   // ── Stats ──
   // Two shapes here:
@@ -242,16 +240,6 @@ export function ProductionView() {
   }, [samples]);
 
   // ── Handlers ──
-  async function handleMarkDone(task: TaskWithRelations) {
-    const { error } = await updateTaskStatus(task.id, "done");
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    await refetchTasks();
-    toast.success(`${task.task_code} marked done ✓`);
-  }
-
   async function handleDeleteSample() {
     if (!deletingSample) return;
     const { error } = await deleteSample(deletingSample.id);
@@ -274,14 +262,14 @@ export function ProductionView() {
           <div>
             <h1 className="text-lg font-semibold text-foreground">Sampling</h1>
             <p className="text-xs text-muted-foreground">
-              {samples.length} records · {samplingTasks.length} tasks in queue
+              {samples.length} record{samples.length === 1 ? "" : "s"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => { void refetchTasks(); void refetchSamples(); }}
+            onClick={() => { void refetchSamples(); }}
             className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             title="Refresh"
           >
@@ -390,23 +378,41 @@ export function ProductionView() {
           </div>
         ) : (
           <>
+            {/* Wide Excel-style table — every column from the team's
+                sampling sheet. Horizontal scroll because it's ~2800px wide. */}
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full min-w-[2800px] text-sm">
                 <caption className="sr-only">Sampling records</caption>
                 <thead>
-                  <tr className="border-b border-border bg-card/30 text-left text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-                    <th className="px-3 py-2 font-medium w-[28px]" aria-label="Expand" />
-                    <th className="px-3 py-2 font-medium">Date</th>
+                  <tr className="whitespace-nowrap border-b border-border bg-card/30 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Timestamp</th>
                     <th className="px-3 py-2 font-medium">UID</th>
-                    <th className="px-3 py-2 font-medium">Task</th>
                     <th className="px-3 py-2 font-medium">Party Name</th>
                     <th className="px-3 py-2 font-medium">Quality</th>
-                    <th className="px-3 py-2 font-medium">Received</th>
-                    <th className="px-3 py-2 font-medium">Printed</th>
-                    <th className="px-3 py-2 font-medium">Pending</th>
-                    <th className="px-3 py-2 font-medium">Type</th>
+                    <th className="px-3 py-2 font-medium text-right">Received</th>
+                    <th className="px-3 py-2 font-medium">Requirement</th>
+                    <th className="px-3 py-2 font-medium">Assigned By</th>
+                    <th className="px-3 py-2 font-medium">Sampling Done By</th>
+                    <th className="px-3 py-2 font-medium">Sample Entry By</th>
+                    <th className="px-3 py-2 font-medium text-right">Printed Mtr</th>
+                    <th className="px-3 py-2 font-medium">Order / Sample</th>
+                    <th className="px-3 py-2 font-medium">Completion</th>
+                    <th className="px-3 py-2 font-medium text-right">Pending</th>
                     <th className="px-3 py-2 font-medium">Status</th>
-                    {isAdmin && <th className="px-3 py-2 font-medium text-right">Actions</th>}
+                    <th className="px-3 py-2 font-medium">Fusing Operator</th>
+                    <th className="px-3 py-2 font-medium">Neatly Prepared</th>
+                    <th className="px-3 py-2 font-medium">Photo</th>
+                    <th className="px-3 py-2 font-medium">Video</th>
+                    <th className="px-3 py-2 font-medium">Form</th>
+                    <th className="px-3 py-2 font-medium">Signature</th>
+                    <th className="px-3 py-2 font-medium">Comments</th>
+                    <th className="px-3 py-2 font-medium">Full Knitting</th>
+                    <th className="px-3 py-2 font-medium">FK Image</th>
+                    {isAdmin && (
+                      <th className="sticky right-0 z-10 bg-card/30 px-3 py-2 text-right font-medium">
+                        Actions
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -415,12 +421,13 @@ export function ProductionView() {
                       key={s.id}
                       sample={s}
                       isAdmin={isAdmin}
+                      profileMap={profileMap}
                       onEdit={() => {
                         setEditSample(s);
                         setFormOpen(true);
                       }}
                       onDelete={() => setDeletingSample(s)}
-                      onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+                      onUpdate={updateSample}
                     />
                   ))}
                 </tbody>
@@ -443,79 +450,6 @@ export function ProductionView() {
           </>
         )}
       </section>
-
-      {/* ── Tasks in Sampling Stage ── */}
-      {samplingTasks.length > 0 && (
-        <section className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className={cn("h-[3px]", COLUMN_ACCENT.sampling)} aria-hidden />
-          <div className="flex items-center justify-between border-b border-border bg-card/50 px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className={cn("h-2.5 w-2.5 rounded-full", COLUMN_DOT.sampling)} />
-              <h2 className="text-sm font-semibold text-foreground">
-                Tasks in Sampling Stage
-              </h2>
-              <span className="rounded-full bg-card px-2 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-                {samplingTasks.length}
-              </span>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-sm">
-              <caption className="sr-only">Sampling records</caption>
-              <thead>
-                <tr className="border-b border-border bg-card/30 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Concept</th>
-                  <th className="px-3 py-2 font-medium">Client</th>
-                  <th className="px-3 py-2 font-medium">Designer</th>
-                  <th className="px-3 py-2 font-medium">Deadline</th>
-                  {isAdmin && <th className="px-3 py-2 font-medium text-right">Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {samplingTasks.map((t) => (
-                  <tr
-                    key={t.id}
-                    onClick={() => setSelectedTaskId(t.id)}
-                    className="cursor-pointer border-b border-border/60 transition-colors hover:bg-card/60"
-                  >
-                    <td className="px-3 py-3 font-medium text-foreground">{t.concept}</td>
-                    <td className="px-3 py-3 text-muted-foreground">{t.client?.party_name ?? "—"}</td>
-                    <td className="px-3 py-3">
-                      {t.assignee ? (
-                        <div className="flex items-center gap-1.5">
-                          <Avatar className="h-5 w-5">
-                            {t.assignee.avatar_url ? <AvatarImage src={t.assignee.avatar_url} /> : null}
-                            <AvatarFallback className="text-[8px]">{getInitials(t.assignee.full_name)}</AvatarFallback>
-                          </Avatar>
-                          <span className="text-xs">{t.assignee.full_name}</span>
-                        </div>
-                      ) : "—"}
-                    </td>
-                    <td className="px-3 py-3"><DeadlineCell deadline={t.planned_deadline} /></td>
-                    {isAdmin && (
-                      <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => void handleMarkDone(t)}
-                          disabled={isPending("updateStatus", t.id)}
-                          className="inline-flex items-center gap-1 rounded-md bg-success px-2 py-1 text-[11px] font-medium text-white hover:bg-success/90 disabled:opacity-50"
-                        >
-                          {isPending("updateStatus", t.id) ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Check className="h-3 w-3" />
-                          )}
-                          Mark Done
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
 
         </>
       )}
@@ -540,13 +474,6 @@ export function ProductionView() {
         editSample={editSample}
         onCreate={createSample}
         onUpdate={updateSample}
-      />
-
-      <TaskDetailDrawer
-        taskId={selectedTaskId}
-        open={!!selectedTaskId}
-        onOpenChange={(o) => !o && setSelectedTaskId(null)}
-        onChange={() => void refetchTasks()}
       />
 
       <ConfirmDialog
@@ -606,112 +533,265 @@ function StatCard({
 function SampleRow({
   sample: s,
   isAdmin,
+  profileMap,
   onEdit,
   onDelete,
-  onOpenTask,
+  onUpdate,
 }: {
   sample: SampleWithTask | Sample;
   isAdmin: boolean;
+  /** profile_id → full_name lookup. Used for the "Sample Entry By" column
+   *  which resolves the row's `created_by` uuid to a name. */
+  profileMap: Map<string, string>;
   onEdit: () => void;
   onDelete: () => void;
-  onOpenTask: (taskId: string) => void;
+  /**
+   * Inline update — the row uses this for the "Mark Done" / "Undo" status
+   * toggle without going through the full edit drawer.
+   */
+  onUpdate: (
+    id: string,
+    patch: { is_completed?: boolean; completion_timestamp?: string | null }
+  ) => Promise<{ data: unknown; error: string | null }>;
 }) {
   const pending = s.pending_qty;
-  // The hook returns SampleWithTask, but legacy fallback (pre-0019) gives
-  // plain Sample. Coalesce so we don't crash when task isn't joined.
-  const linkedTask = "task" in s ? s.task : null;
-  const [expanded, setExpanded] = useState(false);
-  const canExpand = !!s.task_id;
+  const [statusBusy, setStatusBusy] = useState(false);
+
+  // Inline status toggle — flips is_completed and stamps/clears the
+  // completion_timestamp atomically so the audit trail stays clean.
+  async function toggleStatus() {
+    if (statusBusy) return;
+    setStatusBusy(true);
+    const next = !s.is_completed;
+    const { error } = await onUpdate(s.id, {
+      is_completed: next,
+      completion_timestamp: next ? new Date().toISOString() : null,
+    });
+    setStatusBusy(false);
+    if (error) toast.error(error);
+    else toast.success(next ? "Sample marked complete" : "Sample marked pending");
+  }
+
+  const entryBy = s.created_by ? profileMap.get(s.created_by) ?? "—" : "—";
 
   return (
     <>
       <tr
-        className={cn(
-          "border-b border-border/60 transition-colors hover:bg-card/60",
-          expanded && "bg-secondary/30"
-        )}
+        className="border-b border-border/60 transition-colors hover:bg-card/60"
       >
-        {/* Chevron — only enabled when the sample has a linked task. */}
-        <td className="px-2 py-3 align-middle">
-          {canExpand ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              aria-label={expanded ? "Collapse" : "Expand"}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              <span
-                className={cn(
-                  "inline-block transition-transform",
-                  expanded ? "rotate-90" : "rotate-0"
-                )}
-              >
-                ▸
-              </span>
-            </button>
-          ) : (
-            <span className="inline-block w-6" aria-hidden />
-          )}
-        </td>
+        {/* Timestamp */}
         <td className="whitespace-nowrap px-3 py-3 text-[12px] text-muted-foreground">
           {formatDate(s.created_at)}
         </td>
+
+        {/* UID */}
         <td className="whitespace-nowrap px-3 py-3 font-mono text-[11px] text-primary">
           {s.uid || "—"}
         </td>
-        <td className="whitespace-nowrap px-3 py-3">
-          {linkedTask?.task_code ? (
-            <button
-              type="button"
-              onClick={() => s.task_id && onOpenTask(s.task_id)}
-              className="font-mono text-[11px] text-primary underline-offset-2 hover:underline"
-              title={linkedTask.concept ?? undefined}
-            >
-              {linkedTask.task_code}
-            </button>
-          ) : s.task_id ? (
-            // Task linked but join didn't load it (pre-0019 fallback path) —
-            // still let the user open it.
-            <button
-              type="button"
-              onClick={() => s.task_id && onOpenTask(s.task_id)}
-              className="text-[11px] text-primary underline-offset-2 hover:underline"
-            >
-              View task
-            </button>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </td>
+
+        {/* Party */}
         <td className="whitespace-nowrap px-3 py-3 text-foreground">
           {s.party_name}
         </td>
-        <td className="px-3 py-3 text-muted-foreground">{s.quality || "—"}</td>
-        <td className="px-3 py-3 tabular-nums">{s.total_fabrics_received ?? "—"}</td>
-        <td className="px-3 py-3 tabular-nums">{s.printed_mtr}</td>
-        <td className="px-3 py-3 tabular-nums">
+
+        {/* Quality */}
+        <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">
+          {s.quality || "—"}
+        </td>
+
+        {/* Received */}
+        <td className="px-3 py-3 text-right tabular-nums">
+          {s.total_fabrics_received ?? "—"}
+        </td>
+
+        {/* Requirement */}
+        <td className="max-w-[180px] truncate px-3 py-3 text-muted-foreground" title={s.requirement ?? ""}>
+          {s.requirement || "—"}
+        </td>
+
+        {/* Assigned By */}
+        <td className="whitespace-nowrap px-3 py-3 text-foreground">
+          {s.assigned_by || "—"}
+        </td>
+
+        {/* Sampling Done By */}
+        <td className="whitespace-nowrap px-3 py-3 text-foreground">
+          {s.sampling_done_by || "—"}
+        </td>
+
+        {/* Sample Entry By — resolved from created_by */}
+        <td className="whitespace-nowrap px-3 py-3 text-foreground">
+          {entryBy}
+        </td>
+
+        {/* Printed Mtr */}
+        <td className="px-3 py-3 text-right tabular-nums">{s.printed_mtr}</td>
+
+        {/* Order / Sample */}
+        <td className="px-3 py-3 text-xs capitalize text-muted-foreground">
+          {s.order_or_sample ? (
+            <Badge
+              className={cn(
+                "border px-1.5 py-0 text-[10px]",
+                s.order_or_sample === "order"
+                  ? "bg-primary/10 text-primary border-primary/20"
+                  : "bg-success/10 text-success border-success/20"
+              )}
+            >
+              {s.order_or_sample}
+            </Badge>
+          ) : (
+            "—"
+          )}
+        </td>
+
+        {/* Completion Timestamp */}
+        <td className="whitespace-nowrap px-3 py-3 text-[12px] text-muted-foreground">
+          {s.completion_timestamp ? formatDate(s.completion_timestamp) : "—"}
+        </td>
+
+        {/* Pending */}
+        <td className="px-3 py-3 text-right tabular-nums">
           {pending > 0 ? (
             <span className="font-medium text-warning">{pending}</span>
           ) : (
             <span className="text-success">0</span>
           )}
         </td>
-        <td className="px-3 py-3 text-xs text-muted-foreground capitalize">
-          {s.order_or_sample || "—"}
-        </td>
+
+        {/* Status — interactive: Pending badge has a "Mark Done" button,
+            Done badge has a small "Undo" button. Click flips
+            is_completed and stamps/clears completion_timestamp. */}
         <td className="px-3 py-3">
           {s.is_completed ? (
-            <Badge className="bg-success/20 text-success border border-success/30 px-1.5 py-0 text-[10px]">
-              Done
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge className="border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
+                <Check className="mr-0.5 h-3 w-3" />
+                Done
+              </Badge>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => void toggleStatus()}
+                  disabled={statusBusy}
+                  className="rounded-md border border-border bg-card px-1.5 py-0 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+                  title="Reopen as pending"
+                >
+                  Undo
+                </button>
+              )}
+            </div>
           ) : (
-            <Badge className="bg-warning/20 text-warning border border-warning/30 px-1.5 py-0 text-[10px]">
-              Pending
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge className="border border-warning/30 bg-warning/15 px-1.5 py-0 text-[10px] text-warning">
+                Pending
+              </Badge>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => void toggleStatus()}
+                  disabled={statusBusy}
+                  className="rounded-md border border-success/30 bg-success/10 px-1.5 py-0 text-[10px] font-medium text-success transition-colors hover:bg-success/20 disabled:opacity-50"
+                  title="Mark as completed"
+                >
+                  {statusBusy ? "…" : "Mark Done"}
+                </button>
+              )}
+            </div>
           )}
         </td>
+
+        {/* Fusing Operator */}
+        <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">
+          {s.fusing_operator || "—"}
+        </td>
+
+        {/* Neatly Prepared */}
+        <td className="px-3 py-3">
+          {s.neatly_prepared ? (
+            <Badge className="border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
+              Yes
+            </Badge>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">No</span>
+          )}
+        </td>
+
+        {/* Photo */}
+        <td className="px-3 py-3">
+          <SampleFileSlot
+            sampleId={s.id}
+            field="photo_url"
+            currentPath={s.photo_url}
+            canEdit={isAdmin}
+            onUpdate={onUpdate}
+          />
+        </td>
+
+        {/* Video */}
+        <td className="px-3 py-3">
+          <SampleFileSlot
+            sampleId={s.id}
+            field="video_url"
+            currentPath={s.video_url}
+            canEdit={isAdmin}
+            onUpdate={onUpdate}
+          />
+        </td>
+
+        {/* Form */}
+        <td className="px-3 py-3">
+          {s.has_form ? (
+            <Badge className="border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
+              Yes
+            </Badge>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">No</span>
+          )}
+        </td>
+
+        {/* Signature */}
+        <td className="px-3 py-3">
+          <SampleFileSlot
+            sampleId={s.id}
+            field="signature_url"
+            currentPath={s.signature_url}
+            canEdit={isAdmin}
+            onUpdate={onUpdate}
+          />
+        </td>
+
+        {/* Comments */}
+        <td className="max-w-[180px] truncate px-3 py-3 text-muted-foreground" title={s.additional_comments ?? ""}>
+          {s.additional_comments || "—"}
+        </td>
+
+        {/* Full Kitting */}
+        <td className="px-3 py-3">
+          {s.requires_full_kitting ? (
+            <Badge className="border border-primary/30 bg-primary/10 px-1.5 py-0 text-[10px] text-primary">
+              Yes
+            </Badge>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">No</span>
+          )}
+        </td>
+
+        {/* FK Image */}
+        <td className="px-3 py-3">
+          <SampleFileSlot
+            sampleId={s.id}
+            field="full_kitting_image_url"
+            currentPath={s.full_kitting_image_url}
+            canEdit={isAdmin}
+            onUpdate={onUpdate}
+          />
+        </td>
+
+        {/* Actions — sticky right so they stay reachable while horizontally
+            scrolling such a wide table. */}
         {isAdmin && (
-          <td className="px-3 py-3 text-right">
+          <td className="sticky right-0 z-10 bg-card/95 px-3 py-3 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
             <div className="flex items-center justify-end gap-1">
               <button
                 type="button"
@@ -734,201 +814,187 @@ function SampleRow({
         )}
       </tr>
 
-      {/* Expanded panel — full-width row showing linked task info + files.
-          Lazy-loads files only when actually expanded (see SampleExpansion). */}
-      {expanded && s.task_id && (
-        <tr className="bg-secondary/20">
-          <td
-            colSpan={isAdmin ? 12 : 11}
-            className="border-b border-border/60 px-4 pb-4 pt-1"
-          >
-            <SampleExpansion
-              taskId={s.task_id}
-              linkedTask={linkedTask}
-              onOpenTask={() => onOpenTask(s.task_id!)}
-            />
-          </td>
-        </tr>
-      )}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SampleExpansion — task info + lazy-loaded file list
+// SampleFileSlot — per-cell uploader for photo / video / signature / FK image
 // ---------------------------------------------------------------------------
+//
+// Each row's Photo / Video / Signature / FK Image cells use this. When the
+// column is empty it renders a "+ Upload" affordance; when set, it renders
+// a "✓ View" pill with an inline × that removes the storage object and
+// clears the DB column. Per-file 100 MB cap (matches the bucket policy).
 
-function SampleExpansion({
-  taskId,
-  linkedTask,
-  onOpenTask,
+const FK_BUCKET = "sample-files";
+const MAX_SAMPLE_FILE_BYTES = 100 * 1024 * 1024;
+
+type SampleFileField =
+  | "photo_url"
+  | "video_url"
+  | "signature_url"
+  | "full_kitting_image_url";
+
+const FIELD_ACCEPT: Record<SampleFileField, string> = {
+  photo_url: "image/*",
+  video_url: "video/*",
+  signature_url: "image/*",
+  full_kitting_image_url: "image/*,application/pdf",
+};
+
+function SampleFileSlot({
+  sampleId,
+  field,
+  currentPath,
+  canEdit,
+  onUpdate,
 }: {
-  taskId: string;
-  linkedTask: SampleWithTask["task"] | null;
-  onOpenTask: () => void;
+  sampleId: string;
+  /** Which column on `samples` this slot reads/writes. */
+  field: SampleFileField;
+  currentPath: string | null;
+  /** Admins/coordinators see upload + remove; designers see view-only. */
+  canEdit: boolean;
+  onUpdate: (
+    id: string,
+    patch: Record<string, string | null>
+  ) => Promise<{ data: unknown; error: string | null }>;
 }) {
-  const [files, setFiles] = useState<TaskFileWithUploader[] | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Lazy fetch. The expansion row only mounts when the chevron is open, so
-  // the cost is paid per-expand rather than on the initial page load.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    void getTaskFiles(taskId).then((rows) => {
-      if (cancelled) return;
-      setFiles(rows);
-      setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId]);
-
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {/* Task summary */}
-      <div className="rounded-lg border border-border bg-card p-3">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Linked task
-          </span>
-          <button
-            type="button"
-            onClick={onOpenTask}
-            className="ml-auto text-[10px] font-medium text-primary hover:underline"
-          >
-            Open ↗
-          </button>
-        </div>
-        {linkedTask ? (
-          <>
-            <p className="font-mono text-xs text-primary">
-              {linkedTask.task_code ?? "—"}
-            </p>
-            <p className="mt-0.5 text-sm font-medium text-foreground">
-              {linkedTask.concept ?? "No concept"}
-            </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {[
-                linkedTask.client?.party_name,
-                linkedTask.assignee?.full_name,
-                STATUS_LABELS[linkedTask.status as keyof typeof STATUS_LABELS] ?? linkedTask.status,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            {linkedTask.description && (
-              <p className="mt-2 line-clamp-3 text-xs text-muted-foreground">
-                {linkedTask.description}
-              </p>
-            )}
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Task details unavailable.
-          </p>
-        )}
-      </div>
-
-      {/* Files */}
-      <div className="rounded-lg border border-border bg-card p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Task files
-          </span>
-          {files !== null && (
-            <span className="rounded-full bg-secondary px-1.5 py-0 text-[9px] text-muted-foreground tabular-nums">
-              {files.length}
-            </span>
-          )}
-        </div>
-        {loading ? (
-          <div className="space-y-1.5">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-7 animate-pulse rounded bg-secondary/60"
-              />
-            ))}
-          </div>
-        ) : files && files.length > 0 ? (
-          <ul className="space-y-1 text-xs">
-            {files.slice(0, 6).map((f) => (
-              <TaskFileLink key={f.id} file={f} />
-            ))}
-            {files.length > 6 && (
-              <li className="pt-1 text-[10px] text-muted-foreground">
-                +{files.length - 6} more — open the task to see all
-              </li>
-            )}
-          </ul>
-        ) : (
-          <p className="text-xs italic text-muted-foreground">
-            No files attached to this task.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// TaskFileLink — single row with a signed download link (lazy-resolved on click)
-// ---------------------------------------------------------------------------
-
-function TaskFileLink({ file }: { file: TaskFileWithUploader }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
-  // Resolve the storage path → signed URL on click. We don't pre-resolve
-  // every row's URL because signed URLs cost an API call each and most files
-  // never get clicked.
-  async function open() {
-    if (busy) return;
+  async function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_SAMPLE_FILE_BYTES) {
+      toast.error(`"${file.name}" is over 100 MB.`);
+      return;
+    }
     setBusy(true);
     try {
-      // We try multiple buckets in order — the schema doesn't store the
-      // bucket, only the storage path. design-files is by far the most
-      // common task-file home; sample-files + task-files are fallbacks.
-      const { supabase } = await import("@/lib/supabase");
-      const buckets = ["design-files", "task-files", "sample-files"];
-      for (const bucket of buckets) {
-        const { data, error } = await supabase.storage
-          .from(bucket)
-          .createSignedUrl(file.storage_url, 3600);
-        if (!error && data?.signedUrl) {
-          window.open(data.signedUrl, "_blank", "noopener");
-          return;
-        }
+      // Best-effort compress for image fields; non-images pass through.
+      const processed = await compressImage(file);
+      const safe = processed.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `samples/${sampleId}/${field}-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}-${safe}`;
+      const { error: upErr } = await supabase.storage
+        .from(FK_BUCKET)
+        .upload(path, processed, {
+          contentType: processed.type || "application/octet-stream",
+          upsert: false,
+        });
+      if (upErr) {
+        toast.error(`Upload failed: ${upErr.message}`);
+        return;
       }
+      const { error: dbErr } = await onUpdate(sampleId, { [field]: path });
+      if (dbErr) {
+        toast.error(dbErr);
+        // Best-effort cleanup if the DB write failed but storage succeeded.
+        void supabase.storage.from(FK_BUCKET).remove([path]);
+        return;
+      }
+      toast.success("File uploaded");
     } finally {
       setBusy(false);
     }
   }
 
+  async function handleView() {
+    if (!currentPath) return;
+    const { data, error } = await supabase.storage
+      .from(FK_BUCKET)
+      .createSignedUrl(currentPath, 3600);
+    if (error || !data?.signedUrl) {
+      toast.error("Couldn't open file");
+      return;
+    }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }
+
+  async function handleRemove() {
+    if (!currentPath) return;
+    setBusy(true);
+    try {
+      // Best-effort storage delete — even if the object is already missing
+      // we still clear the DB pointer so the cell reads as empty.
+      void supabase.storage.from(FK_BUCKET).remove([currentPath]);
+      const { error } = await onUpdate(sampleId, { [field]: null });
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      toast.success("File removed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Hidden picker shared across all states so we never mount/unmount it.
+  const hiddenInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={FIELD_ACCEPT[field]}
+      className="hidden"
+      onChange={handlePick}
+    />
+  );
+
+  if (currentPath) {
+    return (
+      <>
+        <div className="inline-flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => void handleView()}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success transition-colors hover:bg-success/20 disabled:opacity-50"
+            title="Open file"
+          >
+            <Check className="h-3 w-3" />
+            View
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => void handleRemove()}
+              disabled={busy}
+              className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+              title="Remove"
+              aria-label="Remove file"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+        {hiddenInput}
+      </>
+    );
+  }
+
+  if (!canEdit) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+
   return (
-    <li className="flex items-center gap-2 rounded-md border border-border/60 bg-secondary/30 px-2 py-1.5">
-      <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    <>
       <button
         type="button"
-        onClick={open}
+        onClick={() => inputRef.current?.click()}
         disabled={busy}
-        className="min-w-0 flex-1 truncate text-left text-foreground hover:text-primary disabled:opacity-50"
-        title={file.file_name}
+        className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
+        title="Upload file"
       >
-        {file.file_name}
+        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+        Upload
       </button>
-      <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-        {formatBytes(file.file_size)}
-      </span>
-    </li>
+      {hiddenInput}
+    </>
   );
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // ============================================================================

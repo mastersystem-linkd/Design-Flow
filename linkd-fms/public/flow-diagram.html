@@ -17,6 +17,7 @@
     --destructive: #f26c6c;
     --purple: #7c5cfc;
     --teal: #2dd4bf;
+    --orange: #f97316;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: "Inter", system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 40px 24px; line-height: 1.5; }
@@ -37,6 +38,7 @@
   .node.danger { border-color: var(--destructive); background: rgba(242,108,108,0.08); }
   .node.purple { border-color: var(--purple); background: rgba(124,92,252,0.08); }
   .node.teal { border-color: var(--teal); background: rgba(45,212,191,0.08); }
+  .node.orange { border-color: var(--orange); background: rgba(249,115,22,0.08); }
   .node.muted-node { border-color: var(--border); opacity: 0.6; }
   .arrow { color: var(--muted); font-size: 20px; flex-shrink: 0; }
   .arrow-down { color: var(--muted); font-size: 20px; }
@@ -56,6 +58,7 @@
   .role-admin li::before { background: var(--primary); }
   .role-coord li::before { background: var(--purple); }
   .role-designer li::before { background: var(--success); }
+  .role-deo li::before { background: var(--orange); }
   .role-card .badge { font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; }
   .info-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 16px 0; }
   .info-table th { text-align: left; padding: 8px 12px; background: rgba(79,110,247,0.08); border: 1px solid var(--border); color: var(--primary); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -69,16 +72,22 @@
   .tag-red { background: rgba(242,108,108,0.15); color: var(--destructive); }
   .tag-purple { background: rgba(124,92,252,0.15); color: var(--purple); }
   .tag-teal { background: rgba(45,212,191,0.15); color: var(--teal); }
+  .tag-orange { background: rgba(249,115,22,0.15); color: var(--orange); }
   .note { font-size: 11px; color: var(--muted); border-left: 3px solid var(--border); padding: 8px 12px; margin: 12px 0; background: rgba(255,255,255,0.02); border-radius: 0 8px 8px 0; }
   .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11px; color: var(--muted); margin: 12px 0; justify-content: center; }
   .legend-item { display: flex; align-items: center; gap: 6px; }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .kitting-flow { display: flex; flex-wrap: wrap; gap: 0; align-items: stretch; justify-content: center; margin: 20px 0; }
+  .kitting-stage { border: 1.5px solid var(--border); border-radius: 12px; padding: 18px 20px; background: var(--card); min-width: 200px; max-width: 280px; flex: 1; }
+  .kitting-stage h4 { font-size: 13px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .kitting-stage p { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .kitting-arrow { display: flex; align-items: center; padding: 0 8px; color: var(--muted); font-size: 24px; }
 </style>
 </head>
 <body>
 
 <h1>LinkD <span>FMS</span> — System Flow Diagram</h1>
-<p class="subtitle">Complete architecture &middot; 18 views &middot; 19 hooks &middot; 64 components &middot; 16 migrations &middot; 14 tables</p>
+<p class="subtitle">Complete architecture &middot; 22 views &middot; 24 hooks &middot; 80+ components &middot; 20+ migrations &middot; 15+ tables</p>
 
 <!-- SECTION 1: BOOT -->
 <div class="section">
@@ -86,54 +95,65 @@
 <div class="flow-col">
   <div class="node">
     <div class="node-label">Browser loads index.html</div>
-    <div class="node-sub">FOUC prevention script + Inter font</div>
+    <div class="node-sub">FOUC prevention script + Inter font from Google Fonts</div>
   </div>
-  <div class="arrow-down">↓</div>
+  <div class="arrow-down">&darr;</div>
   <div class="node primary">
-    <div class="node-label">ErrorBoundary → ThemeProvider → AuthProvider</div>
-    <div class="node-sub">Error catch → light/dark/system → session + profile</div>
+    <div class="node-label">ErrorBoundary &rarr; ThemeProvider &rarr; QueryClientProvider &rarr; AuthProvider &rarr; LoaderProvider</div>
+    <div class="node-sub">Error catch &rarr; light/dark/system &rarr; React Query (staleTime 2min) &rarr; session + profile &rarr; global T-shirt loader</div>
   </div>
-  <div class="arrow-down">↓</div>
+  <div class="arrow-down">&darr;</div>
   <div class="node primary">
-    <div class="node-label">BrowserRouter → ProtectedRoute guards</div>
-    <div class="node-sub">5-step: loading → auth → profile → role → render</div>
+    <div class="node-label">BrowserRouter &rarr; ProtectedRoute guards</div>
+    <div class="node-sub">5-step: loading &rarr; auth &rarr; profile &rarr; role &rarr; render</div>
   </div>
-  <div class="arrow-down">↓</div>
+  <div class="arrow-down">&darr;</div>
   <div class="flow-row">
-    <div class="node success"><div class="node-label">Authenticated</div><div class="node-sub">→ /task-dashboard</div></div>
-    <div class="node warning"><div class="node-label">No Profile</div><div class="node-sub">→ /onboarding</div></div>
-    <div class="node danger"><div class="node-label">Not Authed</div><div class="node-sub">→ /login</div></div>
+    <div class="node success"><div class="node-label">Authenticated</div><div class="node-sub">&rarr; /task-dashboard (admin/coord/designer)<br>&rarr; /kitting (deo)</div></div>
+    <div class="node warning"><div class="node-label">No Profile</div><div class="node-sub">&rarr; /onboarding</div></div>
+    <div class="node danger"><div class="node-label">Not Authed</div><div class="node-sub">&rarr; /login</div></div>
   </div>
 </div>
 </div>
 
 <!-- SECTION 2: PAGE MAP -->
 <div class="section">
-<h2>2. Page Map &amp; Navigation (18 views)</h2>
+<h2>2. Page Map &amp; Navigation (22 views)</h2>
 <table class="info-table">
-  <thead><tr><th>Route</th><th>View</th><th>Admin</th><th>Coordinator</th><th>Designer</th></tr></thead>
+  <thead><tr><th>Route</th><th>View</th><th>Admin</th><th>Coordinator</th><th>Designer</th><th>DEO</th></tr></thead>
   <tbody>
-    <tr><td><code>/login</code></td><td>LoginView (enhanced split-screen)</td><td colspan="3" style="text-align:center">Public</td></tr>
-    <tr><td><code>/task-dashboard</code></td><td>TaskDashboardView (landing page)</td><td>yes</td><td>yes</td><td>yes</td></tr>
-    <tr><td><code>/dashboard</code></td><td>KanbanView (task board)</td><td>All Tasks</td><td>All Tasks</td><td>My Board</td></tr>
-    <tr><td><code>/brief/new</code></td><td>BriefingView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
-    <tr><td><code>/concepts</code></td><td>ConceptsView (22-col workflow)</td><td>yes</td><td>yes</td><td>yes</td></tr>
-    <tr><td><code>/analytics</code></td><td>AnalyticsView (Concept Dashboard)</td><td>yes</td><td>yes</td><td>yes</td></tr>
-    <tr><td><code>/sampling</code></td><td>ProductionView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
-    <tr><td><code>/salvedge</code></td><td>SalvedgeView</td><td>yes</td><td>yes</td><td>yes</td></tr>
-    <tr><td><code>/team</code></td><td>TeamView (role mgmt + codes)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
-    <tr><td><code>/scorecards</code></td><td>ScorecardsView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
-    <tr><td><code>/profile</code></td><td>ProfileView</td><td>yes</td><td>yes</td><td>yes</td></tr>
-    <tr><td><code>/notifications</code></td><td>NotificationsView</td><td>yes</td><td>yes</td><td>yes</td></tr>
-    <tr><td><code>/system</code></td><td>SystemView (CRUD + data mgmt)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/login</code></td><td>LoginView (split-screen)</td><td colspan="4" style="text-align:center">Public</td></tr>
+    <tr><td><code>/reset-password</code></td><td>ResetPasswordView</td><td colspan="4" style="text-align:center">Public</td></tr>
+    <tr><td><code>/onboarding</code></td><td>OnboardingView</td><td colspan="4" style="text-align:center">Authed (no profile)</td></tr>
+    <tr><td><code>/task-dashboard</code></td><td>TaskDashboardView <span class="tag tag-blue">landing</span></td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/dashboard</code></td><td>KanbanView (task board)</td><td>All Tasks</td><td>All Tasks</td><td>My Board</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/home</code></td><td>DashboardView (overview)</td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/brief/new</code></td><td>BriefingView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/concepts</code></td><td>ConceptsView (22-col workflow)</td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/analytics</code></td><td><em>Redirects to</em> <code>/task-dashboard?tab=concepts</code></td><td colspan="4" style="text-align:center;color:var(--muted)">Redirect</td></tr>
+    <tr><td><code>/sampling</code></td><td>ProductionView (Sampling Hub)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/salvedge</code></td><td>SalvedgeView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/kitting</code></td><td>KittingQueueView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes <span class="tag tag-orange">landing</span></td></tr>
+    <tr><td><code>/kitting/:recordId</code></td><td>FullKittingFormView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes</td></tr>
+    <tr><td><code>/files</code></td><td>FilesView</td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/team</code></td><td>TeamView (CRUD + codes)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/scorecards</code></td><td>ScorecardsView (grid)</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/scorecards/:id</code></td><td>ScorecardDetailView</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>Self only</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/profile</code></td><td>ProfileView</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/notifications</code></td><td>NotificationsView</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+    <tr><td><code>/system</code></td><td>SystemView (admin hub)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
   </tbody>
 </table>
+<div class="note">
+  <strong>Wrong-role behavior:</strong> URL stays put; ProtectedRoute renders AccessRestrictedView inside AppLayout.<br>
+  <strong>Legacy aliases:</strong> <code>/kanban</code> &rarr; <code>/dashboard</code>, <code>/briefing</code> &rarr; <code>/brief/new</code>, <code>/production</code> &rarr; <code>/sampling</code>
+</div>
 </div>
 
 <!-- SECTION 3: ROLES -->
 <div class="section">
-<h2>3. Role Permissions</h2>
-<div class="grid-3">
+<h2>3. Role Permissions (4 Roles)</h2>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 20px 0;">
   <div class="role-card role-admin">
     <h3><span class="badge" style="background:var(--primary);color:#fff">Admin</span> Full Power</h3>
     <ul>
@@ -141,28 +161,42 @@
       <li>Concept approval (review/reject/revision)</li>
       <li>Change user roles + manage designer codes</li>
       <li>Manage lookup tables (System CRUD)</li>
+      <li>Scorecards (grid + detail views)</li>
       <li>CSV Export on all views</li>
-      <li>Sampling, Salvedge, Scorecards, Team</li>
+      <li>Sampling, Salvedge, Files, Team</li>
     </ul>
   </div>
   <div class="role-card role-coord">
-    <h3><span class="badge" style="background:var(--purple);color:#fff">Coordinator</span> Almost Admin</h3>
+    <h3><span class="badge" style="background:var(--purple);color:#fff">Coordinator</span> Admin-Equivalent</h3>
     <ul>
       <li>Same as Admin (permissions now equal)</li>
-      <li>Concept approval + review</li>
       <li>Task lifecycle (create, assign, advance)</li>
+      <li>User management (add/edit/deactivate)</li>
       <li>System CRUD access</li>
-      <li>Sampling, Salvedge, Team</li>
+      <li>Sampling, Salvedge, Files, Team</li>
+      <li style="color:var(--destructive)">No Scorecards page access</li>
     </ul>
   </div>
   <div class="role-card role-designer">
-    <h3><span class="badge" style="background:var(--success);color:#fff">Designer</span> Submit & Work</h3>
+    <h3><span class="badge" style="background:var(--success);color:#fff">Designer</span> Submit &amp; Work</h3>
     <ul>
-      <li>My Board, Task Dashboard, Concepts</li>
-      <li>Claim tasks from pool</li>
+      <li>My Board, Task Dashboard, Concepts, Files</li>
+      <li>Claim tasks from open pool</li>
       <li>Submit + finalize concepts</li>
-      <li>Salvedge view</li>
+      <li>Own scorecard view (/scorecards/:self)</li>
       <li style="color:var(--destructive)">Cannot create briefs or manage team</li>
+      <li style="color:var(--destructive)">No Salvedge, Sampling, System access</li>
+    </ul>
+  </div>
+  <div class="role-card role-deo">
+    <h3><span class="badge" style="background:var(--orange);color:#fff">DEO</span> Kitting Only</h3>
+    <ul>
+      <li>Kitting Queue (/kitting) is their landing page</li>
+      <li>Digitizes paper kitting forms (12-field)</li>
+      <li>Can claim + complete kitting records</li>
+      <li>Profile + Notifications only</li>
+      <li style="color:var(--destructive)">Cannot create tasks or briefs</li>
+      <li style="color:var(--destructive)">No dashboards, concepts, files, team</li>
     </ul>
   </div>
 </div>
@@ -174,20 +208,22 @@
 <div class="pipeline">
   <div class="pipe-node" style="background:rgba(100,116,139,0.1);border-color:#64748b"><div>Pool</div><div class="pipe-sub">Unassigned</div></div>
   <div class="pipe-arrow" style="border-left-color:#64748b"></div>
-  <div class="pipe-node"><div>To-Do</div><div class="pipe-sub">Assigned</div></div>
+  <div class="pipe-node"><div>To-Do</div><div class="pipe-sub">Assigned (legacy)</div></div>
   <div class="pipe-arrow"></div>
   <div class="pipe-node" style="background:rgba(79,110,247,0.1);border-color:var(--primary)"><div>In Progress</div><div class="pipe-sub">Working</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--primary)"></div>
-  <div class="pipe-node" style="background:rgba(79,110,247,0.15);border-color:var(--primary)"><div>Full Knitting</div><div class="pipe-sub">Review</div></div>
+  <div class="pipe-node" style="background:rgba(124,92,252,0.1);border-color:var(--purple)"><div>Full Kitting</div><div class="pipe-sub">Kitting Review</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--warning)"></div>
-  <div class="pipe-node" style="background:rgba(245,166,35,0.1);border-color:var(--warning)"><div>Sampling</div><div class="pipe-sub">Production</div></div>
+  <div class="pipe-node" style="background:rgba(245,166,35,0.1);border-color:var(--warning)"><div>Sampling</div><div class="pipe-sub">Production (/sampling)</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--success)"></div>
   <div class="pipe-node" style="background:rgba(60,201,122,0.1);border-color:var(--success)"><div>Done</div><div class="pipe-sub">Complete</div></div>
 </div>
 <div class="note">
-  <strong>Dashboard tabs:</strong> Pool, To-Do, In Progress, Done (full_kitting merged into In Progress)<br>
+  <strong>Dashboard tabs (5):</strong> Pool, To-Do, In Progress, Full Kitting, Done<br>
+  <strong>Important:</strong> Assigned tasks skip <code>todo</code> &rarr; go straight to <code>in_progress</code>. The <code>todo</code> enum exists but is no longer entered by the app.<br>
   <strong>Task code:</strong> <code>DF NN-D{MMYY}-CONC-QM</code> (e.g. DF 01-S0526-FLOR-200M)<br>
-  <strong>Notifications:</strong> Task assigned → designer, task done → coordinators, overdue → assignees
+  <strong>Sampling:</strong> Lives on its own <code>/sampling</code> page (not a dashboard tab).<br>
+  <strong>Notifications:</strong> Task assigned &rarr; designer, task done &rarr; coordinators, pool claimed &rarr; previous assignee
 </div>
 </div>
 
@@ -195,117 +231,185 @@
 <div class="section">
 <h2>5. Concept Approval Workflow</h2>
 <div class="flow-col">
-  <div class="node teal"><div class="node-label">Designer submits concept</div><div class="node-sub">Title + file + client + priority · DB auto-generates code</div></div>
-  <div class="arrow-down">↓</div>
-  <div class="node warning"><div class="node-label">Admin reviews within 1 day</div><div class="node-sub">ConceptDetailDrawer → approve / reject / revision</div></div>
-  <div class="arrow-down">↓</div>
+  <div class="node teal"><div class="node-label">Designer submits concept</div><div class="node-sub">Min 50-char description + file(s) + client + priority &middot; DB auto-generates code</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node warning"><div class="node-label">Admin reviews within 1 day</div><div class="node-sub">ConceptDetailDrawer &rarr; approve / reject / revision_requested</div></div>
+  <div class="arrow-down">&darr;</div>
   <div class="flow-row">
     <div class="flow-col">
       <div class="node success"><div class="node-label">Approve</div><div class="node-sub">Designer has +4 days to finalize</div></div>
-      <div class="arrow-down">↓</div>
+      <div class="arrow-down">&darr;</div>
       <div class="node purple"><div class="node-label">Final Approval</div><div class="node-sub">Admin grants final approval</div></div>
     </div>
-    <div class="node warning"><div class="node-label">Revision</div><div class="node-sub">Designer fixes + re-submits</div></div>
+    <div class="flow-col">
+      <div class="node warning"><div class="node-label">Revision Requested</div><div class="node-sub">Designer fixes + re-submits (tracked in completion_history)</div></div>
+      <div class="arrow-down">&darr;</div>
+      <div class="node" style="border-style:dashed"><div class="node-label">Re-submit</div><div class="node-sub">Loops back to review</div></div>
+    </div>
     <div class="node danger"><div class="node-label">Reject</div><div class="node-sub">Terminal state</div></div>
   </div>
 </div>
 <div class="note">
   <strong>Monthly target:</strong> 3 approved concepts per designer<br>
-  <strong>Notifications:</strong> Concept submitted → admins, reviewed → designer, overdue concepts → alerts<br>
-  <strong>Dashboards:</strong> Concept Dashboard (funnel + leaderboard + target race + MD review panel)
+  <strong>Revision tracking:</strong> <code>completion_history</code> JSONB column records each revision cycle with timestamps + delay_days + notes<br>
+  <strong>Multi-file:</strong> <code>concepts.files</code> JSONB array supports multiple file uploads per concept (migration 0018)<br>
+  <strong>Notifications:</strong> Concept submitted &rarr; admins, reviewed &rarr; designer, re-submitted &rarr; admins<br>
+  <strong>Dashboards:</strong> Concept analytics tab (funnel + leaderboard + target race + MD review panel)
 </div>
 </div>
 
-<!-- SECTION 6: DATABASE -->
+<!-- SECTION 6: KITTING WORKFLOW -->
 <div class="section">
-<h2>6. Database Schema (14+ Tables, 16 Migrations)</h2>
+<h2>6. Full Kitting Workflow (2-Stage Handover)</h2>
+<div class="kitting-flow">
+  <div class="kitting-stage" style="border-color:var(--purple)">
+    <h4><span class="tag tag-purple">Stage A</span> Coordinator</h4>
+    <p>
+      Coordinator photographs the paper kitting form and uploads via <strong>KittingStageADialog</strong> (from task row action menu on /dashboard).<br><br>
+      File lands in <code>sample-files/{uid}/kitting/...</code>.<br>
+      Creates <code>full_kitting_details</code> row with <code>image_url</code> set and <code>data_entry_status = 'pending_deo'</code>.<br><br>
+      <span class="tag tag-orange">Notifies all DEOs</span>
+    </p>
+  </div>
+  <div class="kitting-arrow">&rarr;</div>
+  <div class="kitting-stage" style="border-color:var(--orange)">
+    <h4><span class="tag tag-orange">Stage B</span> DEO Digitizes</h4>
+    <p>
+      DEO opens <code>/kitting</code> queue &rarr; clicks "Open form" &rarr; <code>/kitting/:recordId</code>.<br><br>
+      Side-by-side layout: paper form photo (sticky) + 12-field digital form (Fabric, Width, Design Count, Type, Theme, Background, Garment, Motive Size, Concept, APC, Additional, Priority).<br><br>
+      Draft auto-saves to localStorage. On submit, DB trigger auto-flips status &rarr; <code>'completed'</code>.<br><br>
+      <span class="tag tag-blue">Notifies admin + coordinator</span>
+    </p>
+  </div>
+  <div class="kitting-arrow">&rarr;</div>
+  <div class="kitting-stage" style="border-color:var(--success)">
+    <h4><span class="tag tag-green">Stage C</span> Coordinator Review</h4>
+    <p>
+      Coordinator re-opens the task's Full Kitting menu item.<br><br>
+      Dialog shows status = <strong>Completed</strong> with thumbnail + "Open digital form" link to the populated form.<br><br>
+      Completed forms appear in the <strong>CompletedKittingPanel</strong> (searchable + CSV export).
+    </p>
+  </div>
+</div>
+<div class="note">
+  <strong>Enums (0021):</strong> <code>kitting_data_entry_status</code> (pending_image / pending_deo / in_progress / completed) &middot; <code>kitting_priority</code> (very_urgent / 2_days / 3_days / 4_days / 5_days)<br>
+  <strong>Priority mapping:</strong> <code>lib/kitting.ts</code> translates between display strings ("Very Urgent") and DB enums (<code>very_urgent</code>)<br>
+  <strong>DEO landing:</strong> <code>roleHomePath('deo')</code> returns <code>/kitting</code>. DEO sidebar has only Kitting Queue + Notifications.
+</div>
+</div>
+
+<!-- SECTION 7: DATABASE -->
+<div class="section">
+<h2>7. Database Schema (15+ Tables, 20+ Migrations)</h2>
 <div class="grid-4">
-  <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">3 roles · avatar</div></div>
-  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">30+ cols · 7 statuses</div></div>
-  <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses · final approval</div></div>
+  <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">4 roles &middot; soft-delete (is_active)</div></div>
+  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">30+ cols &middot; 7 statuses</div></div>
+  <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses &middot; files JSONB &middot; completion_history</div></div>
   <div class="node"><div class="node-label">clients</div><div class="node-sub">party_name</div></div>
   <div class="node"><div class="node-label">task_logs</div><div class="node-sub">append-only audit</div></div>
+  <div class="node"><div class="node-label">task_comments</div><div class="node-sub">discussion thread (0017)</div></div>
   <div class="node"><div class="node-label">files</div><div class="node-sub">task attachments</div></div>
   <div class="node"><div class="node-label">sampling_logs</div><div class="node-sub">meters printed</div></div>
-  <div class="node teal"><div class="node-label">designer_codes</div><div class="node-sub">U/V/S/K letters</div></div>
+  <div class="node teal"><div class="node-label">designer_codes</div><div class="node-sub">U/V/S/K/W/T letters</div></div>
   <div class="node purple"><div class="node-label">concept_categories</div><div class="node-sub">taxonomy (0011)</div></div>
   <div class="node purple"><div class="node-label">fabrics</div><div class="node-sub">taxonomy (0011)</div></div>
   <div class="node"><div class="node-label">notifications</div><div class="node-sub">realtime bell (0013)</div></div>
-  <div class="node"><div class="node-label">full_kitting_details</div><div class="node-sub">kitting form (0013)</div></div>
+  <div class="node orange"><div class="node-label">full_kitting_details</div><div class="node-sub">kitting form + DEO workflow (0013/0021)</div></div>
   <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010)</div></div>
-  <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric dist (0010)</div></div>
+  <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric distribution (0010)</div></div>
+  <div class="node muted-node"><div class="node-label">task_counters</div><div class="node-sub">internal per-year sequence</div></div>
 </div>
 <div class="note">
-  <strong>Storage:</strong> design-files, sample-files, proof-photos, avatars — all 100 MB, all file types<br>
-  <strong>RLS:</strong> 40+ policies · auth_role() + is_admin() + is_admin_or_coordinator() helpers
+  <strong>Enums:</strong> user_role (admin/design_coordinator/designer/deo) &middot; task_status (7 values) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5)<br>
+  <strong>Storage buckets:</strong> design-files (50 MB) &middot; sample-files (100 MB) &middot; proof-photos (10 MB) &middot; task-files &middot; avatars &mdash; all private with RLS<br>
+  <strong>RLS:</strong> 40+ policies &middot; <code>auth_role()</code> + <code>is_admin()</code> + <code>is_admin_or_coordinator()</code> + <code>is_deo()</code> helpers<br>
+  <strong>Views:</strong> <code>deo_kitting_queue</code> (joins kitting + tasks + clients) &middot; <code>active_profiles</code> (is_active=true)<br>
+  <strong>Migrations:</strong> 0001, 0003&ndash;0014, 0016&ndash;0024 (0002/0015 merged into earlier files; numbering gaps intentional)
 </div>
 </div>
 
-<!-- SECTION 7: KEY FEATURES -->
+<!-- SECTION 8: KEY FEATURES -->
 <div class="section">
-<h2>7. Key Features Built</h2>
+<h2>8. Key Features Built</h2>
 <div class="grid-3">
-  <div class="node primary"><div class="node-label">Realtime Sync</div><div class="node-sub">Tasks + Concepts + Notifications via Supabase Realtime</div></div>
-  <div class="node success"><div class="node-label">Notification System</div><div class="node-sub">Bell + dropdown + full page + realtime + sound chime</div></div>
-  <div class="node warning"><div class="node-label">Deadline Alerts</div><div class="node-sub">Overdue tasks, concept pace, stale reviews — hourly checks</div></div>
-  <div class="node teal"><div class="node-label">CSV Export</div><div class="node-sub">Tasks, Concepts, Samples, Analytics — with column picker</div></div>
-  <div class="node purple"><div class="node-label">Concept Dashboard</div><div class="node-sub">Funnel + target race + MD review + leaderboard + scorecards</div></div>
+  <div class="node primary"><div class="node-label">Realtime Sync</div><div class="node-sub">Notifications + task comments via Supabase Realtime INSERT events</div></div>
+  <div class="node success"><div class="node-label">Notification System</div><div class="node-sub">Bell + dropdown + full page + realtime + Web Audio chime + tab flash</div></div>
+  <div class="node warning"><div class="node-label">Dashboard Alerts</div><div class="node-sub">Overdue + urgent + pending concept banners on /home (role-aware)</div></div>
+  <div class="node teal"><div class="node-label">CSV Export</div><div class="node-sub">Tasks, Concepts, Kitting — date range + column picker</div></div>
+  <div class="node purple"><div class="node-label">Concept Analytics</div><div class="node-sub">Funnel + target race + MD review + leaderboard + scorecards</div></div>
   <div class="node"><div class="node-label">Task Dashboard</div><div class="node-sub">KPIs + pipeline + workload + at-risk + leaderboard</div></div>
-  <div class="node success"><div class="node-label">Profile & Auth</div><div class="node-sub">Avatar upload, password change, role management</div></div>
-  <div class="node"><div class="node-label">Mobile Tab Bar</div><div class="node-sub">Fixed bottom nav + safe-area padding</div></div>
-  <div class="node danger"><div class="node-label">Error Boundary</div><div class="node-sub">Catches crashes → friendly "Something went wrong" card</div></div>
-  <div class="node"><div class="node-label">System CRUD</div><div class="node-sub">Add/edit/delete clients, fabrics, categories inline</div></div>
-  <div class="node primary"><div class="node-label">Full Knitting</div><div class="node-sub">Toggle + FK Form column + kitting modal + file upload</div></div>
-  <div class="node warning"><div class="node-label">Designer Scorecards</div><div class="node-sub">Detailed performance sheets per designer</div></div>
+  <div class="node success"><div class="node-label">Profile &amp; Auth</div><div class="node-sub">Avatar upload, password change, theme cards, reset password</div></div>
+  <div class="node"><div class="node-label">Mobile Tab Bar</div><div class="node-sub">Fixed bottom nav + role-specific tabs + safe-area</div></div>
+  <div class="node danger"><div class="node-label">Error Boundary</div><div class="node-sub">Catches crashes &rarr; friendly fallback + dev stack trace</div></div>
+  <div class="node"><div class="node-label">System Admin Hub</div><div class="node-sub">Categories, Fabrics, Clients, Codes, Storage, Danger Zone</div></div>
+  <div class="node orange"><div class="node-label">Full Kitting Workflow</div><div class="node-sub">2-stage coordinator&rarr;DEO &middot; 12-field digitization &middot; draft auto-save</div></div>
+  <div class="node warning"><div class="node-label">Designer Scorecards</div><div class="node-sub">Reliability gauge + heatmap + KPI tiles + 6-month momentum</div></div>
+  <div class="node primary"><div class="node-label">Keyboard Shortcuts</div><div class="node-sub">J/K nav, Enter/Esc, 1-4 tabs, /F search, ? help dialog</div></div>
+  <div class="node success"><div class="node-label">Image Compression</div><div class="node-sub">Canvas-based resize (1920px max, 0.85 quality) before upload</div></div>
+  <div class="node"><div class="node-label">Task Comments</div><div class="node-sub">Discussion threads with Realtime + edit/delete + 2000 char limit</div></div>
+  <div class="node teal"><div class="node-label">Form Draft Persistence</div><div class="node-sub">localStorage-backed with 300ms debounce + "draft recovered" hint</div></div>
+  <div class="node purple"><div class="node-label">Team CRUD</div><div class="node-sub">Add user (signUp), edit, role change, soft-delete/deactivate</div></div>
+  <div class="node"><div class="node-label">Dual Theme System</div><div class="node-sub">Light / Dark / System &middot; CSS variables &middot; FOUC prevention</div></div>
 </div>
 </div>
 
-<!-- SECTION 8: TECH -->
+<!-- SECTION 9: TECH -->
 <div class="section">
-<h2>8. Tech Architecture</h2>
+<h2>9. Tech Architecture</h2>
 <div class="flow-row" style="gap:24px">
   <div class="flow-col" style="gap:8px">
-    <div class="node primary"><div class="node-label">React 18 + Vite 5</div><div class="node-sub">TypeScript strict</div></div>
-    <div class="node"><div class="node-label">React Router v6</div><div class="node-sub">Role-gated routes</div></div>
-    <div class="node"><div class="node-label">Tailwind CSS</div><div class="node-sub">Dual theme (light/dark)</div></div>
-    <div class="node"><div class="node-label">Recharts</div><div class="node-sub">Sparklines, bar/area charts</div></div>
+    <div class="node primary"><div class="node-label">React 18 + Vite 5</div><div class="node-sub">TypeScript 5.6 strict</div></div>
+    <div class="node"><div class="node-label">React Router v6</div><div class="node-sub">Role-gated nested routes</div></div>
+    <div class="node"><div class="node-label">TanStack React Query 5</div><div class="node-sub">staleTime 2min &middot; gcTime 10min &middot; retry 1</div></div>
+    <div class="node"><div class="node-label">Tailwind CSS 3</div><div class="node-sub">Dual theme (light/dark) &middot; CSS variable colors</div></div>
+    <div class="node"><div class="node-label">Recharts + SVG Sparklines</div><div class="node-sub">Bar, Area, Radial, Pie charts + pure SVG sparklines</div></div>
   </div>
-  <div style="font-size:32px;color:var(--muted);align-self:center">⇄</div>
+  <div style="font-size:32px;color:var(--muted);align-self:center">&hArr;</div>
   <div class="flow-col" style="gap:8px">
     <div class="node success"><div class="node-label">Supabase</div><div class="node-sub">PostgreSQL + Auth + Realtime</div></div>
-    <div class="node success"><div class="node-label">PostgREST API</div><div class="node-sub">Auto-generated, typed</div></div>
-    <div class="node success"><div class="node-label">Storage</div><div class="node-sub">5 buckets, 100 MB, all types</div></div>
-    <div class="node success"><div class="node-label">RLS + Triggers</div><div class="node-sub">40+ policies, auto-timestamps</div></div>
+    <div class="node success"><div class="node-label">PostgREST API</div><div class="node-sub">Auto-generated, typed client (SDK 2.45.4 pinned)</div></div>
+    <div class="node success"><div class="node-label">Storage</div><div class="node-sub">5 buckets &middot; design-files 50 MB &middot; sample-files 100 MB</div></div>
+    <div class="node success"><div class="node-label">RLS + Triggers</div><div class="node-sub">40+ policies &middot; auto-timestamps &middot; auto-complete</div></div>
+    <div class="node success"><div class="node-label">Realtime Channels</div><div class="node-sub">Postgres Changes (INSERT) for notifications + comments</div></div>
   </div>
+</div>
+<div class="note">
+  <strong>Additional frontend libs:</strong> Radix UI (Dialog, Avatar, Dropdown, Label, Slot) &middot; Lucide icons &middot; date-fns &middot; canvas-confetti &middot; class-variance-authority &middot; tailwind-merge &middot; clsx<br>
+  <strong>Bundle:</strong> ~572 KB production (no route-level code splitting yet)<br>
+  <strong>Font:</strong> Inter (400/500/600/700) from Google Fonts &middot; system-ui fallback
 </div>
 </div>
 
-<!-- SECTION 9: USER ACCOUNTS -->
+<!-- SECTION 10: USER ACCOUNTS -->
 <div class="section">
-<h2>9. User Accounts</h2>
+<h2>10. User Accounts</h2>
 <table class="info-table">
-  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th></tr></thead>
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th><th>Designer Code</th></tr></thead>
   <tbody>
-    <tr><td>Harshali Bhopale</td><td>harshali.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Harshali123</td></tr>
-    <tr><td>Mahesh Ghawane</td><td>maheshgavhane150@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Mahesh123</td></tr>
-    <tr><td>Aditya Lohar</td><td>aditya.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aditya123</td></tr>
-    <tr><td>Aman Ahmed</td><td>amandeolinkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aman123</td></tr>
-    <tr><td>Naushi Ma'am</td><td>naushi.linkdprints@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Naushi123</td></tr>
-    <tr><td>Supriya</td><td>designcoordinator.linkdprints@gmail.com</td><td><span class="tag tag-purple">Coordinator</span></td><td>Supriya123</td></tr>
-    <tr><td>Krupesh Late</td><td>krupeshlate12@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>krupesh123</td></tr>
-    <tr><td>Ketan Bhoir</td><td>bhoirketan07@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Ketan123</td></tr>
-    <tr><td>Kavita Rane</td><td>kavitarane80@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Kavita123</td></tr>
-    <tr><td>Nikita Sahu</td><td>nikita888sahu@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Nikita123</td></tr>
-    <tr><td>Manav Khandale</td><td>manavlinkd@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Manav123</td></tr>
-    <tr><td>Shadab Khan</td><td>sk8660081@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Shadab123</td></tr>
+    <tr><td>Harshali Bhopale</td><td>harshali.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Harshali123</td><td>&mdash;</td></tr>
+    <tr><td>Mahesh Ghawane</td><td>maheshgavhane150@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Mahesh123</td><td>&mdash;</td></tr>
+    <tr><td>Aditya Lohar</td><td>aditya.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aditya123</td><td>&mdash;</td></tr>
+    <tr><td>Aman Ahmed</td><td>amandeolinkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aman123</td><td>&mdash;</td></tr>
+    <tr><td>Naushi Ma'am</td><td>naushi.linkdprints@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Naushi123</td><td>&mdash;</td></tr>
+    <tr><td>Supriya</td><td>designcoordinator.linkdprints@gmail.com</td><td><span class="tag tag-purple">Coordinator</span></td><td>Supriya123</td><td>&mdash;</td></tr>
+    <tr><td>Krupesh Late</td><td>krupeshlate12@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Krupesh123</td><td>K</td></tr>
+    <tr><td>Ketan Bhoir</td><td>bhoirketan07@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Ketan123</td><td>V</td></tr>
+    <tr><td>Kavita Rane</td><td>kavitarane80@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Kavita123</td><td>S</td></tr>
+    <tr><td>Nikita Sahu</td><td>nikita888sahu@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Nikita123</td><td>&mdash;</td></tr>
+    <tr><td>Manav Khandale</td><td>manavlinkd@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Manav123</td><td>W</td></tr>
+    <tr><td>Shadab Khan</td><td>sk8660081@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Shadab123</td><td>T</td></tr>
   </tbody>
 </table>
+<div class="note">
+  <strong>Password pattern:</strong> <code>{FirstName}123</code> with a capital first letter for all accounts.<br>
+  <strong>Designer codes:</strong> Single-letter codes (K, V, S, W, T) used in task code generation. Managed via <code>designer_codes</code> table.
+</div>
 </div>
 
 <div class="divider"></div>
 <p style="text-align:center;color:var(--muted);font-size:12px">
-  LinkD FMS — Design Flow System<br>
-  14 tables &middot; 3 roles &middot; 18 views &middot; 19 hooks &middot; 64 components &middot; 16 migrations<br>
+  LinkD FMS &mdash; Design Flow System<br>
+  15+ tables &middot; 4 roles &middot; 22 views &middot; 24 hooks &middot; 80+ components &middot; 20+ migrations<br>
   Updated: May 2026
 </p>
 

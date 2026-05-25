@@ -15,16 +15,14 @@ import {
   Building2,
   CalendarDays,
   Tag,
+  Layers,
 } from "lucide-react";
 import { differenceInDays, format, parseISO } from "date-fns";
 import { toast } from "@/components/ui";
 import type { CompletionHistoryEntry } from "@/types/database";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+// The concept detail surface is now a centered modal (was a right-side
+// drawer). Keeps the existing Dialog* helpers used by Hold / Suggest-Changes
+// inner dialogs — no extra primitives needed.
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -39,10 +37,40 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   CONCEPT_STATUS_LABELS,
   CONCEPT_STATUS_COLORS,
+  WORK_STATUS_LABELS,
+  WORK_STATUS_COLORS,
 } from "@/lib/constants";
-import { cn, formatDate } from "@/lib/utils";
-import type { ConceptStatus, ConceptWithRelations, UserRole } from "@/types/database";
-import type { ReviewInput } from "@/hooks/useConcepts";
+import {
+  cn,
+  formatDate,
+  parseIntervalSeconds,
+  formatDuration,
+} from "@/lib/utils";
+import type {
+  ConceptStatus,
+  ConceptWithRelations,
+  UserRole,
+} from "@/types/database";
+import type { ReviewInput, MutationResult } from "@/hooks/useConcepts";
+import type { Concept } from "@/types/database";
+import {
+  Pause,
+  Play,
+  PlayCircle,
+  Hourglass,
+  Send,
+  ThumbsUp,
+  PencilLine,
+  AlertTriangle,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 
 function isAdminRole(role: UserRole | null | undefined): boolean {
   return role === "admin" || role === "design_coordinator";
@@ -156,6 +184,29 @@ interface Props {
     notes?: string | null
   ) => Promise<{ error: string | null }>;
   onResubmit?: (id: string) => Promise<{ error: string | null }>;
+  /** Designer re-submits after MD asked for revision on the initial concept.
+   *  Opens the ResubmitConceptDialog where the designer uploads revised
+   *  file(s) and optionally notes what they changed — that dialog calls
+   *  the resubmitForReview mutation. The drawer just signals "user wants
+   *  to start the re-submit flow". */
+  onOpenResubmitForReview?: (concept: ConceptWithRelations) => void;
+  // Work-status lifecycle (0025/0026)
+  onStart?: (id: string) => Promise<MutationResult<Concept>>;
+  onHold?: (
+    id: string,
+    reason?: string | null
+  ) => Promise<MutationResult<Concept>>;
+  onResume?: (id: string) => Promise<MutationResult<Concept>>;
+  onMarkDone?: (id: string) => Promise<MutationResult<Concept>>;
+  onApproveDesign?: (
+    id: string,
+    approvedDesignsCount?: number | null
+  ) => Promise<MutationResult<Concept>>;
+  onSuggestChanges?: (
+    id: string,
+    feedback: string
+  ) => Promise<MutationResult<Concept>>;
+  onStartChanges?: (id: string) => Promise<MutationResult<Concept>>;
 }
 
 // ============================================================================
@@ -171,18 +222,31 @@ export function ConceptDetailDrawer({
   onFinalApprove,
   onFinalRevise,
   onResubmit,
+  onOpenResubmitForReview,
+  onStart,
+  onHold,
+  onResume,
+  onMarkDone,
+  onApproveDesign,
+  onSuggestChanges,
+  onStartChanges,
 }: Props) {
   const { profile } = useAuth();
   const [reviewNotes, setReviewNotes] = useState("");
   const [finalNotes, setFinalNotes] = useState("");
   const [approvedCount, setApprovedCount] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  // Work-status lifecycle dialogs
+  const [holdOpen, setHoldOpen] = useState(false);
+  const [holdReason, setHoldReason] = useState("");
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestFeedback, setSuggestFeedback] = useState("");
 
   if (!concept) {
     return (
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="sm:w-[36rem]" />
-      </Sheet>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-3xl" />
+      </Dialog>
     );
   }
 
@@ -255,6 +319,16 @@ export function ConceptDetailDrawer({
     onOpenChange(false);
   }
 
+  /** Designer re-submits an initial concept after MD requested revision.
+   *  Opens the ResubmitConceptDialog (in ConceptsView) where the designer
+   *  uploads revised file(s) + optional notes — that dialog owns the
+   *  mutation call. We just close the drawer so the dialog gets focus. */
+  function handleOpenResubmit() {
+    if (!onOpenResubmitForReview || !concept) return;
+    onOpenResubmitForReview(concept);
+    onOpenChange(false);
+  }
+
   async function handleResubmit() {
     if (!onResubmit) return;
     setBusy("resubmit");
@@ -265,13 +339,128 @@ export function ConceptDetailDrawer({
     onOpenChange(false);
   }
 
+  // ────── Work-status lifecycle handlers ──────
+  // Every handler short-circuits when `busy !== null` — defense in depth
+  // against rapid double-clicks before React applies the disabled state
+  // to the LoadingButton. The visual disabled style takes care of intent;
+  // the guard takes care of the rare race window.
+  async function handleStart() {
+    if (!onStart || busy !== null) return;
+    setBusy("start");
+    const { error } = await onStart(concept!.id);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("You're now working on this concept");
+  }
+
+  async function handleHoldSubmit() {
+    if (!onHold || busy !== null) return;
+    setBusy("hold");
+    const { error } = await onHold(concept!.id, holdReason || null);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("Concept put on hold");
+    setHoldReason("");
+    setHoldOpen(false);
+  }
+
+  async function handleResume() {
+    if (!onResume || busy !== null) return;
+    setBusy("resume");
+    const { error } = await onResume(concept!.id);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("Resumed — back to work");
+  }
+
+  async function handleMarkDone() {
+    if (!onMarkDone || busy !== null) return;
+    setBusy("mark_done");
+    const { error } = await onMarkDone(concept!.id);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("Marked done — sent to Ma'am for review");
+  }
+
+  async function handleApproveDesign() {
+    if (!onApproveDesign || busy !== null) return;
+    // Use the same `approvedCount` state that the legacy final-approval card
+    // already binds to. If the user typed a number, send it; otherwise null
+    // (and the mutation leaves any prior value in place).
+    const parsed =
+      approvedCount.trim() === "" ? null : parseInt(approvedCount, 10);
+    if (parsed !== null && (Number.isNaN(parsed) || parsed < 0)) {
+      toast.error("Approved designs count must be 0 or more");
+      return;
+    }
+    if (
+      parsed !== null &&
+      concept!.designs_count !== null &&
+      concept!.designs_count !== undefined &&
+      parsed > concept!.designs_count
+    ) {
+      toast.error(
+        `Can't approve more than ${concept!.designs_count} (designer submitted ${concept!.designs_count})`
+      );
+      return;
+    }
+    setBusy("approve_design");
+    const { error } = await onApproveDesign(concept!.id, parsed);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("Design approved — concept completed");
+    setApprovedCount("");
+    onOpenChange(false);
+  }
+
+  async function handleSuggestChangesSubmit() {
+    if (!onSuggestChanges || busy !== null) return;
+    setBusy("suggest_changes");
+    const { error } = await onSuggestChanges(concept!.id, suggestFeedback);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("Feedback sent to designer");
+    setSuggestFeedback("");
+    setSuggestOpen(false);
+  }
+
+  async function handleStartChanges() {
+    if (!onStartChanges || busy !== null) return;
+    setBusy("start_changes");
+    const { error } = await onStartChanges(concept!.id);
+    setBusy(null);
+    if (error) return void toast.error(error);
+    toast.success("Working on the requested changes");
+  }
+
+  // Work-status capability gates. Designer can only act on their own concept;
+  // admin can act on the design-review queue. `isMine` already includes both
+  // submitted_by and designer_id, which is the right surface area here.
+  const ws = concept.work_status;
+  const showWorkActions = concept.md_status === "approved";
+  const canStart = !!onStart && isMine && ws === "not_started";
+  const canHold = !!onHold && isMine && ws === "in_progress";
+  const canResume = !!onResume && isMine && ws === "on_hold";
+  const canMarkDone = !!onMarkDone && isMine && ws === "in_progress";
+  const canStartChanges =
+    !!onStartChanges && isMine && ws === "changes_requested";
+  const canReviewDesign = isAdmin && ws === "in_revision";
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto p-0 sm:w-[36rem]">
-        {/* ── Header ── */}
-        <div className="sticky top-0 z-10 border-b border-border bg-card px-6 pb-4 pt-6">
-          <SheetHeader className="space-y-1.5 p-0">
-            <div className="flex items-center gap-2">
+    <>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex max-h-[90vh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        {/* ── Header (sticky, shows code + status pills + title + pipeline) ──
+             The Dialog primitive renders its own X close button at top-right;
+             we add right padding to keep the title from colliding with it. */}
+        <div className="shrink-0 border-b border-border bg-card px-6 pb-4 pr-12 pt-5">
+          <DialogHeader className="space-y-1.5 border-0 p-0">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
                 {concept.concept_code}
               </span>
@@ -283,16 +472,26 @@ export function ConceptDetailDrawer({
               >
                 {CONCEPT_STATUS_LABELS[concept.md_status]}
               </Badge>
+              {showWorkActions && (
+                <Badge
+                  className={cn(
+                    "text-[10px]",
+                    WORK_STATUS_COLORS[concept.work_status]
+                  )}
+                >
+                  {WORK_STATUS_LABELS[concept.work_status]}
+                </Badge>
+              )}
               {concept.priority === "urgent" && (
                 <Badge className="bg-destructive/15 text-destructive text-[10px] ring-1 ring-inset ring-destructive/30">
                   Urgent
                 </Badge>
               )}
             </div>
-            <SheetTitle className="text-lg leading-tight">
+            <DialogTitle className="text-lg leading-tight">
               {concept.title}
-            </SheetTitle>
-          </SheetHeader>
+            </DialogTitle>
+          </DialogHeader>
 
           {/* ── Pipeline progress bar ── */}
           <div className="mt-4 flex items-center gap-1">
@@ -330,6 +529,43 @@ export function ConceptDetailDrawer({
             )}
           </div>
         </div>
+
+        {/* ── Scrollable body — fills remaining dialog height, internal
+             scroll so the sticky header stays put. ── */}
+        <div className="flex-1 overflow-y-auto">
+
+        {/* ── Work-status action panel — visible whenever md_status='approved'.
+             This sits at the top of the body so the right next-step button is
+             always one tap away. Designer + admin see different actions per
+             work_status; see the per-state branches below. ── */}
+        {/* Top action panel — now reserved for the admin's "in revision"
+             final review (where the Approved count input + Approve / Suggest
+             Changes buttons live). All other lifecycle actions are inlined
+             into the Designer Completion stage section below so the user
+             has a single, contextual surface for each transition. */}
+        {showWorkActions && canReviewDesign && (
+          <WorkStatusActionPanel
+            concept={concept}
+            isAdmin={isAdmin}
+            isMine={isMine}
+            busy={busy}
+            approvedCount={approvedCount}
+            setApprovedCount={setApprovedCount}
+            canStart={canStart}
+            canHold={canHold}
+            canResume={canResume}
+            canMarkDone={canMarkDone}
+            canStartChanges={canStartChanges}
+            canReviewDesign={canReviewDesign}
+            onStart={handleStart}
+            onOpenHold={() => setHoldOpen(true)}
+            onResume={handleResume}
+            onMarkDone={handleMarkDone}
+            onStartChanges={handleStartChanges}
+            onApproveDesign={handleApproveDesign}
+            onOpenSuggest={() => setSuggestOpen(true)}
+          />
+        )}
 
         {/* ── Body ── */}
         <div className="space-y-0 pb-8">
@@ -380,6 +616,19 @@ export function ConceptDetailDrawer({
               >
                 {concept.assigned_by || "—"}
               </DetailItem>
+
+              {/* Designs in this concept — denominator at final approval.
+                  Hidden for pre-0028 rows that don't have the field set. */}
+              {concept.designs_count != null && (
+                <DetailItem
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Designs in Concept"
+                >
+                  <span className="font-semibold tabular-nums">
+                    {concept.designs_count}
+                  </span>
+                </DetailItem>
+              )}
             </div>
 
             {/* Image */}
@@ -494,6 +743,37 @@ export function ConceptDetailDrawer({
               </div>
             )}
 
+            {/* ── Designer's resubmit surface ──
+                 When MD has asked for revision on the initial submission
+                 (md_status='revision_requested'), the designer's only
+                 next step is to address the feedback and re-submit. This
+                 panel sits inside Stage 2 because that's where the
+                 revision verdict landed; the designer needs to act on it
+                 here, not in the post-approval lifecycle below. */}
+            {concept.md_status === "revision_requested" &&
+              isMine &&
+              onOpenResubmitForReview && (
+                <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Your action: revise the file and re-submit
+                  </p>
+                  <p className="mb-3 text-[11px] text-muted-foreground">
+                    The next screen lets you upload the revised file(s) and
+                    optionally note what you changed. Ma'am's feedback above
+                    stays available there too.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={handleOpenResubmit}
+                    className="w-full gap-1.5"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Re-submit for review
+                  </Button>
+                </div>
+              )}
+
             {/* ── Action: Review (pending concepts) ── */}
             {(canReview || canRequestRevisionReview) && (
               <div className="mt-3 space-y-3 rounded-lg border border-border bg-card p-4">
@@ -596,76 +876,272 @@ export function ConceptDetailDrawer({
               </DetailItem>
             </div>
 
-            {concept.designer_actual_date ? (
-              <>
-                <div className="mt-3 flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm font-medium text-success">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Completed by designer
-                </div>
-
-                {/* Show revision feedback + re-submit for designer */}
-                {concept.final_approval_notes && !concept.final_approved_at && (
-                  <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-warning">
-                          Revision requested by MD
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {concept.final_approval_notes}
-                        </p>
-                      </div>
-                    </div>
-                    {isMine && onResubmit && (
-                      <Button
-                        onClick={handleResubmit}
-                        disabled={busy !== null}
-                        size="sm"
-                        className="mt-2 w-full gap-1.5"
-                      >
-                        {busy === "resubmit" ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        )}
-                        Re-submit for Final Approval
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : concept.md_status === "approved" ? (
-              <div className="mt-3 rounded-lg border border-border bg-card p-3">
-                <p className="text-xs text-muted-foreground">
-                  {canFinalize
-                    ? "Mark as completed once your design work is done."
-                    : "Waiting for the designer to complete."}
-                </p>
-                {canFinalize && (
-                  <Button
-                    onClick={handleFinalize}
-                    disabled={busy !== null}
-                    size="sm"
-                    className="mt-2 w-full gap-1.5 bg-success hover:bg-success/90"
-                  >
-                    {busy === "finalize" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5" />
-                    )}
-                    Mark as Completed
-                  </Button>
-                )}
-              </div>
-            ) : (
+            {/* ── Lifecycle-driven content. State decides what shows; legacy
+                 fields are read-only. The old "Mark as Completed" button
+                 here bypassed the lifecycle and let designers complete
+                 without ever starting — removed. ── */}
+            {concept.md_status !== "approved" ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 {concept.md_status === "pending"
                   ? "Waiting for MD approval before this stage begins."
                   : concept.md_status === "rejected"
-                    ? "This concept was rejected."
-                    : "Needs approval before completion can begin."}
+                    ? "This concept was rejected — no further work."
+                    : "Needs MD approval before completion can begin."}
               </p>
+            ) : (
+              <>
+                {/* Status banner — tells the user exactly what state the
+                     concept is in right now, no ambiguity. `revision_count`
+                     drives rework-vs-first-pass copy below: `>= 1` means
+                     the designer is back working on MD's feedback. */}
+                <div className="mt-3">
+                  {/* Fallback for not_started — happens on legacy rows that
+                       pre-date the 0029 auto-start trigger and pre-date the
+                       client-side mirror in reviewConcept. New approvals
+                       skip this state entirely. */}
+                  {concept.work_status === "not_started" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="font-medium text-foreground">
+                        Ready to start
+                      </span>
+                      <span className="ml-auto text-[11px] text-muted-foreground">
+                        Click Start working to log your kickoff
+                      </span>
+                    </div>
+                  )}
+                  {concept.work_status === "in_progress" &&
+                    (concept.revision_count ?? 0) === 0 && (
+                      <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-sm">
+                          <PlayCircle className="h-4 w-4 text-primary" />
+                          <span className="font-medium text-foreground">
+                            Working now
+                          </span>
+                          {concept.work_started_at && (
+                            <span className="ml-auto text-[11px] text-muted-foreground">
+                              Started {fmtDate(concept.work_started_at)}
+                            </span>
+                          )}
+                        </div>
+                        {/* Hold history sub-line — only shows once the designer
+                             has been on hold at least once, so the badge isn't
+                             noise on a clean first-pass row. Includes the most
+                             recent resume date for quick context. */}
+                        {(concept.hold_count ?? 0) > 0 && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                            <span className="inline-flex items-center gap-1">
+                              <Pause className="h-3 w-3" />
+                              Held {concept.hold_count}× · {formatDuration(parseIntervalSeconds(concept.total_hold_duration))} total
+                            </span>
+                            {concept.work_resumed_at && (
+                              <span className="inline-flex items-center gap-1">
+                                <Play className="h-3 w-3" />
+                                Resumed {fmtDate(concept.work_resumed_at)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  {/* Rework banner — designer reworking MD's feedback. We
+                       keep the feedback inline so it stays referenceable
+                       while they're working. */}
+                  {concept.work_status === "in_progress" &&
+                    (concept.revision_count ?? 0) >= 1 && (
+                      <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-sm font-medium text-warning">
+                          <RotateCcw className="h-4 w-4" />
+                          Reworking — round {(concept.revision_count ?? 0) + 1}
+                        </div>
+                        {concept.md_feedback && (
+                          <p className="mt-1 text-xs italic text-foreground">
+                            Ma'am's feedback: "{concept.md_feedback}"
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  {concept.work_status === "on_hold" && (() => {
+                    // Live duration of the current hold = now - work_held_at.
+                    // total_hold_duration only includes previously-ended holds;
+                    // we add the current sliver client-side so the display
+                    // reads "current hold of N days · X total" without
+                    // touching the DB until resume.
+                    const heldAt = concept.work_held_at
+                      ? new Date(concept.work_held_at).getTime()
+                      : null;
+                    const currentHoldSec = heldAt
+                      ? Math.max(0, Math.floor((Date.now() - heldAt) / 1000))
+                      : 0;
+                    const priorTotalSec = parseIntervalSeconds(
+                      concept.total_hold_duration
+                    );
+                    const cumulativeSec = priorTotalSec + currentHoldSec;
+                    const isRepeatHold = (concept.hold_count ?? 0) > 1;
+                    return (
+                      <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-sm font-medium text-warning">
+                          <Pause className="h-4 w-4" />
+                          On hold
+                          {heldAt && (
+                            <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+                              Held {formatDuration(currentHoldSec)} so far
+                            </span>
+                          )}
+                        </div>
+                        {concept.hold_reason && (
+                          <p className="mt-1 text-xs italic text-foreground">
+                            "{concept.hold_reason}"
+                          </p>
+                        )}
+                        {/* Date trail — when the current hold started, and (if
+                             this isn't the first) the cumulative hold time. */}
+                        {(heldAt || isRepeatHold) && (
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                            {heldAt && (
+                              <span className="inline-flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Held since {formatDate(concept.work_held_at)}
+                              </span>
+                            )}
+                            {isRepeatHold && (
+                              <span className="inline-flex items-center gap-1">
+                                <RotateCcw className="h-3 w-3" />
+                                Hold #{concept.hold_count} · {formatDuration(cumulativeSec)} cumulative
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {concept.work_status === "in_revision" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive">
+                      <Hourglass className="h-4 w-4" />
+                      {(concept.revision_count ?? 0) > 1
+                        ? `Changes submitted — awaiting MD review (round ${concept.revision_count})`
+                        : "Sent for MD review — awaiting verdict"}
+                    </div>
+                  )}
+                  {/* `changes_requested` collapsed into `in_progress` via
+                       0030 — the rework banner above (revision_count >= 1)
+                       carries MD's feedback inline. Kept this branch only
+                       as a defensive fallback for pre-0030 legacy rows. */}
+                  {concept.work_status === "changes_requested" && (
+                    <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5">
+                      <div className="flex items-center gap-2 text-sm font-medium text-warning">
+                        <AlertTriangle className="h-4 w-4" />
+                        Reworking — Ma'am's feedback
+                      </div>
+                      {concept.md_feedback && (
+                        <p className="mt-1 text-xs italic text-foreground">
+                          "{concept.md_feedback}"
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {concept.work_status === "completed" && (
+                    <div className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm font-medium text-success">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Completed by designer
+                      {concept.work_completed_at && (
+                        <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+                          {fmtDate(concept.work_completed_at)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Inline lifecycle actions — single decisive surface so
+                     the user always knows the next step. Each button is
+                     gated by both work_status AND ownership; admins watching
+                     someone else's row see status only, no buttons. */}
+                {isMine && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {/* Start working — fallback for legacy not_started rows.
+                         New approvals auto-start so this rarely shows in
+                         practice. Each action button also disables when ANY
+                         other action is busy (`disabled={busy !== null}`)
+                         so sibling buttons can't fire mid-mutation. The
+                         disabled override classes make the inactive state
+                         unmistakably grey instead of just "dim coloured". */}
+                    {canStart && (
+                      <LoadingButton
+                        size="sm"
+                        loading={busy === "start"}
+                        loadingText="Starting…"
+                        onClick={handleStart}
+                        disabled={busy !== null && busy !== "start"}
+                        className="gap-1.5 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:cursor-not-allowed"
+                      >
+                        <PlayCircle className="h-3.5 w-3.5" />
+                        Start working
+                      </LoadingButton>
+                    )}
+                    {canHold && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHoldOpen(true)}
+                        disabled={busy !== null}
+                        className="gap-1.5 disabled:bg-muted/30 disabled:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-100"
+                      >
+                        <Pause className="h-3.5 w-3.5" />
+                        Hold
+                      </Button>
+                    )}
+                    {canResume && (
+                      <LoadingButton
+                        size="sm"
+                        loading={busy === "resume"}
+                        loadingText="Resuming…"
+                        onClick={handleResume}
+                        disabled={busy !== null && busy !== "resume"}
+                        className="gap-1.5 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:cursor-not-allowed"
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                        Resume
+                      </LoadingButton>
+                    )}
+                    {canMarkDone && (
+                      <LoadingButton
+                        size="sm"
+                        loading={busy === "mark_done"}
+                        loadingText="Sending…"
+                        onClick={handleMarkDone}
+                        disabled={busy !== null && busy !== "mark_done"}
+                        className="ml-auto gap-1.5 bg-success text-white hover:bg-success/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:cursor-not-allowed"
+                      >
+                        {(concept.revision_count ?? 0) >= 1 ? (
+                          <>
+                            <Send className="h-3.5 w-3.5" />
+                            Submit changes
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Mark as Done
+                          </>
+                        )}
+                      </LoadingButton>
+                    )}
+                    {canStartChanges && (
+                      <LoadingButton
+                        size="sm"
+                        loading={busy === "start_changes"}
+                        loadingText="Starting…"
+                        onClick={handleStartChanges}
+                        disabled={busy !== null && busy !== "start_changes"}
+                        className="ml-auto gap-1.5 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:cursor-not-allowed"
+                      >
+                        <PlayCircle className="h-3.5 w-3.5" />
+                        Start changes
+                      </LoadingButton>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </StageSection>
 
@@ -850,8 +1326,365 @@ export function ConceptDetailDrawer({
             </div>
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* ────── Hold dialog (designer) ────── */}
+    <Dialog open={holdOpen} onOpenChange={setHoldOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Hold this concept?</DialogTitle>
+          <DialogDescription>
+            You can resume anytime. The hold duration will be tracked so
+            Ma'am sees what actually delayed the work.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 pt-2">
+          <Label htmlFor="hold-reason" className="text-xs">
+            Reason (optional)
+          </Label>
+          <textarea
+            id="hold-reason"
+            value={holdReason}
+            onChange={(e) => setHoldReason(e.target.value)}
+            placeholder="e.g. Urgent job-work brief came in"
+            rows={3}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHoldOpen(false)}
+            disabled={busy === "hold"}
+          >
+            Cancel
+          </Button>
+          <LoadingButton
+            size="sm"
+            loading={busy === "hold"}
+            loadingText="Holding…"
+            onClick={handleHoldSubmit}
+            className="gap-1.5"
+          >
+            <Pause className="h-3.5 w-3.5" />
+            Hold concept
+          </LoadingButton>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* ────── Suggest changes dialog (admin) ────── */}
+    <Dialog open={suggestOpen} onOpenChange={setSuggestOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Suggest changes</DialogTitle>
+          <DialogDescription>
+            Describe what should change. The designer will see this feedback
+            on their board and can reference it while reworking.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 pt-2">
+          <Label htmlFor="suggest-feedback" className="text-xs">
+            Feedback <span className="text-destructive">*</span>
+          </Label>
+          <textarea
+            id="suggest-feedback"
+            value={suggestFeedback}
+            onChange={(e) => setSuggestFeedback(e.target.value)}
+            placeholder="What should the designer change?"
+            rows={4}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSuggestOpen(false)}
+            disabled={busy === "suggest_changes"}
+          >
+            Cancel
+          </Button>
+          <LoadingButton
+            size="sm"
+            loading={busy === "suggest_changes"}
+            loadingText="Sending…"
+            disabled={!suggestFeedback.trim()}
+            onClick={handleSuggestChangesSubmit}
+            className="gap-1.5"
+          >
+            <Send className="h-3.5 w-3.5" />
+            Send feedback
+          </LoadingButton>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
+  );
+}
+
+// ============================================================================
+// WorkStatusActionPanel — per-state action card for the post-approval
+// lifecycle. Lives inside the drawer right under the pipeline progress bar.
+// Designer-visible states: not_started, in_progress, on_hold,
+//   changes_requested. Admin-visible state: in_revision.
+// ============================================================================
+
+function WorkStatusActionPanel({
+  concept,
+  isAdmin,
+  isMine,
+  busy,
+  approvedCount,
+  setApprovedCount,
+  canStart,
+  canHold,
+  canResume,
+  canMarkDone,
+  canStartChanges,
+  canReviewDesign,
+  onStart,
+  onOpenHold,
+  onResume,
+  onMarkDone,
+  onStartChanges,
+  onApproveDesign,
+  onOpenSuggest,
+}: {
+  concept: ConceptWithRelations;
+  isAdmin: boolean;
+  isMine: boolean;
+  busy: string | null;
+  /** Controlled input for "how many of the submitted designs MD approved". */
+  approvedCount: string;
+  setApprovedCount: (v: string) => void;
+  canStart: boolean;
+  canHold: boolean;
+  canResume: boolean;
+  canMarkDone: boolean;
+  canStartChanges: boolean;
+  canReviewDesign: boolean;
+  onStart: () => void;
+  onOpenHold: () => void;
+  onResume: () => void;
+  onMarkDone: () => void;
+  onStartChanges: () => void;
+  onApproveDesign: () => void;
+  onOpenSuggest: () => void;
+}) {
+  const ws = concept.work_status;
+  const feedback = concept.md_feedback?.trim();
+  const holdReason = concept.hold_reason?.trim();
+
+  return (
+    <div className="border-b border-border bg-secondary/30 px-6 py-4">
+      {/* Feedback / hold-reason banners — always visible when present so the
+          designer can reference them while in 'in_progress' too. */}
+      {ws === "changes_requested" && feedback && (
+        <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2">
+          <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
+            <AlertTriangle className="h-3 w-3" /> Changes requested by Ma'am
+          </p>
+          <p className="text-sm leading-snug text-foreground">{feedback}</p>
+        </div>
+      )}
+      {ws === "on_hold" && holdReason && (
+        <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2">
+          <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
+            <Hourglass className="h-3 w-3" /> On hold
+          </p>
+          <p className="text-sm leading-snug text-foreground">{holdReason}</p>
+        </div>
+      )}
+
+      {/* Action row — branches by work_status + role */}
+      {ws === "not_started" && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {isMine
+              ? "Ready when you are — start to log your working time."
+              : "Waiting for designer to start."}
+          </p>
+          {canStart && (
+            <LoadingButton
+              size="sm"
+              loading={busy === "start"}
+              loadingText="Starting…"
+              onClick={onStart}
+              className="gap-1.5"
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              Start working
+            </LoadingButton>
+          )}
+        </div>
+      )}
+
+      {ws === "in_progress" && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {isMine
+              ? "Working now. Mark done when the design is ready for review."
+              : `In progress — ${concept.designer?.full_name ?? "designer"} is working.`}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {canHold && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenHold}
+                className="gap-1.5"
+                disabled={busy !== null}
+              >
+                <Pause className="h-3.5 w-3.5" />
+                Hold
+              </Button>
+            )}
+            {canMarkDone && (
+              <LoadingButton
+                size="sm"
+                loading={busy === "mark_done"}
+                loadingText="Sending…"
+                onClick={onMarkDone}
+                className="gap-1.5"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Mark done
+              </LoadingButton>
+            )}
+          </div>
+        </div>
+      )}
+
+      {ws === "on_hold" && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {isMine ? "Resume when you're ready to continue." : "Currently on hold."}
+          </p>
+          {canResume && (
+            <LoadingButton
+              size="sm"
+              loading={busy === "resume"}
+              loadingText="Resuming…"
+              onClick={onResume}
+              className="gap-1.5"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Resume
+            </LoadingButton>
+          )}
+        </div>
+      )}
+
+      {ws === "in_revision" && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">
+              {isAdmin
+                ? "Designer marked this done — your review decides the outcome."
+                : "Waiting for Ma'am to review the design."}
+            </p>
+            {/* Show how many designs the designer submitted so MD can pick
+                an approved count without guessing. */}
+            {isAdmin && concept.designs_count != null && (
+              <p className="mt-0.5 text-[11px] font-medium text-foreground">
+                Designer submitted{" "}
+                <span className="font-semibold">{concept.designs_count}</span>{" "}
+                design{concept.designs_count === 1 ? "" : "s"}
+              </p>
+            )}
+          </div>
+          {canReviewDesign && (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Approved-count input — only the in-revision admin view needs
+                  this. Pre-populated with `designs_count` so the common case
+                  ("all approved") is a single tap. */}
+              {concept.designs_count != null && (
+                <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Approved
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={concept.designs_count ?? undefined}
+                    value={approvedCount}
+                    onChange={(e) => setApprovedCount(e.target.value)}
+                    placeholder={String(concept.designs_count)}
+                    className="h-6 w-14 rounded border-0 bg-transparent px-1 text-sm font-semibold tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    / {concept.designs_count}
+                  </span>
+                </div>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenSuggest}
+                disabled={busy !== null}
+                className="gap-1.5 border-warning/40 text-warning hover:bg-warning/10"
+              >
+                <PencilLine className="h-3.5 w-3.5" />
+                Suggest changes
+              </Button>
+              <LoadingButton
+                size="sm"
+                loading={busy === "approve_design"}
+                loadingText="Approving…"
+                onClick={onApproveDesign}
+                className="gap-1.5 bg-success text-white hover:bg-success/90"
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+                Approve design
+              </LoadingButton>
+            </div>
+          )}
+        </div>
+      )}
+
+      {ws === "changes_requested" && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {isMine
+              ? "Start when you're ready — feedback stays visible while you work."
+              : "Designer needs to implement changes."}
+          </p>
+          {canStartChanges && (
+            <LoadingButton
+              size="sm"
+              loading={busy === "start_changes"}
+              loadingText="Starting…"
+              onClick={onStartChanges}
+              className="gap-1.5"
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              Start changes
+            </LoadingButton>
+          )}
+        </div>
+      )}
+
+      {ws === "completed" && (
+        <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2">
+          <CheckCircle2 className="h-4 w-4 text-success" />
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-success">
+              Design completed
+            </p>
+            {concept.work_completed_at && (
+              <p className="text-[10px] text-muted-foreground">
+                {format(parseISO(concept.work_completed_at), "dd MMM yyyy · HH:mm")}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -863,6 +1696,7 @@ const HISTORY_CONFIG: Record<
   CompletionHistoryEntry["type"],
   { icon: typeof Check; label: string; color: string; bgColor: string }
 > = {
+  // ── Legacy event types ──
   done: {
     icon: CheckCircle2,
     label: "Marked as Done",
@@ -886,6 +1720,49 @@ const HISTORY_CONFIG: Record<
     label: "Final Approval",
     color: "text-success",
     bgColor: "bg-success",
+  },
+  // ── Work-status lifecycle event types (added 0026) ──
+  started: {
+    icon: PlayCircle,
+    label: "Started Working",
+    color: "text-primary",
+    bgColor: "bg-primary",
+  },
+  held: {
+    icon: Pause,
+    label: "Put On Hold",
+    color: "text-warning",
+    bgColor: "bg-warning",
+  },
+  resumed: {
+    icon: Play,
+    label: "Resumed",
+    color: "text-primary",
+    bgColor: "bg-primary",
+  },
+  marked_done: {
+    icon: Send,
+    label: "Sent for Review",
+    color: "text-primary",
+    bgColor: "bg-primary",
+  },
+  design_approved: {
+    icon: ThumbsUp,
+    label: "Design Approved",
+    color: "text-success",
+    bgColor: "bg-success",
+  },
+  changes_requested: {
+    icon: PencilLine,
+    label: "Changes Requested",
+    color: "text-warning",
+    bgColor: "bg-warning",
+  },
+  start_changes: {
+    icon: PlayCircle,
+    label: "Started Changes",
+    color: "text-primary",
+    bgColor: "bg-primary",
   },
 };
 

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AppShellSkeleton } from "@/components/ui/AppShellSkeleton";
+import { TShirtLoader } from "@/components/ui";
 import { AccessRestrictedView } from "@/views/AccessRestrictedView";
 import { ROUTES } from "@/lib/routes";
 import type { UserRole } from "@/types/database";
@@ -34,7 +34,7 @@ export function ProtectedRoute({ allowedRoles, children }: Props) {
 
   // 1 — loading the app shell while auth resolves
   if (isLoading) {
-    return <AppShellSkeleton />;
+    return <TShirtLoader open text="Loading Design Flow…" />;
   }
 
   // 2 — not signed in
@@ -49,7 +49,7 @@ export function ProtectedRoute({ allowedRoles, children }: Props) {
 
   // Belt + suspenders — shouldn't reach here without a profile.
   if (!profile) {
-    return <AppShellSkeleton />;
+    return <TShirtLoader open text="Loading Design Flow…" />;
   }
 
   // 4 — role mismatch (inline, not a redirect)

@@ -39,6 +39,13 @@ function getTabsForRole(role: UserRole): TabItem[] {
         { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
         { to: ROUTES.notifications, label: "Alerts", icon: Bell },
       ];
+    case "deo":
+      // DEO mobile tabs — minimal: kitting queue + alerts. The queue is
+      // their entire workflow per the spec.
+      return [
+        { to: ROUTES.kitting, label: "Queue", icon: ClipboardList },
+        { to: ROUTES.notifications, label: "Alerts", icon: Bell },
+      ];
   }
 }
 

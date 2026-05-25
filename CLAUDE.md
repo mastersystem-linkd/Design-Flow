@@ -2,17 +2,81 @@
 
 Textile design workflow + file management for **LinkD Prints**. Three independent systems in one app:
 
-- **System 1 — Task Management (Design Flow).** Coordinators write design briefs; tasks flow `pool → todo → in_progress → full_kitting → done`. Designers claim or are assigned tasks. Full kitting form (file upload + structured data) available at the full_kitting stage. Task Dashboard shows per-designer performance scoring.
-- **System 2 — Concept Approval.** Designers submit concepts (min 50-char description + file). Admin (MD) reviews. Monthly target: 3 per designer. Concept Dashboard shows approval rates, turnaround speed, designer leaderboard.
+- **System 1 — Task Management (Design Flow).** Coordinators write design briefs; tasks flow `pool → in_progress → full_kitting → done` (assigned tasks skip `todo` and go straight to `in_progress`). Designers claim or are assigned tasks. Full kitting form (file upload + structured data) available at the full_kitting stage. Task Dashboard shows per-designer performance scoring.
+- **System 2 — Concept Approval.** Designers submit concepts (min 50-char description + file). Admin (MD) reviews. Monthly target: 3 per designer. Concept analytics (tab inside Dashboards) shows approval rates, turnaround speed, designer leaderboard.
 - **System 3 — Sampling.** Coordinators log daily sampling records (party, fabric, qty, files). Sampling Hub with stats, filters, charts, batch entry.
 
-**Roles (3):** `admin`, `design_coordinator`, `designer`.
+**Roles (4):** `admin`, `design_coordinator`, `designer`, `deo`.
 
 - **`admin`** — top tier. Exclusive rights: concept approval (review / reject / revision) and changing other users' roles.
-- **`design_coordinator`** — inherits *most* admin powers (briefs, sampling, task management, client CRUD, analytics, team viewing) but is **explicitly excluded** from concept approval and role management.
+- **`design_coordinator`** — inherits *most* admin powers (briefs, sampling, task management, client CRUD, analytics, team viewing, team CRUD) but is **explicitly excluded** from concept approval. Per the latest changes, can also do user management (add/edit/soft-delete) alongside admin.
 - **`designer`** — submits concepts, claims tasks from the open pool, works on assigned tasks.
+- **`deo`** (Data Entry Operator) — restricted dashboard. Sees ONLY the Kitting Queue (`/kitting`). Picks up kitting forms the coordinator uploaded (Stage A), digitizes the 12-field paper form into `full_kitting_details.form_payload`. Cannot create tasks, cannot alter upstream data. Added in [`0022_deo_role.sql`](supabase/migrations/0022_deo_role.sql) + [`0023_deo_policies.sql`](supabase/migrations/0023_deo_policies.sql).
 
-History: original 4 roles (`super_admin`, `admin`, `designer`, `production`) were consolidated to 2 in [`0006_simplify_roles.sql`](supabase/migrations/0006_simplify_roles.sql); `design_coordinator` was added in [`0008_design_coordinator_role.sql`](supabase/migrations/0008_design_coordinator_role.sql) + [`0009_design_coordinator_policies.sql`](supabase/migrations/0009_design_coordinator_policies.sql).
+History: original 4 roles (`super_admin`, `admin`, `designer`, `production`) were consolidated to 2 in [`0006_simplify_roles.sql`](supabase/migrations/0006_simplify_roles.sql); `design_coordinator` was added in [`0008_design_coordinator_role.sql`](supabase/migrations/0008_design_coordinator_role.sql) + [`0009_design_coordinator_policies.sql`](supabase/migrations/0009_design_coordinator_policies.sql); `deo` added in 0022/0023.
+
+---
+
+## Concept Workflow — end-to-end lifecycle
+
+Two enums govern a concept's state: `md_status` (idea approval) and `concept_work_status` (post-approval work pipeline). Migrations: enum + columns in [`0025`](supabase/migrations/0025_concept_work_status.sql) / [`0026`](supabase/migrations/0026_concept_work_columns.sql) / [`0027`](supabase/migrations/0027_concept_work_rls.sql), `designs_count` in [`0028`](supabase/migrations/0028_concept_designs_count.sql), auto-start trigger in [`0029`](supabase/migrations/0029_concept_autostart_on_approval.sql), `changes_requested` collapse in [`0030`](supabase/migrations/0030_collapse_changes_requested.sql).
+
+```
+Designer submits ──► MD approves ──► [auto-starts] ──► In Progress
+                                                         │
+                                            ┌────────────┤
+                                            ▼            ▼
+                                          Hold       Mark Done
+                                            │            │
+                                          Resume         ▼
+                                            │      [Awaiting MD]
+                                            ▼            │
+                                       In Progress       ▼
+                                                    MD verdict
+                                                         │
+                                            ┌────────────┤
+                                            ▼            ▼
+                                        Approve     Suggest changes
+                                            │            │
+                                            ▼            ▼
+                                        Completed   In Progress (rework, round N+1)
+                                                         │
+                                                  Submit changes
+                                                         │
+                                                         ▼
+                                                  [Awaiting MD] ──► loop
+```
+
+**State transitions (T# = transition id, used in code comments):**
+
+| # | From | To | Trigger |
+|---|---|---|---|
+| T1 | — | `md_status='pending'` | Designer submits concept (with `designs_count`) |
+| T2 | `md_status='pending'` | `md_status='approved'` + `work_status='in_progress'` + `work_started_at=now()` | MD approves — **auto-starts work** (0029 trigger + client mirror in `reviewConcept`) |
+| T3 | `md_status='pending'` | `md_status='rejected'` | MD rejects (terminal) |
+| T4 | `md_status='pending'` | `md_status='revision_requested'` | MD asks designer to redo the idea |
+| T5 | `md_status='revision_requested'` | `md_status='pending'` | Designer re-submits (`resubmitConcept`) |
+| T7 | `work_status='in_progress'` | `work_status='on_hold'` + `hold_reason` + `hold_count++` | Designer clicks Hold (with optional reason) |
+| T8 | `work_status='on_hold'` | `work_status='in_progress'` + `total_hold_duration += delta` | Designer clicks Resume |
+| T9+T10 | `work_status='in_progress'` | `work_status='in_revision'` + `revision_count++` + `designer_actual_date=today` | Designer clicks **Mark as Done** (first pass) OR **Submit changes** (rework) — `markConceptDone` |
+| T11 | `work_status='in_revision'` | `work_status='completed'` + `work_completed_at` + `final_approved_at` + `approved_designs_count` | MD clicks Approve design — `approveDesign` |
+| T12 | `work_status='in_revision'` | `work_status='in_progress'` + `md_feedback` (revision_count preserved — designer is reworking the same round) | MD clicks Suggest changes (feedback required) — `suggestChanges`. **No intermediate `changes_requested` step** — feedback lands the row back in In Progress immediately. |
+
+**Notes:**
+
+- **T6 (manual Start) is gone.** MD approval auto-starts the work (0029). The `startConcept` mutation is kept for legacy rows and edge cases but is not surfaced in UI.
+- **T13 (manual Start changes) is gone too** as of 0030. The `startChanges` mutation is kept for any pre-0030 legacy row that's still parked in `changes_requested`, but new rows never enter that state — `suggestChanges` writes `in_progress` directly. The enum value remains on the DB type because Postgres can't drop enum values without recreating the type.
+- **Rework loop:** when `work_status='in_progress'` and `revision_count >= 1`, the UI shows a "Reworking — round N" banner (with `md_feedback` inline) and the action button reads **"Submit changes"** instead of **"Mark as Done"**. Same underlying mutation (`markConceptDone`), different label — every rework still goes back to MD for verdict (T11 or T12 loop) before reaching `completed`.
+- **`designs_count` denominator:** captured at submission, surfaced at final approval as "X of N approved". MD's `approved_designs_count` entry is validated ≤ `designs_count`.
+- **`completion_history` JSONB:** every transition appends a typed entry (`started`, `held`, `resumed`, `marked_done`, `changes_requested`, `start_changes`, `design_approved`). Drives the activity log at the bottom of the detail drawer.
+- **Legacy fields stay in sync:** `markConceptDone` also stamps `designer_actual_date`; `approveDesign` also stamps `final_approved_at` + `final_approval_actual_date`. Both `finalizeConcept` (legacy) and `approveDesign` set `work_status='completed'` so the table never gets stuck on "In Progress" after approval.
+- **Optimistic-lock guard:** every work_status mutation has `.eq("work_status", <expected source state>)` so two browser tabs can't race and double-transition.
+
+**UI surfaces:**
+
+- **Submit form** ([`SubmitConceptDialog.tsx`](linkd-fms/src/components/concepts/SubmitConceptDialog.tsx)) — captures `designs_count` (required) + `assigned_by` defaulted to `"SELF"`. Designer is always the submitter; no designer-picker.
+- **Detail modal** ([`ConceptDetailDrawer.tsx`](linkd-fms/src/components/concepts/ConceptDetailDrawer.tsx)) — centered Dialog, click-outside disabled (only X closes). Four stage sections: Concept Creation → MD Approval → Designer Completion → Final Approval. Lifecycle actions (Hold / Resume / Mark as Done / Submit changes / Start changes) are inlined into stage 3 with state-driven banners. Admin's Approve + Suggest changes buttons live in a top action panel only when `work_status='in_revision'`.
+- **Wide table** ([`ConceptsView.tsx`](linkd-fms/src/views/ConceptsView.tsx)) — 4 lifecycle-aligned column groups (Concept Submitted · MD Approval · Designer Working · Final Approval) + sticky-right Actions menu (View / Edit / Delete). Read-only — all transitions happen in the modal.
 
 ---
 
@@ -30,39 +94,139 @@ The legacy Next.js scaffold (root `src/app/`, `next.config.js`, etc.) was delete
 
 ## Tech stack (active project)
 
-- **Vite 5** + **React 18** + **TypeScript** (strict)
-- **Tailwind CSS** with **dual-theme** (light + dark) via CSS custom properties + class-based toggle
-- Font: **Inter everywhere** (body + headings + wordmark). Loaded from Google Fonts (weights 400/500/600/700); system-ui as fallback.
-- **React Router v6** for routing
-- **@tanstack/react-query 5.x** for server state (all data hooks migrated from manual useState/useEffect)
-- **@supabase/supabase-js 2.45.4** (pinned — 2.105.x has a request-hang bug in this combo)
-- **lucide-react** for icons, **date-fns** for relative timestamps, **recharts** for charts (RadialBarChart in ConceptDashboard)
-- **shadcn-style** UI primitives at `linkd-fms/src/components/ui/` (no shadcn CLI — components were hand-written)
+### Language & runtime
 
-Backend: **Supabase** (project ref `jyfwyfpwbbgfpsntubfy`, region unknown — direct DB hostname is IPv6-only, use the connection pooler for non-IPv6 environments).
+| Layer | Technology | Version | Notes |
+|---|---|---|---|
+| Language | **TypeScript** | 5.6.3 | `strict: true`, target ES2022, module ESNext, `jsx: react-jsx` |
+| Runtime | **Node.js** | 18+ | Required for Vite 5 + scripts |
+| Package manager | **npm** | — | `package-lock.json` checked in |
 
----
+### Frontend framework
 
-## Working directories & commands
+| Library | Version | Purpose |
+|---|---|---|
+| **React** | 18.3.1 | UI framework (function components + hooks only, no class components) |
+| **React DOM** | 18.3.1 | DOM renderer |
+| **React Router DOM** | 6.26.2 | Client-side routing (BrowserRouter, nested Routes, Outlet) |
+| **@tanstack/react-query** | 5.100.11 | Server state management — all data hooks use `useQuery`/`useMutation`. Config: `staleTime: 2min`, `gcTime: 10min`, `retry: 1`, `refetchOnWindowFocus: false` |
 
-Two cwds depending on what you're doing:
+### Build tooling
 
-```powershell
-# Active app — most work happens here
-cd "C:\Users\Admin\Desktop\Design Flow\linkd-fms"
-npm run dev         # → http://localhost:5173
-npm run build       # type-check + vite build
-npm run type-check  # tsc --noEmit
+| Tool | Version | Config file |
+|---|---|---|
+| **Vite** | 5.4.8 | `vite.config.ts` — React plugin + `@` path alias |
+| **@vitejs/plugin-react** | 4.3.2 | Babel-based React refresh for HMR |
+| **TypeScript** | 5.6.3 | `tsconfig.json` — strict, noEmit, bundler module resolution |
+| **PostCSS** | 8.4.47 | `postcss.config.js` — tailwindcss + autoprefixer |
 
-# Project root — for Supabase migrations + scripts
-cd "C:\Users\Admin\Desktop\Design Flow"
-node scripts/apply-migrations.mjs <files>  # requires DB_HOST + DB_PASSWORD env
-node scripts/seed-user.mjs                  # seeds Harshali (admin); reads .env.local
-node scripts/seed-data.mjs                  # seeds 4 clients + 8 sample tasks (idempotent)
-node scripts/seed-clients.mjs               # bulk-seeds clients from clients.csv
-node scripts/seed-fabrics.mjs               # bulk-seeds fabrics from fabrics.csv
-node scripts/seed-concept-categories.mjs    # bulk-seeds concept categories from concepts.csv
+### Styling
+
+| Library | Version | Notes |
+|---|---|---|
+| **Tailwind CSS** | 3.4.13 | `tailwind.config.ts` — class-based dark mode, CSS variable color system |
+| **tailwindcss-animate** | 1.0.7 | Animation utilities plugin |
+| **tailwind-merge** | 2.5.4 | Smart class merging via `cn()` utility |
+| **class-variance-authority** | 0.7.0 | Variant prop management for UI components (Button, Badge) |
+| **clsx** | 2.1.1 | Conditional classname builder (used inside `cn()`) |
+
+Font: **Inter** (body + headings + wordmark). Loaded from Google Fonts (weights 400/500/600/700); `system-ui` as fallback. Both `font-sans` and `font-serif` map to the same Inter stack.
+
+### UI component library
+
+| Library | Version | Usage |
+|---|---|---|
+| **@radix-ui/react-dialog** | 1.1.2 | Dialog, ConfirmDialog, Sheet primitives |
+| **@radix-ui/react-avatar** | 1.1.1 | Avatar with fallback initials |
+| **@radix-ui/react-dropdown-menu** | 2.1.2 | Sidebar user dropdown, context menus |
+| **@radix-ui/react-label** | 2.1.0 | Form labels |
+| **@radix-ui/react-slot** | 1.1.0 | `asChild` prop forwarding for Button |
+
+All UI primitives are **hand-written** (no shadcn CLI) at `linkd-fms/src/components/ui/`, barrel-exported via `index.ts`. Import everything from `@/components/ui`.
+
+### Data & visualization
+
+| Library | Version | Usage |
+|---|---|---|
+| **recharts** | 3.8.1 | BarChart (volume), AreaChart (turnaround, momentum), RadialBarChart (concept target), PieChart (donut) |
+| **lucide-react** | 0.451.0 | Icon library (all icons — no FontAwesome or Material) |
+| **date-fns** | 4.1.0 | Date formatting, relative timestamps, date arithmetic |
+| **canvas-confetti** | 1.9.4 | Confetti animation on kitting completion |
+
+### Backend — Supabase
+
+| Component | Details |
+|---|---|
+| **Platform** | Supabase (hosted) |
+| **Project ref** | `jyfwyfpwbbgfpsntubfy` |
+| **Database** | PostgreSQL (Supabase-managed) — 15 tables + 2 views + triggers + RLS |
+| **Auth** | Supabase Auth (email/password) — `supabase.auth.signInWithPassword()`, `signUp()`, `resetPasswordForEmail()`, `updateUser()` |
+| **Storage** | 5 buckets: `design-files` (50MB), `sample-files` (100MB), `proof-photos` (10MB), `task-files`, `avatars` — all private with RLS policies |
+| **Realtime** | Postgres Changes (INSERT events on `notifications`, `task_comments`) — powers live notification bell + comment threads |
+| **Client SDK** | `@supabase/supabase-js` **2.45.4** (pinned — 2.105.x has a request-hang bug in this Vite/browser combo) |
+| **Row Level Security** | All 15 tables have RLS enabled. Policies use `auth_role()`, `is_admin()`, `is_admin_or_coordinator()`, `is_deo()` helper functions |
+| **Connection** | Direct DB hostname is IPv6-only; use connection pooler for non-IPv6 environments |
+
+### Architecture patterns
+
+| Pattern | Implementation |
+|---|---|
+| **SPA** | Single Page Application — no SSR, no server-side rendering |
+| **Client-side routing** | React Router v6 with nested routes + layout outlet |
+| **Auth context** | `AuthProvider` wraps app in `main.tsx` — session, profile, role available everywhere via `useAuth()` |
+| **Theme context** | `ThemeProvider` — light/dark/system toggle, localStorage-persisted, FOUC prevention script in `index.html` |
+| **Server state** | React Query for all data fetching — no raw `useState`/`useEffect` for API calls |
+| **Mutations** | Hooks return `{ data, error }` — never throw. Error is always a string ready for `toast.error()` |
+| **Cache invalidation** | Centralized query keys in `lib/queryKeys.ts`. Mutations invalidate via `queryClient.invalidateQueries()` |
+| **File uploads** | Client-side compression (`lib/imageCompression.ts`) → Supabase Storage. Signed URLs for display (1h TTL) |
+| **Notifications** | DB-backed + Supabase Realtime INSERT subscription + Web Audio chime + tab title flash |
+| **Form drafts** | `useFormDraft()` — localStorage-backed with 300ms debounce for long forms |
+| **Permissions** | Centralized in `lib/permissions.ts` — capability functions, never inline `role === "X"` checks |
+| **Path aliases** | `@/*` → `src/*` via tsconfig paths + Vite alias |
+| **CSS color system** | All colors as CSS custom properties (space-separated RGB channels) → Tailwind `<alpha-value>` interpolation |
+
+### Scripts & tooling (project root)
+
+Scripts in `scripts/` are Node.js ESM (`.mjs`). Run from the project root `C:\Users\Admin\Desktop\Design Flow`:
+
+| Script | Purpose |
+|---|---|
+| `apply-migrations.mjs <files>` | Applies SQL migrations to Supabase DB (requires `DB_HOST` + `DB_PASSWORD`) |
+| `seed-user.mjs` | Seeds Harshali (admin) auth user + profile |
+| `seed-data.mjs` | Seeds 4 clients + 8 sample tasks (idempotent) |
+| `seed-clients.mjs` | Bulk-seeds clients from `clients.csv` |
+| `seed-fabrics.mjs` | Bulk-seeds fabrics from `fabrics.csv` |
+| `seed-concept-categories.mjs` | Bulk-seeds concept categories from `concepts.csv` |
+| `seed-designer-codes.mjs` | Upserts designer codes |
+| `delete-auth-user.mjs <email>` | Deletes an auth user (cascades to profile) |
+| `verify-roles.mjs` | Verifies role enum + helper functions post-migration |
+| `verify-0010.mjs` | Verifies migration 0010 tables + triggers |
+| `probe-db.mjs` | Probes DB connection (tests pooler connectivity) |
+| `reset-data.mjs` | Wipes transactional data preserving users/clients/lookups |
+
+**Data files** in `scripts/`: `clients.csv` (~25 KB), `fabrics.csv` (~9 KB), `concepts.csv` (~864 B).
+
+### npm scripts (linkd-fms/)
+
 ```
+npm run dev         → vite (dev server with HMR)
+npm run build       → tsc --noEmit && vite build (type-check + production bundle)
+npm run preview     → vite preview (serve production build locally)
+npm run type-check  → tsc --noEmit (type checking only)
+npm run lint        → tsc --noEmit (alias for type-check)
+```
+
+### Browser support
+
+Targets ES2022 (modern browsers). No polyfills. Features used: `IntersectionObserver`, `ResizeObserver`, `Web Audio API`, `CSS custom properties`, `backdrop-filter`, `CSS Grid`, `CSS `:has()` not used`. Tested primarily on Chrome/Edge (Windows).
+
+### Bundle & performance
+
+- Production bundle: ~572 KB (acceptable for internal tool)
+- No code splitting by route (could be added with `React.lazy()` if needed)
+- React Query deduplicates concurrent requests for the same data
+- Image compression (Canvas API) reduces upload sizes client-side
+- `LazyImage` component defers off-screen image loading via IntersectionObserver
 
 ---
 
@@ -75,7 +239,7 @@ linkd-fms/
 ├── .env.local                             VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (gitignored)
 ├── .env.example                           Template
 └── src/
-    ├── main.tsx                           ReactDOM.render → <ThemeProvider><AuthProvider><App/>
+    ├── main.tsx                           ReactDOM.render → <ErrorBoundary><ThemeProvider><AuthProvider><App/>
     ├── App.tsx                            Router setup + role-gated routes (incl. /home + /dashboard) + 404
     ├── index.css                          Tailwind + CSS custom properties (light/dark) + scrollbar + keyframes
     ├── lib/
@@ -88,6 +252,11 @@ linkd-fms/
     │   │                                  + DAYS_DOT_CLASS / DAYS_TEXT_CLASS / DAYS_SEVERITY_CLASS
     │   ├── permissions.ts                 isAdmin, isAdminOrCoordinator, canReviewConcepts, …
     │   │                                  — centralized capability checks; use instead of role-equals
+    │   ├── kitting.ts                     Priority enum helpers: priorityToEnum / priorityFromEnum
+    │   │                                  + KittingPriorityEnum / KittingDataEntryStatus types
+    │   ├── kittingQueries.ts              Supabase async functions: initiateKitting (Stage A),
+    │   │                                  claimKitting (DEO claim), submitKittingForm (Stage B),
+    │   │                                  fetchDeoQueue, getKittingByTask
     │   ├── notifications.ts               sendNotification, sendNotificationToMany, sendNotificationToRole
     │   │                                  — reusable helpers for inserting notifications via Supabase client
     │   ├── exportCSV.ts                   Generic CSV exporter: columnsToCSV(data, columns) → Blob download.
@@ -100,6 +269,10 @@ linkd-fms/
     │   │                                  quality. Skips PSD/PDF/video. Fails silently → original.
     │   │                                  Used by all upload handlers (Briefing, Concepts, Sampling,
     │   │                                  TaskDetail, FullKitting).
+    │   ├── conceptStatus.ts              Concept lifecycle helpers: isConceptShipped(),
+    │   │                                  isConceptCompleted(). Centralizes the 3-gate predicate
+    │   │                                  (md_status=approved + final_approved_at + designer_actual_date).
+    │   │                                  Used by analytics/scorecard hooks to separate approval from completion.
     │   └── utils.ts                       cn(), formatDate()
     ├── types/
     │   └── database.ts                    Full Database type (15 tables) + aliases + joined shapes
@@ -113,7 +286,7 @@ linkd-fms/
     │   ├── useTaskDetail.ts               One task + its files + activity log, fetched together
     │   ├── useConcepts.ts                 Concepts list + submitConcept / reviewConcept / finalizeConcept
     │   ├── useClients.ts                  All clients, ordered by party_name
-    │   ├── useProfiles.ts                 All profiles, optionally filtered by role
+    │   ├── useProfiles.ts                 All profiles, filtered by role + soft-delete (is_active)
     │   ├── useDesignerCodes.ts            All designer_codes + profile join, with Map<profile_id, codes[]>
     │   ├── useFabrics.ts                  Fabric lookup taxonomy (active-only by default)
     │   ├── useConceptCategories.ts        Concept category taxonomy (active-only by default)
@@ -121,7 +294,7 @@ linkd-fms/
     │   ├── useFullKitting.ts              Structured kitting form: getKittingForTask, submitKitting
     │   ├── useSamples.ts                  Sample records full CRUD with filters (dateRange,
     │   │                                  customerName, status); createSample, updateSample, deleteSample
-    │   ├── useAnalytics.ts                Concept Dashboard metrics: KPIs, status distribution, monthly volume
+    │   ├── useAnalytics.ts                Concept analytics metrics (tab inside Dashboards): KPIs, status distribution, monthly volume
     │   │                                  (period-adaptive: days/weeks/months), designer concept stats + scoring,
     │   │                                  approval speed. Period filter: week | month | quarter.
     │   │                                  Also exports sparklines: { submitted[], approved[] } (7 buckets).
@@ -154,6 +327,9 @@ linkd-fms/
     │                                      focused, when any Radix dialog/sheet is open
     │                                      ([role='dialog']), or when ctrl/meta/alt modifiers are held.
     ├── components/
+    │   ├── ErrorBoundary.tsx              React class-based error boundary. Catches render errors,
+    │   │                                  logs to console, shows dev stack trace or user-friendly
+    │   │                                  fallback. Wraps <App> in main.tsx.
     │   ├── ui/                            ⬇ ALL UI primitives — barrel-exported via ./index.ts
     │   │   ├── index.ts                   Single import point: `from "@/components/ui"`
     │   │   ├── AppShellSkeleton.tsx       Full-app loading state (mimics real shell)
@@ -181,6 +357,14 @@ linkd-fms/
     │   │   │                              Renders each shortcut as a `<kbd>` badge + description.
     │   │   │                              Used by KanbanView (`?` key or keyboard icon button)
     │   │   │                              with the shortcut list from `useKeyboardShortcuts`.
+    │   │   ├── Combobox.tsx               Search-as-you-type dropdown. Drop-in replacement
+    │   │   │                              for native <select> on long lists. Keyboard nav,
+    │   │   │                              debounced filter, match highlighting, clearable.
+    │   │   │                              Used by BriefingView for client/concept/fabric pickers.
+    │   │   ├── TShirtLoader.tsx           Full-screen waving t-shirt silhouette + caption.
+    │   │   │                              Two modes: controlled (`open` prop) or imperative via
+    │   │   │                              `<LoaderProvider>` + `useLoader()`. Reference-counted
+    │   │   │                              for nested async. Mounted globally in main.tsx.
     │   │   ├── LazyImage.tsx              IntersectionObserver-based lazy image loading.
     │   │   │                              Skeleton pulse placeholder → fade-in on decode.
     │   │   │                              100px rootMargin preload. Fallback on error.
@@ -197,6 +381,15 @@ linkd-fms/
     │   │   │                              fill, end-dot. No recharts dependency. Used by KpiCard.
     │   │   └── ExportDialog.tsx           CSV export dialog: date range picker, column selection,
     │   │                                  preview count, download button. Uses lib/exportCSV.
+    │   ├── dashboard/
+    │   │   ├── DashboardKpiCards.tsx       4 KPI cards with sparklines + trend pills. Extracted
+    │   │   │                              from DashboardView for composability.
+    │   │   ├── DashboardAlerts.tsx         Collapsible alert banners (urgent/overdue/pending concepts).
+    │   │   │                              Severity-sorted, role-aware, linked to relevant pages.
+    │   │   ├── DashboardTimeline.tsx       Recent activity timeline — last N task updates with
+    │   │   │                              action verbs, avatars, status badges, deadline cells.
+    │   │   └── DashboardPipeline.tsx       Animated pipeline status bar — proportional bars per
+    │   │                                  task status. Clickable segments link to /dashboard.
     │   ├── layout/
     │   │   ├── AppLayout.tsx              Shell — Sidebar + TopNav + main; fade-in on route change.
     │   │   │                              Skip-to-content link + focus management on route change.
@@ -222,11 +415,24 @@ linkd-fms/
     │   │   │                              Description) read-only + 100MB file upload + structured kitting
     │   │   │                              fields. Opens from "Full Kitting" action button on task rows.
     │   │   │                              Full-width on mobile, 440px on desktop.
+    │   │   ├── KittingStageADialog.tsx    Coordinator uploads photo of paper kitting form → creates
+    │   │   │                              full_kitting_details row with image_url + status pending_deo.
+    │   │   │                              Notifies DEO role. Opened from kanban row ⋮ menu.
+    │   │   ├── FullKittingFormFields.tsx   12-section digital form (fabric/width/design count/type/
+    │   │   │                              theme/background/garment/motive size/concept/APC/additional/
+    │   │   │                              priority) + header. Exports KittingFormValues type,
+    │   │   │                              KittingChip primitive, hasKittingFormContent, computeCompletion.
+    │   │   │                              Embeddable mode for BriefingView.
+    │   │   ├── CompletedKittingPanel.tsx   Read-only table of completed kitting forms with search +
+    │   │   │                              CSV export. Reusable in KittingQueueView + KanbanView.
     │   │   └── EditTaskDialog.tsx         Standalone edit dialog (used by KanbanView row ⋮ menu)
     │   ├── sampling/
     │   │   ├── SamplingFormDialog.tsx     Legacy sampling form (used in older flow)
-    │   │   └── SamplingFormDrawer.tsx     Sheet-based add/edit form with Quick Add / Full Form toggle,
-    │   │                                  batch entry (party_name persists), file uploads (5x100MB)
+    │   │   ├── SamplingFormDrawer.tsx     Sheet-based add/edit form with Quick Add / Full Form toggle,
+    │   │   │                              batch entry (party_name persists), file uploads (5x100MB)
+    │   │   └── TaskPicker.tsx             Search-as-you-type task selector for sampling form.
+    │   │                                  Emits TaskSummary (id, task_code, concept, party_name)
+    │   │                                  for auto-fill. Keyboard nav, status badge per option.
     │   ├── analytics/                    Charts + cards for dashboards
     │   │   ├── KpiCard.tsx                Metric card: icon + value + label + trend pill (↑↓ %)
     │   │   ├── VolumeChart.tsx            recharts BarChart: period-adaptive (days/weeks/months)
@@ -272,9 +478,36 @@ linkd-fms/
     │   │                                  recent activity + insights + admin actions (feedback,
     │   │                                  export, open team). Has prominent "Open full scorecard
     │   │                                  analysis" link that navigates to /scorecards/:id.
+    │   ├── system/
+    │   │   ├── AppInfoTab.tsx             App info summary: user counts, table row counts,
+    │   │   │                              environment info (Vite, React, TS versions), theme status.
+    │   │   ├── ConceptCategoriesTab.tsx    Lookup management for concept_categories table.
+    │   │   │                              Uses LookupSection. Admin can add/edit/toggle active/delete.
+    │   │   ├── FabricsTab.tsx             Lookup management for fabrics table.
+    │   │   │                              Uses LookupSection. Admin can add/edit/toggle active/delete.
+    │   │   ├── ClientManagementTab.tsx     Client CRUD: add, edit name, merge duplicates,
+    │   │   │                              delete with confirmation. Search + pagination.
+    │   │   ├── DesignerCodesTab.tsx        Designer code management: assign/remove letter codes
+    │   │   │                              per designer. Shows avatar + name + current codes.
+    │   │   ├── StorageTab.tsx             Storage bucket analysis: file counts per bucket,
+    │   │   │                              on-demand size scan, bucket-level stats.
+    │   │   ├── LookupSection.tsx           Reusable lookup table manager. Inline add/edit/
+    │   │   │                              toggle-active/delete rows. Used by ConceptCategoriesTab
+    │   │   │                              and FabricsTab. Accepts table name + hook data.
+    │   │   └── DangerZoneTab.tsx           Two-stage destructive data clearing (ConfirmDialog +
+    │   │                                  type-DELETE verification). Per-table clear with live row
+    │   │                                  counts, FK-safe ordering, nuclear "Clear All" option.
+    │   │                                  Preserves profiles/clients/designer_codes/lookups.
     │   └── concepts/
     │       ├── SubmitConceptDialog.tsx    Form + 100MB file upload to sample-files + min 50-char description
     │       ├── ConceptDetailDrawer.tsx    Review panel w/ admin approve/reject/revision + finalize
+    │       ├── ConceptWorkflowStage.tsx   5-stage progress indicator (Submitted → Review → Decision
+    │       │                              → Finalize → Complete). Shows active/completed/pending
+    │       │                              states with icons. Used in ConceptDetailDrawer header.
+    │       ├── DesignerWorkBoard.tsx      Designer "My Work" board — action-oriented surface for
+    │       │                              /concepts. Groups concepts by lifecycle stage (Ready /
+    │       │                              In Progress / On Hold / Changes Needed / In Revision /
+    │       │                              Completed) with inline transition buttons.
     │       └── ConceptDashboard.tsx       Role-specific dashboard sections above concepts table:
     │                                      DesignerConceptDashboard (monthly target tracker w/ RadialBarChart),
     │                                      CoordinatorConceptDashboard (team overview),
@@ -300,7 +533,9 @@ linkd-fms/
         │                                  (Designer: radial progress ring + monthly warnings;
         │                                  Coordinator: designer progress table + at-risk alerts;
         │                                  Admin: KPI cards), status filter chips, submit + admin review (FUNCTIONAL)
-        ├── TeamView.tsx                   /team — team roster table (FUNCTIONAL, read-only)
+        ├── TeamView.tsx                   /team — team CRUD: add user (signUp + auto-profile), edit
+        │                                  name, inline role dropdown with confirmation, soft-delete
+        │                                  (deactivate), designer code management. (FUNCTIONAL)
         ├── ProductionView.tsx             /sampling — "Sampling Hub": stats cards (today/month/customers/pending),
         │                                  customer search + status filters, samples table (full CRUD via
         │                                  SamplingFormDrawer), tasks-in-sampling-stage table with Mark Done,
@@ -309,7 +544,9 @@ linkd-fms/
         ├── NotificationsView.tsx          /notifications — full notification feed with type filters,
         │                                  date grouping (today/yesterday/week/older), pagination,
         │                                  mark-as-read, mark-all-read (FUNCTIONAL)
-        ├── AnalyticsView.tsx              /analytics — Concept Dashboard. Section order (admin/coordinator):
+        ├── AnalyticsView.tsx              Concept analytics content — now rendered as a tab inside
+        │                                  TaskDashboardView (`/task-dashboard?tab=concepts`).
+        │                                  `/analytics` redirects here. Section order (admin/coordinator):
         │                                  KPI cards → status badges → hero row (DesignerConceptMatrix +
         │                                  TeamTargetHero) → VolumeChart + PipelineHealth → ConceptFunnel
         │                                  → MdReviewPanel (admin only) → DesignerLeaderboard →
@@ -349,43 +586,57 @@ linkd-fms/
         │                                  sample-files, task-files). Grid/list toggle, bucket filter pills,
         │                                  search, image thumbnails on hover, download/delete actions.
         │                                  All roles. (FUNCTIONAL)
+        ├── ProfileView.tsx                /profile — User profile page: avatar upload, name editing,
+        │                                  password change (eye toggles, min 8 chars), Appearance
+        │                                  section (3 theme cards: Light/Dark/System), designer
+        │                                  code display. All roles. (FUNCTIONAL)
         ├── SalvedgeView.tsx               /salvedge — Salvedge / challan-based fabric distribution
         │                                  records. All roles; designers see their own. (FUNCTIONAL)
-        └── SystemView.tsx                 /system — Admin data management: row counts per table, expandable
-                                           data browser (search + per-row delete + pagination), bulk clear
-                                           per table with FK-safe ordering, "Clear All" with ConfirmDialog.
-                                           Admin-only. (FUNCTIONAL)
+        ├── KittingQueueView.tsx            /kitting — DEO queue. Tabbed: Queue (pending_deo + in_progress
+        │                                  from deo_kitting_queue view) + Completed (CompletedKittingPanel).
+        │                                  Date-range filter, summary counts, row click → detail.
+        │                                  Admin/coordinator/deo access. (FUNCTIONAL)
+        ├── FullKittingFormView.tsx         /kitting/:recordId — Side-by-side: image pane (sticky desktop,
+        │                                  accordion mobile) + 12-field FullKittingForm. Draft auto-save
+        │                                  to localStorage. Submit → notify admin/coordinator.
+        │                                  /kitting/new for bare preview. (FUNCTIONAL)
+        └── SystemView.tsx                 /system — Admin hub: tabbed (App Info, Categories, Fabrics,
+                                           Clients, Designer Codes, Storage, Danger Zone). Danger Zone
+                                           tab has two-stage delete confirmation (ConfirmDialog + type
+                                           DELETE). Admin-only. (FUNCTIONAL)
 ```
 
 ---
 
 ## Routes & role mapping
 
-Canonical routes are constants in [`linkd-fms/src/lib/routes.ts`](linkd-fms/src/lib/routes.ts). After sign-in, [`roleHomePath()`](linkd-fms/src/lib/routes.ts) sends users to `/task-dashboard` regardless of role. The old `/home` route redirects to `/dashboard`.
+Canonical routes are constants in [`linkd-fms/src/lib/routes.ts`](linkd-fms/src/lib/routes.ts). After sign-in, [`roleHomePath()`](linkd-fms/src/lib/routes.ts) sends users to `/task-dashboard` (admin/coordinator/designer) or `/kitting` (deo). The old `/home` route redirects to `/dashboard`.
 
-| Path | View | Admin | Design Coordinator | Designer |
-|---|---|---|---|---|
-| `/login` | LoginView (enhanced split-screen) | public | same | same |
-| `/reset-password` | ResetPasswordView | public (from email link) | same | same |
-| `/onboarding` | OnboardingView | authed, no profile | same | same |
-| `/` | RootRedirect | — | — | — |
-| `/home` | redirect → /dashboard | — | — | — |
-| `/task-dashboard` | TaskDashboardView (landing page) | yes | yes | yes |
-| `/dashboard` | KanbanView | All Tasks | All Tasks | My Board |
-| `/dashboard/tasks` | KanbanView | alias | same | same |
-| `/brief/new` | BriefingView | yes | yes | AccessRestricted |
-| `/concepts` | ConceptsView (22-col workflow) | yes | yes | yes |
-| `/analytics` | AnalyticsView (Concept Dashboard) | yes | yes | yes (personal) |
-| `/sampling` | ProductionView (Sampling Hub) | yes | yes | AccessRestricted |
-| `/salvedge` | SalvedgeView | yes | yes | yes |
-| `/files` | FilesView (file browser) | yes | yes | yes |
-| `/team` | TeamView (role mgmt + codes) | yes | yes | AccessRestricted |
-| `/scorecards` | ScorecardsView (admin grid) | yes | inline restriction | inline restriction |
-| `/scorecards/:id` | ScorecardDetailView (full-page) | yes (any designer) | inline restriction | self only (gated in view) |
-| `/profile` | ProfileView (avatar + password) | yes | yes | yes |
-| `/system` | SystemView (CRUD + data mgmt) | yes | yes | AccessRestricted |
-| `/notifications` | NotificationsView (realtime) | yes | yes | yes |
-| `*` | NotFoundView (inside AppLayout) | authed | authed | authed |
+| Path | View | Admin | Coordinator | Designer | DEO |
+|---|---|---|---|---|---|
+| `/login` | LoginView | public | same | same | same |
+| `/reset-password` | ResetPasswordView | public | same | same | same |
+| `/onboarding` | OnboardingView | authed | same | same | same |
+| `/` | RootRedirect | — | — | — | — |
+| `/home` | redirect → /dashboard | — | — | — | — |
+| `/task-dashboard` | TaskDashboardView (landing) | yes | yes | yes | no |
+| `/dashboard` | KanbanView | All Tasks | All Tasks | My Board | no |
+| `/dashboard/tasks` | KanbanView | alias | same | same | no |
+| `/brief/new` | BriefingView | yes | yes | no | no |
+| `/concepts` | ConceptsView | yes | yes | yes | no |
+| `/analytics` | redirect → `/task-dashboard?tab=concepts` | — | — | — | — |
+| `/sampling` | ProductionView | yes | yes | no | no |
+| `/salvedge` | SalvedgeView | yes | yes | no | no |
+| `/kitting` | KittingQueueView | yes | yes | no | yes (landing) |
+| `/kitting/:recordId` | FullKittingFormView | yes | yes | no | yes |
+| `/files` | FilesView | yes | yes | yes | no |
+| `/team` | TeamView (CRUD + codes) | yes | yes | no | no |
+| `/scorecards` | ScorecardsView | yes | no | no | no |
+| `/scorecards/:id` | ScorecardDetailView | yes | no | self only | no |
+| `/profile` | ProfileView | yes | yes | yes | yes |
+| `/system` | SystemView (admin hub) | yes | yes | no | no |
+| `/notifications` | NotificationsView | yes | yes | yes | yes |
+| `*` | NotFoundView (inside AppLayout) | authed | authed | authed | authed |
 
 **Coordinator now has admin-equivalent access** — `isAdmin()` returns true for both admin and design_coordinator. All permissions are equal except UI labeling.
 
@@ -395,25 +646,26 @@ Legacy aliases: `/kanban → /dashboard`, `/briefing → /brief/new`, `/producti
 
 **Per-role sidebar contents** (defined in `Sidebar.tsx`'s `getNavGroups(role)`):
 
-- **admin** → Task Dashboard, All Tasks, Concepts, Concept Dashboard | **Manage**: Sampling, Salvedge, Files, Team, **Scorecards**, System
-- **design_coordinator** → Task Dashboard, All Tasks, Concepts, Concept Dashboard | **Manage**: Sampling, Salvedge, Files, Team, System *(no Scorecards — admin-only feature)*
-- **designer** → Task Dashboard, My Board, Salvedge, Concepts, Concept Dashboard
+- **admin** → Dashboards, All Tasks, Concepts | **Manage**: Sampling, Salvedge, Files, Team, **Scorecards**, System
+- **design_coordinator** → Dashboards, All Tasks, Concepts | **Manage**: Sampling, Salvedge, Files, Team, System *(no Scorecards — admin-only feature)*
+- **designer** → Dashboards, My Board, Concepts, Files
+- **deo** → Kitting Queue *(single entry — no dashboards, tasks, concepts, files, or team)*
 
-A "Notifications" row (with unread badge) is appended below the main nav for every role. A **ThemeToggle** (light/dark/system cycle) appears above the user profile block in the sidebar. **Sign Out** button is in both the TopNav (top-right) and the Sidebar user dropdown. **Profile** link is in the user dropdown.
-
-A "Notifications" row (with unread badge) is appended below the main nav for every role — links to `/notifications`. A **ThemeToggle** (light/dark/system cycle) appears above the user profile block in the sidebar.
+A "Notifications" row (with unread badge) is appended below the main nav for every role — links to `/notifications`. A **ThemeToggle** (light/dark/system cycle) appears above the user profile block in the sidebar. **Sign Out** button is in both the TopNav (top-right) and the Sidebar user dropdown. **Profile** link is in the user dropdown.
 
 ---
 
 ## App shell architecture
 
 ```
-<ThemeProvider defaultTheme="light">       <- main.tsx
-  <QueryClientProvider client={queryClient}>  <- React Query (staleTime 2min, gcTime 10min)
-    <AuthProvider>
-      <App>
-        <BrowserRouter>
-          <Toaster />                          <- custom toaster (mounted once)
+<ErrorBoundary>                               <- main.tsx (catches render errors)
+  <ThemeProvider defaultTheme="light">
+    <QueryClientProvider client={queryClient}>  <- React Query (staleTime 2min, gcTime 10min)
+      <AuthProvider>
+        <LoaderProvider>                           <- global T-shirt loader (useLoader())
+          <App>
+          <BrowserRouter>
+            <Toaster />                          <- custom toaster (mounted once)
         <Routes>
           <Route path="/login" .../>         <- public; LoginView
           <Route path="/onboarding" .../>    <- public-ish
@@ -431,12 +683,14 @@ A "Notifications" row (with unread badge) is appended below the main nav for eve
               </AppLayout>
           </Route>
           <Route path="*" element={<ProtectedRoute><NotFoundView/></ProtectedRoute>} />
-          </Routes>
-        </BrowserRouter>
-      </App>
-    </AuthProvider>
-  </QueryClientProvider>
-</ThemeProvider>
+              </Routes>
+            </BrowserRouter>
+          </App>
+        </LoaderProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
+</ErrorBoundary>
 ```
 
 **Sidebar** ([`Sidebar.tsx`](linkd-fms/src/components/layout/Sidebar.tsx)):
@@ -497,7 +751,7 @@ Single context at [`linkd-fms/src/hooks/useAuth.tsx`](linkd-fms/src/hooks/useAut
 
 ```ts
 {
-  user, session, profile, role,    // role: "admin" | "design_coordinator" | "designer" | null
+  user, session, profile, role,    // role: "admin" | "design_coordinator" | "designer" | "deo" | null
   isLoading,           // true until profile is loaded AFTER session resolves
   isAuthenticated,     // !!user
   needsOnboarding,     // user exists, profile lookup returned null
@@ -596,6 +850,8 @@ import {
 | `<Sparkline>` | Pure SVG mini-chart with quadratic bezier smoothing, gradient fill, end-dot. Color adapts to trend direction (green up, red down). No recharts dependency. Used by `KpiCard`. |
 | `<ExportDialog>` | CSV export modal: date range picker, column selection, preview row count, download button. Uses `lib/exportCSV`. Used by KanbanView (tasks export). |
 | `<LazyImage>` | IntersectionObserver-based lazy loading. 100px rootMargin preload. Skeleton pulse → fade-in (300ms). Error fallback (ImageOff icon or custom). Not used for avatars or ConceptImage (those have their own flows). |
+| `<Combobox>` | Search-as-you-type dropdown. Replaces native `<select>` for long option lists. Full keyboard nav (arrow/enter/esc/tab), debounced filter, substring match highlighting, clearable ×. Skeleton rows for async loading. Used by BriefingView for client/concept/fabric pickers. |
+| `<TShirtLoader>` | Full-screen waving t-shirt silhouette + caption. Two modes: **(1)** Controlled via `open` prop; **(2)** Imperative via `<LoaderProvider>` + `useLoader()` (`show(text)` / `hide()`, reference-counted for nested calls). Theme-aware (light/dark). Mounted globally in main.tsx. |
 | `<MobileTabBar>` | Fixed bottom tab bar for `<md` screens. Role-specific 4-tab layout with active:scale-95 press feedback. Rendered in AppLayout. |
 
 **Global CSS animations** in [`index.css`](linkd-fms/src/index.css):
@@ -604,6 +860,7 @@ import {
 - `animate-card-enter` — scale 0.95 → 1 + fade; cards landing in a new kanban column
 - `animate-highlight-pulse` — 2s primary-color box-shadow pulse; flags just-moved cards
 - `animate-urgent-pulse` — 1.2s scale + destructive-color box-shadow ring; URGENT badges on mount
+- `tshirt-wave` — 1.5s infinite ease-in-out rotation (±15°) from bottom-center; TShirtLoader silhouette
 
 ---
 
@@ -620,14 +877,14 @@ All hooks live in `linkd-fms/src/hooks/`. **Read hooks use `@tanstack/react-quer
 | `useTaskDetail(taskId)` | One task + its files (with uploader) + activity log (with changer). Fetches all three in parallel on `taskId` change. Used by `TaskDetailDrawer`. |
 | `useConcepts(filters?)` | List concepts with submitter/reviewer/designer/client joined. Dual-schema support (pre/post 0012 fallback). Includes submitConcept, reviewConcept (admin only — flips md_status), finalizeConcept (submitter, post-approval). |
 | `useClients()` | All clients, ordered by party_name. |
-| `useProfiles({ roles? })` | All profiles, optionally filtered by role array. |
+| `useProfiles({ roles?, includeInactive? })` | All profiles, optionally filtered by role array. Filters out soft-deleted users (`is_active=false`) by default; pass `includeInactive: true` to include deactivated users. |
 | `useDesignerCodes()` | All `designer_codes` joined with the owner profile. Returns a flat list AND a `Map<profile_id, codes[]>` for per-designer lookups. Admin-write-only at the DB layer. |
 | `useFabrics({ activeOnly? })` | Fabric lookup rows from `fabrics` table (added in 0011). Active-only by default. Sorted by `sort_order` (nulls last), then `name`. Used by Briefing/Concept forms. |
 | `useConceptCategories({ activeOnly? })` | Concept category lookup rows from `concept_categories` table (added in 0011). Active-only by default. Sorted by `sort_order` (nulls last), then `name`. Used by Briefing/Concept forms. |
 | `useNotifications()` | Notifications for current user. Subscribes to Supabase Realtime (INSERT events scoped to user_id). Returns `{ notifications, unreadCount, isLoading, error, refetch, markAsRead, markAllAsRead, isPending }`. New notifications auto-prepend without full refetch. |
 | `useFullKitting()` | Structured kitting form CRUD for `full_kitting_details` table. `getKittingForTask(taskId)` fetches existing record; `submitKitting(taskId, formData)` inserts record + advances task to done. |
 | `useSamples(filters?)` | Sample records with full CRUD. Filters: `dateRange`, `customerName` (ILIKE), `status` (pending/completed/all). Mutations: `createSample(input)`, `updateSample(id, data)`, `deleteSample(id)`. All auto-refetch after mutation. Filter key memoized for stable deps. |
-| `useAnalytics(period?)` | Concept Dashboard data layer. Computes all metrics from `useConcepts` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data (days for week, weeks for month, months for quarter). Returns KPIs (submitted/approved/rate/turnaround), status distribution, volume points, designer concept stats with weighted scoring, approval speed. |
+| `useAnalytics(period?)` | Concept analytics data layer (powers the Concepts tab inside Dashboards). Computes all metrics from `useConcepts` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data (days for week, weeks for month, months for quarter). Returns KPIs (submitted/approved/rate/turnaround), status distribution, volume points, designer concept stats with weighted scoring, approval speed. |
 | `useTaskAnalytics(period?)` | Task Dashboard data layer. Computes all metrics from `useTasks` + `useProfiles` + `useDesignerCodes`. Period-adaptive volume data. Returns KPIs (completed/on-time/avg days/created), pipeline snapshot, volume points, designer task stats with weighted scoring, sparklines (7-bucket: completed/onTime/created), **plus the raw `tasks` array re-exported so consumers don't double-fetch**. Separate from `useAnalytics` — the two systems are independent. |
 | `useDesignerScorecard(designerId, period?)` | Per-designer scorecard data layer. Composes `useConcepts` + `useTasks` + `useProfiles` + `useDesignerCodes`. No new DB queries. Reuses the 30/35/20/15 scoring formulas. Returns: profile + designer codes, concept block (submitted/approved/rejected/revisions/pending/approvalRate/avgReviewHours/score/breakdown/monthlyTargetProgress), task block (assigned/completed/onTime/inProgress/avgDays/score/breakdown/teamAvgDays), composite score, rank (concept/task/overall + total), 6-month trend, 365-day dailyActivity (for heatmap), last-10 activity feed (merged concept + task events), and insights array (rule-based strengths/watchouts capped at 4 with watchouts first). Period = `week`/`month`/`quarter`/`year`. |
 | `useTaskComments(taskId)` | Comment thread for one task. CRUD (add/edit/delete) + Supabase Realtime subscription (INSERT on `task_comments` filtered by `task_id`). Joins author profile (avatar, name, role). Optimistic local append with dedup. Pass `null` to disable. Used by TaskDetailDrawer "Discussion" section. |
@@ -669,9 +926,9 @@ Examples: `DF 01-S0526-FLOR-200M`, `DF 09-P0526-CONC-2M`
 
 ## Database (Supabase)
 
-Schema source of truth: [`supabase/migrations/0001_full_schema.sql`](supabase/migrations/0001_full_schema.sql) (~470 lines). Additive migrations: [`0003_storage_buckets.sql`](supabase/migrations/0003_storage_buckets.sql), [`0004_design_storage.sql`](supabase/migrations/0004_design_storage.sql), [`0005_task_additions.sql`](supabase/migrations/0005_task_additions.sql), [`0006_simplify_roles.sql`](supabase/migrations/0006_simplify_roles.sql), [`0007_designer_codes.sql`](supabase/migrations/0007_designer_codes.sql), [`0008_design_coordinator_role.sql`](supabase/migrations/0008_design_coordinator_role.sql), [`0009_design_coordinator_policies.sql`](supabase/migrations/0009_design_coordinator_policies.sql), [`0010_workflow_additions.sql`](supabase/migrations/0010_workflow_additions.sql), [`0011_lookup_tables.sql`](supabase/migrations/0011_lookup_tables.sql), [`0012_concept_extensions.sql`](supabase/migrations/0012_concept_extensions.sql), [`0013_notifications_and_kitting.sql`](supabase/migrations/0013_notifications_and_kitting.sql), [`0014_task_completion_fields.sql`](supabase/migrations/0014_task_completion_fields.sql), [`0016_designer_claim_pool.sql`](supabase/migrations/0016_designer_claim_pool.sql), [`0017_task_comments.sql`](supabase/migrations/0017_task_comments.sql), [`0018_concept_files.sql`](supabase/migrations/0018_concept_files.sql).
+Schema source of truth: [`supabase/migrations/0001_full_schema.sql`](supabase/migrations/0001_full_schema.sql) (~470 lines). Additive migrations: [`0003_storage_buckets.sql`](supabase/migrations/0003_storage_buckets.sql), [`0004_design_storage.sql`](supabase/migrations/0004_design_storage.sql), [`0005_task_additions.sql`](supabase/migrations/0005_task_additions.sql), [`0006_simplify_roles.sql`](supabase/migrations/0006_simplify_roles.sql), [`0007_designer_codes.sql`](supabase/migrations/0007_designer_codes.sql), [`0008_design_coordinator_role.sql`](supabase/migrations/0008_design_coordinator_role.sql), [`0009_design_coordinator_policies.sql`](supabase/migrations/0009_design_coordinator_policies.sql), [`0010_workflow_additions.sql`](supabase/migrations/0010_workflow_additions.sql), [`0011_lookup_tables.sql`](supabase/migrations/0011_lookup_tables.sql), [`0012_concept_extensions.sql`](supabase/migrations/0012_concept_extensions.sql), [`0013_notifications_and_kitting.sql`](supabase/migrations/0013_notifications_and_kitting.sql), [`0014_task_completion_fields.sql`](supabase/migrations/0014_task_completion_fields.sql), [`0016_designer_claim_pool.sql`](supabase/migrations/0016_designer_claim_pool.sql), [`0017_task_comments.sql`](supabase/migrations/0017_task_comments.sql), [`0018_concept_files.sql`](supabase/migrations/0018_concept_files.sql), [`0019_samples_task_link.sql`](supabase/migrations/0019_samples_task_link.sql), [`0020_kitting_multi_files.sql`](supabase/migrations/0020_kitting_multi_files.sql), [`0021_full_kitting_form_fields.sql`](supabase/migrations/0021_full_kitting_form_fields.sql), [`0022_deo_role.sql`](supabase/migrations/0022_deo_role.sql), [`0023_deo_policies.sql`](supabase/migrations/0023_deo_policies.sql), [`0024_team_crud.sql`](supabase/migrations/0024_team_crud.sql).
 
-**Why there's no 0002 or 0015.** Original setup had four split migrations. When consolidated, **0001 + 0002 + 0004 were merged into the single `0001_full_schema.sql`**. The numbering gaps are intentional; continue from `0019` for new migrations.
+**Why there's no 0002 or 0015.** Original setup had four split migrations. When consolidated, **0001 + 0002 + 0004 were merged into the single `0001_full_schema.sql`**. The numbering gaps are intentional; continue from `0025` for new migrations.
 
 | File | What it does |
 |---|---|
@@ -692,6 +949,12 @@ Schema source of truth: [`supabase/migrations/0001_full_schema.sql`](supabase/mi
 | `0016_designer_claim_pool.sql` | RLS policy allowing designers to self-assign from the pool (update `assigned_to` on unassigned tasks). |
 | `0017_task_comments.sql` | **New table** `task_comments` (uuid PK, `task_id` FK → tasks ON DELETE CASCADE, `user_id` FK → profiles ON DELETE CASCADE, `body` text 1–2000 chars, timestamps). RLS: authed SELECT, own INSERT/UPDATE, own-or-admin DELETE. `touch_updated_at` trigger. Composite index on `(task_id, created_at DESC)`. |
 | `0018_concept_files.sql` | Adds `files` JSONB column to `concepts` (default `'[]'`). Backfills existing rows with `[image_url]`. App insert path has schema fallback: retries without `files` if column doesn't exist yet. |
+| `0019_samples_task_link.sql` | Optional FK from `samples.task_id` → `tasks.id` (since-removed at the UI layer — sampling is now independent of tasks). |
+| `0020_kitting_multi_files.sql` | Adds `files` JSONB to `full_kitting_details` (multi-file uploads, parallel to concepts). |
+| `0021_full_kitting_form_fields.sql` | **Full Kitting digitization schema**. Adds enums `kitting_data_entry_status` (`pending_image / pending_deo / in_progress / completed`) + `kitting_priority` (`very_urgent / 2_days / 3_days / 4_days / 5_days`). Extends `full_kitting_details` with `form_payload JSONB`, `data_entry_status`, `priority`, `form_date`, `party_name`, `image_url`, `completed_at`, `completed_by`. Auto-complete trigger flips status → `'completed'` when `form_payload` is written. |
+| `0022_deo_role.sql` | One-line migration: adds `'deo'` to the `user_role` enum. Must commit before 0023 references it (Postgres enum-value-in-same-tx limit). |
+| `0023_deo_policies.sql` | DEO RLS + `is_deo()` helper + `deo_kitting_queue` view. DEOs can read all kitting + update payload/status/priority/form_date/party_name on records that already have an image. View joins `full_kitting_details` × `tasks` × `clients` for the queue UI. |
+| `0024_team_crud.sql` | Team Management CRUD. Adds `is_active`, `deactivated_at`, `deactivated_by` to `profiles` (soft-delete). RLS rewritten: admin/coordinator can update any profile (incl. role); self can edit own name/avatar but not own role. `active_profiles` view as a convenience. |
 
 **15 tables**: `profiles`, `clients`, `concept_categories`, `fabrics`, `concepts`, `tasks`, `task_logs`, `files`, `sampling_logs`, `designer_codes`, `samples`, `salvedge_records`, `notifications`, `full_kitting_details`, `task_comments`.
 Plus `task_counters` (internal, per-year sequence for task codes).
@@ -707,11 +970,13 @@ Plus `task_counters` (internal, per-year sequence for task codes).
 - **`fabrics`** — fabric types used on briefs (e.g. "Cotton Voile"). Same schema shape as `concept_categories`.
 
 **Enums**:
-- `user_role` — **`admin`, `design_coordinator`, `designer`** (3 values, after 0008).
+- `user_role` — **`admin`, `design_coordinator`, `designer`, `deo`** (4 values, after 0022).
 - `task_status` — `pool | todo | in_progress | full_kitting | approved | sampling | done`
 - `task_priority` — `low | normal | high | urgent`
 - `md_status` (aliased as `ConceptStatus` in TS) — `pending | approved | rejected | revision_requested`
 - `designer_status` — `active | inactive`
+- `kitting_data_entry_status` — `pending_image | pending_deo | in_progress | completed` (added in 0021)
+- `kitting_priority` — `very_urgent | 2_days | 3_days | 4_days | 5_days` (added in 0021)
 
 **Auto-generated IDs (human-readable):**
 - `tasks.task_code` → DB trigger generates `ORD-YYYY-NNNN`; app immediately overwrites with `DF NN-D{MMYY}-CONC-QM` format (see "Task code generation" section)
@@ -725,42 +990,43 @@ Plus `task_counters` (internal, per-year sequence for task codes).
 - `concepts_before_update_trg` — stamps `md_actual_date` + `md_reviewed_at` on verdict; on `approved`, sets `designer_planned_date = today + 4`
 - `*_touch_updated_at` — generic `updated_at` toucher on profiles, clients, tasks, concepts, concept_categories, fabrics
 
-**Helper functions** (recreated in 0006; extended in 0009):
+**Helper functions** (recreated in 0006; extended in 0009, 0023):
 - `auth_role()` — SECURITY DEFINER, bypasses profile RLS to avoid recursion. Returns `user_role`.
 - `is_admin()` — `auth_role() = 'admin'`. **Reserved for admin-exclusives** (concept review, role management, lookup taxonomy, samples/salvedge full CRUD).
 - `is_admin_or_coordinator()` — `auth_role() in ('admin', 'design_coordinator')`. **The default elevated check** for tasks, briefs, clients, sampling.
+- `is_deo()` — `auth_role() = 'deo'`. Added in 0023. Used for DEO-only kitting form update policy.
 
 **Storage buckets:**
 - `design-files` (0004) — 50 MB, **private**, uploaded into `{user_id}/...`, image/PSD/octet-stream. Concept images go under `{uid}/concepts/...`; task files under `{uid}/tasks/{task_id}/...`. Read via signed URLs (1-hour TTL).
 - `proof-photos` (0004) — 10 MB, **private**, **admin-only upload**, image/jpeg+png.
-- `sample-files` (0010) — 100 MB, **private**, uploaded into `{user_id}/...`, image (jpeg/png/gif) + video (mp4/quicktime). Also used for full-kitting uploads in BriefingView.
+- `sample-files` (0010) — 100 MB, **private**, uploaded into `{user_id}/...`, image (jpeg/png/gif) + video (mp4/quicktime). Also used for full-kitting uploads in BriefingView and kitting form photos at `{uid}/kitting/{task_id}-{ts}-{name}`.
 - `task-files`, `sampling-proofs`, `avatars` (0003) — earlier placeholders, kept for back-compat.
 
 ---
 
 ## RLS pattern
 
-Helper functions live in 0001 (recreated by 0006): `auth_role()` and `is_admin()`.
+Helper functions live in 0001 (recreated by 0006): `auth_role()`, `is_admin()`, `is_admin_or_coordinator()`, `is_deo()`.
 
 **Per-table summary:**
 
-| Table | Admin | Design Coordinator | Designer |
-|---|---|---|---|
-| profiles | read all; update any (no self-escalate) | read all; update self (no role change) | read all; update self (no role change) |
-| clients | full CRUD | full CRUD | read + insert |
-| concept_categories | full CRUD (`is_admin()` strict) | read only | read only |
-| fabrics | full CRUD (`is_admin()` strict) | read only | read only |
-| concepts | read all; **review (md_status)**; edit; delete | read (no UI surface); cannot submit / review / delete | submit; edit own while pending/revision; edit own finalization fields when approved |
-| tasks | read all incl. deleted; full CRUD | read all incl. deleted; full CRUD | read non-deleted; create (as creator); update if creator/assignee (cannot tombstone) |
-| task_logs | read all; insert | read all; insert | read all |
-| files | full CRUD on own; can delete any | full CRUD on own; can delete any | upload + own delete |
-| sampling_logs | read all; insert; delete | read all; insert; delete | read all |
-| designer_codes | full CRUD | read all | read all |
-| samples (0010) | full CRUD (`is_admin()` strict) | read only | read all; insert own; update own |
-| salvedge_records (0010) | full CRUD (`is_admin()` strict) | read only | read all; insert own; update own |
-| notifications (0013) | insert (admin/coordinator); delete (admin only) | insert; read own | read own; update own (is_read only) |
-| full_kitting_details (0013) | update; delete | update | read all; insert own (submitted_by = self) |
-| task_comments (0017) | read all; insert own; update own; delete any | read all; insert own; update own; delete any | read all; insert own; update own; delete own only |
+| Table | Admin | Coordinator | Designer | DEO |
+|---|---|---|---|---|
+| profiles | read all; update any incl. role (0024) | read all; update any incl. role (0024) | read all; update self (no role change) | read all |
+| clients | full CRUD | full CRUD | read + insert | — |
+| concept_categories | full CRUD (`is_admin()` strict) | read only | read only | — |
+| fabrics | full CRUD (`is_admin()` strict) | read only | read only | — |
+| concepts | read all; **review (md_status)**; edit; delete | read; cannot submit / review / delete | submit; edit own while pending/revision | — |
+| tasks | read all incl. deleted; full CRUD | read all incl. deleted; full CRUD | read non-deleted; create; update if creator/assignee | — |
+| task_logs | read all; insert | read all; insert | read all | — |
+| files | full CRUD on own; can delete any | full CRUD on own; can delete any | upload + own delete | — |
+| sampling_logs | read all; insert; delete | read all; insert; delete | read all | — |
+| designer_codes | full CRUD | read all | read all | — |
+| samples (0010) | full CRUD | read only | read all; insert own; update own | — |
+| salvedge_records (0010) | full CRUD | read only | read all; insert own; update own | — |
+| notifications (0013) | insert; delete | insert; read own | read own; update own (is_read) | read own; update own |
+| full_kitting_details | update; delete | update | read all; insert own | read all; update payload/status/priority/date/party (0023) |
+| task_comments (0017) | read all; insert own; update own; delete any | same | read all; insert own; update own; delete own | — |
 
 `task_logs` has no UPDATE/DELETE policies → effectively append-only audit trail.
 
@@ -768,16 +1034,16 @@ Helper functions live in 0001 (recreated by 0006): `auth_role()` and `is_admin()
 
 ## Dashboard (`/home`) — overview page
 
-The dashboard ([`DashboardView.tsx`](linkd-fms/src/views/DashboardView.tsx)) is the **landing page** for all roles after sign-in. It provides a high-level overview of the pipeline.
+The dashboard ([`DashboardView.tsx`](linkd-fms/src/views/DashboardView.tsx)) is the overview page at `/home`. It provides a high-level snapshot of the pipeline. Composed from extracted sub-components in `components/dashboard/`.
 
 **Sections:**
-1. **Greeting** — "Welcome back, {firstName}" + subtitle
-2. **KPI Cards** (4 across, responsive grid) — Active Tasks, In Progress (+ review count), Completed (+ % done), Open Pool (admin) or Sampling (designer). Each card has an icon with tinted background.
-3. **Alert banners** — Shown conditionally: urgent tasks (destructive), overdue (warning), pending concepts (primary, admin only). Each links to the relevant page.
+1. **Greeting** — time-of-day greeting ("Good morning/afternoon/evening, {firstName}")
+2. **KPI Cards** ([`DashboardKpiCards`](linkd-fms/src/components/dashboard/DashboardKpiCards.tsx)) — 4 across, responsive grid. Active Tasks, In Progress (+ review count), Completed (+ % done), Open Pool (admin) or Sampling (designer). Each with sparkline mini-chart + trend pill.
+3. **Alert banners** ([`DashboardAlerts`](linkd-fms/src/components/dashboard/DashboardAlerts.tsx)) — Collapsible, severity-sorted. Urgent tasks (destructive), overdue (warning), pending concepts (primary, admin only). Each links to the relevant page.
 4. **Main grid** (3 cols on lg):
-   - **Recent Activity** (2 cols) — Last 6 updated tasks. Each row shows concept name, priority badge, client, status, date, assignee avatar, deadline cell. Links to `/dashboard/tasks`.
+   - **Recent Activity** ([`DashboardTimeline`](linkd-fms/src/components/dashboard/DashboardTimeline.tsx), 2 cols) — Last N task updates with action verbs, avatars, status badges, deadline cells. Links to `/dashboard/tasks`.
    - **Quick Actions** (1 col) — Role-aware links: New Brief (admin), All Tasks/My Board, Concepts, Sampling, Team. Each has icon, label, description, arrow.
-   - **Pipeline** — Horizontal bar chart showing distribution across Pool → In Progress → Review → Sampling → Done. Each bar is proportional to `count/total`.
+   - **Pipeline** ([`DashboardPipeline`](linkd-fms/src/components/dashboard/DashboardPipeline.tsx)) — Animated horizontal bar chart: distribution across Pool → In Progress → Review → Sampling → Done. Clickable segments link to `/dashboard`.
 
 **Data sources:** `useTasks()`, `useConcepts()`, `useProfiles()` — all fetched on mount.
 
@@ -920,6 +1186,77 @@ The sampling view ([`ProductionView.tsx`](linkd-fms/src/views/ProductionView.tsx
 
 ---
 
+## Full Kitting workflow (`/kitting`)
+
+Two-stage handover from coordinator → DEO. The physical paper FULL KITTING FORM
+(see image in spec) gets photographed by the coordinator, then digitized by the
+DEO into the 12-field web form. End-to-end roles:
+
+**Stage A — Coordinator uploads the form photo**
+
+- Trigger: the **Full Kitting** item in the row ⋮ action menu on `/dashboard`.
+  (Previously two table columns; consolidated into the action menu in the
+  latest refactor.) Opens [`KittingStageADialog`](linkd-fms/src/components/tasks/KittingStageADialog.tsx).
+- Coordinator uploads an image/PDF of the paper form → file lands in
+  `sample-files/{user_id}/kitting/{task_id}-{ts}-{name}` storage path.
+- Dialog calls [`initiateKitting()`](linkd-fms/src/lib/kittingQueries.ts) which
+  inserts a `full_kitting_details` row with `image_url` set and
+  `data_entry_status = 'pending_deo'`. Also flips `tasks.requires_full_kitting`
+  to `true` (best-effort sync).
+- Fires a notification to all DEOs ("New kitting form — task DF NN-… ready to digitize").
+
+**Stage B — DEO digitizes the form**
+
+- DEO lands on `/kitting` ([`KittingQueueView`](linkd-fms/src/views/KittingQueueView.tsx))
+  which reads from the `deo_kitting_queue` view. Each card shows the form
+  photo thumbnail + task context + priority pill + "Open form" CTA.
+- "Open form" → `/kitting/:recordId` ([`FullKittingFormView`](linkd-fms/src/views/FullKittingFormView.tsx)).
+- Form is [`FullKittingForm`](linkd-fms/src/components/tasks/FullKittingFormFields.tsx) —
+  digitizes the 12 sections (Fabric / Width / Design count / Type / Theme /
+  Background / Garment / Motive size / Concept / APC / Additional / Priority)
+  plus header (Party / Date / Day / Channel / Assigned By / Received By).
+  Header info is one "filled" bucket on the progress meter; the 12 sections
+  each count individually.
+- On submit calls [`submitKittingForm()`](linkd-fms/src/lib/kittingQueries.ts).
+  Writes `form_payload` (the whole `KittingFormValues` JSON) + denormalised
+  `party_name` / `form_date` / `priority` / `completed_by`. The 0021 DB
+  trigger (`set_kitting_completed_status_trg`) auto-flips
+  `data_entry_status → 'completed'` and stamps `completed_at`.
+- Fires a notification to admin + coordinator ("Kitting form digitized — ready to review").
+
+**Stage C — Coordinator review**
+
+- Coordinator re-opens the row's Full Kitting menu item → dialog now shows
+  status = **Completed** + thumbnail + "Open digital form" link back into the
+  populated form.
+
+**Permission gates**
+
+- `/kitting` (queue + detail) gated to `admin / design_coordinator / deo`.
+- RLS on `full_kitting_details`: DEOs can update payload/status/priority on
+  records that already have an image (0023). Admins/coordinators retain full
+  access via earlier policies.
+
+**Why no Edge Function?**
+
+- All writes go through the regular client. The DEO-only update policy is
+  enforced by RLS (`using (is_deo() and image_url is not null)`), so no
+  service-role escalation is needed.
+
+**Priority mapping**
+
+[`lib/kitting.ts`](linkd-fms/src/lib/kitting.ts) translates between the
+display strings the form uses (`"Very Urgent"`, `"2 Days"`, …) and the
+`kitting_priority` enum (`very_urgent`, `2_days`, …) via `priorityToEnum` /
+`priorityFromEnum`.
+
+**DEO landing page**
+
+`roleHomePath('deo')` returns `/kitting`. DEO sidebar has just one entry
+(Kitting Queue) + Notifications. No tasks, concepts, files, team, etc.
+
+---
+
 ## Notification system
 
 The notification system has 3 layers:
@@ -942,6 +1279,8 @@ The notification system has 3 layers:
 | Revision feedback | Submitter | `useConcepts` |
 | Concept re-submitted | All admins | `useConcepts` |
 | Role changed | Affected user | `TeamView` |
+| Kitting form uploaded (Stage A) | All DEOs | `KittingStageADialog` |
+| Kitting form digitized (Stage B) | Admin + coordinator | `FullKittingFormView` |
 
 **UI surfaces:** `<NotificationBell>` in TopNav (dropdown + badge), `/notifications` full page (type filters, date grouping, pagination).
 
@@ -1025,29 +1364,6 @@ Vite reads `.env.local` at server start. After editing it, restart `npm run dev`
 
 ---
 
-## Scripts
-
-All scripts live in `scripts/` at the project root. Run with `node scripts/<name>.mjs`.
-
-| Script | Purpose |
-|---|---|
-| `apply-migrations.mjs <files>` | Applies SQL migration files to the DB. Requires `DB_HOST` + `DB_PASSWORD` env vars. |
-| `seed-user.mjs` | Creates Harshali (admin) auth user + profile. |
-| `seed-data.mjs` | Creates 4 clients + 8 sample tasks across pipeline statuses. Idempotent. |
-| `seed-clients.mjs` | Bulk-seeds clients from `scripts/clients.csv`. |
-| `seed-fabrics.mjs` | Bulk-seeds fabrics from `scripts/fabrics.csv`. Requires 0011. |
-| `seed-concept-categories.mjs` | Bulk-seeds concept categories from `scripts/concepts.csv`. Requires 0011. |
-| `seed-designer-codes.mjs` | Upserts designer codes. Requires 0007. |
-| `delete-auth-user.mjs <email>` | Deletes an auth user (cascades to profile). |
-| `verify-roles.mjs` | Verifies role enum + helper functions post-migration. |
-| `verify-0010.mjs` | Verifies migration 0010 tables + triggers. |
-| `probe-db.mjs` | Probes DB connection (tests pooler connectivity). |
-| `reset-data.mjs` | Wipes transactional data while preserving users/clients/fabrics/categories/codes. |
-
-**Data files** in `scripts/`: `clients.csv` (~25 KB), `fabrics.csv` (~9 KB), `concepts.csv` (~864 B).
-
----
-
 ## User accounts
 
 All passwords follow the pattern: `{FirstName}123` with a **capital first letter**.
@@ -1105,6 +1421,13 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 29. **`concepts.files` JSONB has a schema fallback.** The `submitConcept` mutation tries inserting with the `files` column first; if the column doesn't exist (pre-0018), it retries without it. Then if extended 0012 columns also don't exist, it falls back to the base payload.
 30. **Image compression is best-effort.** `compressImage()` catches all errors (CORS, OOM, decode failure) and returns the original file. Console logs before/after sizes. PNGs with transparency stay as PNG; everything else goes to JPEG.
 31. **`task_comments` cascade-deletes with tasks.** If a task is deleted, all its comments are automatically removed (ON DELETE CASCADE on `task_id` FK).
+32. **`/analytics` redirects to `/task-dashboard?tab=concepts`.** The standalone Concept Dashboard route is gone. Old bookmarks still work via the redirect. `AnalyticsView` is no longer directly routed.
+33. **Assigned tasks skip `todo`.** `createTask` and `assignTask` both set status to `in_progress` (not `todo`). The `todo` enum value still exists in the DB but is no longer entered by the app.
+34. **DEO kitting claim race condition.** `claimKitting()` checks status before updating, but there's no DB-level lock. Two DEOs clicking "Open form" simultaneously could both succeed. Low risk given team size.
+35. **Kitting form draft is per-record in localStorage.** Key is `kitting-form-draft:{recordId}`. Drafts are cleared on successful submit but persist on abandon. No expiry — stale drafts accumulate.
+36. **Soft-deleted users are hidden by default.** `useProfiles()` filters `is_active=false` unless `includeInactive: true` is passed. Hooks like `useAnalytics` and `useTaskAnalytics` use default (active-only), so deactivated designers drop from leaderboards immediately.
+37. **`deo_kitting_queue` is a view, not a table.** RLS applies to the underlying `full_kitting_details` table. The view joins tasks + clients for convenience. If the join shape changes, update both the view (0023) and `KittingQueueView`.
+38. **DangerZone two-stage confirmation.** Stage 1 = ConfirmDialog (variant danger/warning). Stage 2 = modal with "type DELETE" text input. Both must pass before any data is cleared.
 
 ---
 
@@ -1112,9 +1435,9 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 
 **Done:**
 - Vite scaffold + **dual-theme** (light/dark/system) Tailwind + Inter font + FOUC prevention
-- Full DB schema (15 tables, triggers, RLS, storage) — migrations 0001/0003–0014, 0016–0018 applied
+- Full DB schema (15 tables, triggers, RLS, storage) — migrations 0001/0003–0014, 0016–0024 applied
 - **Theme system**: `useTheme` hook + `ThemeProvider` + `ThemeToggle` component + CSS custom properties for all tokens in both light and dark modes
-- **3-role architecture** (admin / design_coordinator / designer)
+- **4-role architecture** (admin / design_coordinator / designer / deo)
 - Centralized [`lib/permissions.ts`](linkd-fms/src/lib/permissions.ts)
 - `AuthProvider` / `useAuth()` with all 4 auth events + StrictMode safety + 10s watchdog
 - **UX utility layer**: Toaster, Skeleton (x3), AppShellSkeleton, EmptyState, ConfirmDialog, LoadingButton, ConnectionDot, SearchInput, DeadlineCell, ThemeToggle + global CSS keyframes + barrel export
@@ -1128,7 +1451,7 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 - **`/dashboard`** (Kanban) — tabbed wide-table layout (5 status tabs), per-section sorting, search dimming, row actions per status, designer filter (admin), personal stats (designer), TaskDetailDrawer integration
 - **`/brief/new`** — full task creation with: DB-backed concept category + fabric pickers, full-kitting upload section (drag-drop, 100 MB, progress bar, remarks), WhatsApp group picker, assignee selection, DF-format task code generation, success screen
 - **`/concepts`** — clean card-list layout with role-specific dashboards above: Designer (radial progress ring, monthly target 3/3, warning banners at day 7/24), Coordinator (designer progress table, at-risk alerts), Admin (4 KPI cards). Status filter chips with colored dots. Submit dialog (min 50-char description + char counter). Admin review drawer. Dual-schema fallback (pre/post 0012).
-- **`/team`** — read-only roster table (avatar + name + role badge + designer code pills + joined date)
+- **`/team`** — full team management: add user (email + name + role via `supabase.auth.signUp()`, auto-profile via DB trigger), edit name, inline role dropdown with confirmation dialog, soft-delete/deactivate (sets `is_active=false` + `deactivated_at` + `deactivated_by`), designer code management (add/delete codes per designer). Admin + coordinator only.
 - **`/sampling`** — "Sampling Hub": 4 stat cards (Today/Month/Customers/Pending — admin only), customer search + status filters, full samples table with edit/delete row actions (via `SamplingFormDrawer`), "Tasks in Sampling Stage" section with Mark Done, bar chart of samples per day (recharts BarChart, last 14 days). Batch entry via Quick Add mode.
 - **TaskDetailDrawer** — 8 sections: header, pipeline progress, brief grid, qty tracker, file upload, files grid, activity timeline, action footer
 - **Task code generation** — `DF NN-D{MMYY}-CONC-QM` format with designer letter lookup, pool code detection, code regeneration on assignment
@@ -1160,22 +1483,43 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 - **Form draft persistence** — `useFormDraft` hook: localStorage-backed draft save/restore with 300ms debounce. Defensive merge on restore. "Draft recovered" banner in SubmitConceptDialog when a previous submission was interrupted.
 - **Client-side image compression** — `lib/imageCompression.ts`: Canvas-based resize + recompress for JPEG/PNG/WebP >500KB. Max 1920px edge, 0.85 quality. Skips PSD/PDF/video. Fails silently → original file. Used by all 6 upload handlers (Briefing, Concepts, Sampling, TaskDetail, FullKitting drawer/modal).
 - **Lazy image loading** — `<LazyImage>` component: IntersectionObserver (100px rootMargin), skeleton pulse placeholder, opacity fade-in on decode, error fallback. Used for file thumbnails.
+- **Combobox** — `<Combobox>` search-as-you-type dropdown replacing native `<select>` for long lists. Keyboard nav, match highlighting, clearable, skeleton loading. Used by BriefingView for client/concept/fabric pickers.
+- **T-Shirt loader** — `<TShirtLoader>` full-screen overlay with waving t-shirt silhouette. Controlled or imperative (`LoaderProvider` + `useLoader()`). Reference-counted for nested async. Theme-aware. Mounted globally in main.tsx.
+- **Concept Dashboard merged into Task Dashboard** — `/analytics` now redirects to `/task-dashboard?tab=concepts`. Concept Dashboard is a tab inside the unified Dashboards page, not a standalone route. Sidebar entry "Concept Dashboard" removed.
+- **Simplified task pipeline** — Assigned tasks go straight to `in_progress` (skip `todo`). Pool tasks stay in pool until claimed, then move to `in_progress`. `assigned_at` and `started_at` stamped on assignment.
+- **Salvedge restricted** — `/salvedge` now admin + coordinator only; designers no longer see it in sidebar or can access the route.
+- **BriefingView enhancements** — Concept start date defaults to today. 3 new WhatsApp groups added. Dialog prevents accidental close (no outside click / escape dismiss).
+- **DEO role + kitting workflow** — Full two-stage kitting pipeline: coordinator uploads paper form photo (Stage A via `KittingStageADialog`), DEO digitizes into 12-field web form (Stage B via `FullKittingFormView`). `KittingQueueView` at `/kitting` with Queue + Completed tabs. `CompletedKittingPanel` for archive with search + CSV export. Draft auto-save to localStorage. Priority mapping (`lib/kitting.ts`). Async queries (`lib/kittingQueries.ts`). Migrations 0021-0023.
+- **Team management CRUD** — Add user (signUp + auto-profile), edit name, inline role dropdown with confirmation, soft-delete/deactivate (`is_active`, `deactivated_at`, `deactivated_by`), designer code management (add/delete). Migration 0024.
+- **System Danger Zone** — Two-stage destructive data clearing tab in SystemView: per-table clear with live row counts + FK-safe ordering + nuclear "Clear All" option. ConfirmDialog + type-DELETE verification modal.
+- **Soft-delete profiles** — `useProfiles` filters out `is_active=false` by default. `includeInactive` option for team management views. `active_profiles` DB view.
+- **Lookup taxonomy admin UI** — `ConceptCategoriesTab` + `FabricsTab` in SystemView. Full CRUD for `concept_categories` and `fabrics` tables via reusable `LookupSection` component. Add, edit name, toggle active/inactive, delete with confirmation. Admin-only.
+- **Client management** — `ClientManagementTab` in SystemView. Add, edit name, merge duplicates, delete with confirmation. Search + pagination.
+- **Designer code management** — `DesignerCodesTab` in SystemView. Assign/remove letter codes per designer. Shows avatar + name + current codes.
+- **Storage analysis** — `StorageTab` in SystemView. File counts per bucket, on-demand size scan.
+- **App info** — `AppInfoTab` in SystemView. User counts, table row counts, environment info.
+- **Dashboard component extraction** — DashboardView broken into composable sub-components: `DashboardKpiCards` (KPI cards with sparklines), `DashboardAlerts` (collapsible alert banners), `DashboardTimeline` (recent activity timeline), `DashboardPipeline` (animated pipeline status bar).
+- **Concept workflow stage indicator** — `ConceptWorkflowStage` component renders 5-stage progress bar (Submitted → Review → Decision → Finalize → Complete) in ConceptDetailDrawer header.
+- **Designer work board** — `DesignerWorkBoard` component shows grouped sections (Ready / In Progress / On Hold / Changes Needed / In Revision / Completed) with inline transition buttons on `/concepts` for designers.
+- **Task picker for sampling** — `TaskPicker` search-as-you-type component for auto-filling sampling forms from existing tasks. Status badge per option, keyboard nav.
+- **Error boundary** — `ErrorBoundary` class component wrapping `<App>`. Catches render errors, dev stack trace in dev mode, user-friendly fallback in production.
+- **Concept lifecycle helpers** — `lib/conceptStatus.ts`: centralized `isConceptShipped()` predicate separating MD approval from full completion (approval + final_approved_at + designer_actual_date). Used by analytics/scorecard hooks.
+- **Profile page** — `/profile` with avatar upload, name editing, password change (eye toggles, min 8 chars), Appearance section (3 theme cards), designer code display.
 
 **Dashboards (FUNCTIONAL):**
 
-- **Concept Dashboard** (`/analytics`) — Admin/coordinator section order: (1) 4 KPI cards (submitted/approved/rate/avg review time) with trend %; (2) status badges (pending review · in revision · approved · awaiting finalization), clickable; (3) **hero row** — `DesignerConceptMatrix` (per-designer breakdown with own W/M/Q/Y filter, stacked bars by approved/revision/rejected/pending, team totals strip, champion call-out, sortable columns) + `TeamTargetHero` (radial dial of "% designers hit 3 approved", inline stat strip days-left/pace/not-started, designer pip dock); (4) volume chart (period-adaptive: days for week, weeks for month, months for quarter) + concept status bars; (5) `ConceptFunnel` (5-stage funnel with conversion rates + stale-review warning); (6) `MdReviewPanel` (admin only — review-speed circle + counts grid + velocity); (7) `DesignerLeaderboard` (sortable, animated score bars, scoring: volume 30 + approval rate 35 + speed 20 + low revisions 15); (8) `ConceptTurnaround` (approval-speed area chart with success/warning/destructive zones). Designer personal view: `PersonalTargetRing` (radial with milestone ticks at 1/2/3 + contextual message) + 4 personal KPIs + big score card.
+- **Concept Analytics** (Concepts tab inside `/task-dashboard`, old `/analytics` redirects here) — Admin/coordinator section order: (1) 4 KPI cards (submitted/approved/rate/avg review time) with trend %; (2) status badges (pending review · in revision · approved · awaiting finalization), clickable; (3) **hero row** — `DesignerConceptMatrix` (per-designer breakdown with own W/M/Q/Y filter, stacked bars by approved/revision/rejected/pending, team totals strip, champion call-out, sortable columns) + `TeamTargetHero` (radial dial of "% designers hit 3 approved", inline stat strip days-left/pace/not-started, designer pip dock); (4) volume chart (period-adaptive: days for week, weeks for month, months for quarter) + concept status bars; (5) `ConceptFunnel` (5-stage funnel with conversion rates + stale-review warning); (6) `MdReviewPanel` (admin only — review-speed circle + counts grid + velocity); (7) `DesignerLeaderboard` (sortable, animated score bars, scoring: volume 30 + approval rate 35 + speed 20 + low revisions 15); (8) `ConceptTurnaround` (approval-speed area chart with success/warning/destructive zones). Designer personal view: `PersonalTargetRing` (radial with milestone ticks at 1/2/3 + contextual message) + 4 personal KPIs + big score card.
 - **Task Dashboard** (`/task-dashboard`) — Admin/coordinator section order: (1) `TaskHealthHero` (horizontal strip with dividers: throughput + on-time radial | auto-generated headline insight | active/urgent/overdue dock; handles sparse-data / no-previous-period without leaking the 999 trend sentinel); (2) 4 KPI cards (completed/on-time/avg days/created) with trend %; (3) status badges (active in pipeline · urgent · overdue); (4) volume bar chart + pipeline health bars (clickable, links to `/dashboard`); (5) `WorkloadDistribution` (stacked horizontal bars per designer, auto-tagged Overloaded/Light vs team avg, `onDesignerClick` opens scorecard drawer) + `AtRiskTasks` (tabbed Overdue/Urgent with deep-link); (6) `TaskLeaderboard` (sortable, animated score bars, scoring: volume 30 + on-time 35 + speed 20 + active work 15, row click opens scorecard drawer). Designer personal view: 4 personal KPIs + big score card.
 - **Designer Scorecards** (`/scorecards`, admin only) — Grid landing page that judges every designer at a glance. 4-stat banner (designers/avg composite/on track/needs support) + top-performer call-out + search + designer cards (composite score, verdict pill, concept/task mini blocks, strengths/watchouts count). Each card click → full-page scorecard at `/scorecards/:designerId`.
 - **Full-page scorecard** (`/scorecards/:designerId`) — Deep-dive performance analysis. Sections: **(1) Hero** with Reliability gauge (composite + on-time/throughput/consistency bars, tiered STRONG/SOLID/DEVELOPING/NEEDS SUPPORT). **(2) 5 KPI tiles** (Scheduled · Completed · On-Time % · Avg Delay · Best Streak) with trend pills. **(3) Concept Performance + Task Performance cards** (donut + 4-bar score breakdown + section pill + avg review/completion footnote with team-avg delta). **(4) 6-Month Momentum** recharts AreaChart (concepts approved + tasks completed). **(5) Calendar heatmap** (compact 36×36 cells, Mon-first, click any cell → drill-in panel with all that day's events listed by tone) + **Composition donut** (140px + stacked summary bar + verdict footnote) + **Weekly Throughput sparkline** (12 weeks, stacked tasks + concepts). **(6) Trend (6mo on-time % bars) + Day-of-week pattern + Cycle Time histogram** (delay buckets 0d / 1d / 2-3d / 4-7d / 8+d). **(7) Priority breakdown donut + Vs Team comparison bars (delta-colored) + Concept Pipeline funnel** (Submitted → Reviewed → Approved → Finalized with drop-off %). **(8) Activity timeline + Insights**. Date-range filter (7d/30d/90d/6mo/12mo/Custom from→to) drives all KPIs + charts. Admin gets Export CSV + Send Feedback (inline) + Open Team actions. Designer self-view hides rank + admin actions ("My Performance" subtitle).
-- **System** (`/system`) — Admin data management page: live row counts per table, expandable data browser (search by any column + per-row delete + pagination 20/page), bulk "Clear" per table (FK-safe dependency ordering), "Clear All Data" with task counter reset. Protected tables: profiles, auth.users, designer_codes never deleted.
+- **System** (`/system`) — Admin hub with tabbed layout: App Info, Concept Categories, Fabrics, Clients, Designer Codes, Storage, Danger Zone. Danger Zone tab has two-stage delete confirmation (ConfirmDialog + type DELETE verification). Protected tables: profiles, auth.users, designer_codes never deleted.
 
 **Not yet built:**
-- In-app role management on `/team`
 - Cross-page search
 - Edit own pending concept (DB permits it; UI doesn't expose it)
 - Concept → Task promotion (`tasks.concept_id` FK exists, no UI)
 - Drag-and-drop reordering in Kanban
-- **Lookup taxonomy admin UI**: no in-app interface for managing `concept_categories` or `fabrics`
+- Edge Function for deadline alerts (removed useDeadlineAlerts; no server-side replacement yet)
 
 ---
 
@@ -1208,7 +1552,7 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 | Change sampling form fields | [`SamplingFormDrawer.tsx`](linkd-fms/src/components/sampling/SamplingFormDrawer.tsx) |
 | Change sampling page layout/charts | [`ProductionView.tsx`](linkd-fms/src/views/ProductionView.tsx) (stats cards, filters, samples table, bar chart) |
 | Edit a task inline in drawer | [`TaskDetailDrawer.tsx`](linkd-fms/src/components/tasks/TaskDetailDrawer.tsx) — `EditableBriefDetails` component |
-| Change Concept Dashboard KPIs/charts | [`useAnalytics.ts`](linkd-fms/src/hooks/useAnalytics.ts) + [`AnalyticsView.tsx`](linkd-fms/src/views/AnalyticsView.tsx) |
+| Change concept analytics KPIs/charts (Concepts tab) | [`useAnalytics.ts`](linkd-fms/src/hooks/useAnalytics.ts) + [`AnalyticsView.tsx`](linkd-fms/src/views/AnalyticsView.tsx) |
 | Change the Designer Concept Matrix hero | [`DesignerConceptMatrix.tsx`](linkd-fms/src/components/analytics/DesignerConceptMatrix.tsx) — per-designer rows + W/M/Q/Y filter (independent of dashboard top filter) |
 | Change the Monthly Target hero | [`TeamTargetHero.tsx`](linkd-fms/src/components/analytics/TeamTargetHero.tsx) — radial dial, stat strip, designer pip dock |
 | Change Task Dashboard KPIs/charts | [`useTaskAnalytics.ts`](linkd-fms/src/hooks/useTaskAnalytics.ts) + [`TaskDashboardView.tsx`](linkd-fms/src/views/TaskDashboardView.tsx) |
@@ -1250,4 +1594,29 @@ All passwords follow the pattern: `{FirstName}123` with a **capital first letter
 | Compress images before upload | `import { compressImage } from "@/lib/imageCompression"` — Canvas pipeline, fails silently |
 | Lazy-load an image | `<LazyImage src={url} alt="..." className="..." />` — IntersectionObserver + fade-in |
 | Invalidate React Query cache | `queryClient.invalidateQueries({ queryKey: queryKeys.*.all })` — keys in `lib/queryKeys.ts` |
-| Add a DB table or column | New file `supabase/migrations/0019_*.sql` + update `types/database.ts` |
+| Show a global loader | `const { show, hide } = useLoader()` — from `@/components/ui`. Needs `<LoaderProvider>` in main.tsx |
+| Use a searchable dropdown | `<Combobox value={v} onChange={set} options={opts} />` — from `@/components/ui` |
+| Change kitting Stage A (coordinator upload) | [`KittingStageADialog.tsx`](linkd-fms/src/components/tasks/KittingStageADialog.tsx) + [`lib/kittingQueries.ts`](linkd-fms/src/lib/kittingQueries.ts) |
+| Change kitting form fields (DEO digitization) | [`FullKittingFormFields.tsx`](linkd-fms/src/components/tasks/FullKittingFormFields.tsx) — `KittingFormValues` type |
+| Change kitting queue page | [`KittingQueueView.tsx`](linkd-fms/src/views/KittingQueueView.tsx) — Queue + Completed tabs |
+| Change kitting detail page | [`FullKittingFormView.tsx`](linkd-fms/src/views/FullKittingFormView.tsx) — image pane + form |
+| Change kitting priority mapping | [`lib/kitting.ts`](linkd-fms/src/lib/kitting.ts) — `priorityToEnum` / `priorityFromEnum` |
+| Change completed kitting archive | [`CompletedKittingPanel.tsx`](linkd-fms/src/components/tasks/CompletedKittingPanel.tsx) — table + CSV export |
+| Change team management (add/edit/deactivate users) | [`TeamView.tsx`](linkd-fms/src/views/TeamView.tsx) — CRUD + role dropdown + soft-delete |
+| Change Danger Zone (data clearing) | [`DangerZoneTab.tsx`](linkd-fms/src/components/system/DangerZoneTab.tsx) — two-stage confirmation |
+| Manage concept categories in-app | [`ConceptCategoriesTab.tsx`](linkd-fms/src/components/system/ConceptCategoriesTab.tsx) — via LookupSection |
+| Manage fabrics in-app | [`FabricsTab.tsx`](linkd-fms/src/components/system/FabricsTab.tsx) — via LookupSection |
+| Manage clients in-app | [`ClientManagementTab.tsx`](linkd-fms/src/components/system/ClientManagementTab.tsx) — CRUD + merge |
+| Manage designer codes in-app | [`DesignerCodesTab.tsx`](linkd-fms/src/components/system/DesignerCodesTab.tsx) — assign/remove per designer |
+| Check storage bucket sizes | [`StorageTab.tsx`](linkd-fms/src/components/system/StorageTab.tsx) — on-demand scan |
+| Change dashboard KPI cards | [`DashboardKpiCards.tsx`](linkd-fms/src/components/dashboard/DashboardKpiCards.tsx) — sparklines + trends |
+| Change dashboard alerts | [`DashboardAlerts.tsx`](linkd-fms/src/components/dashboard/DashboardAlerts.tsx) — severity-sorted banners |
+| Change dashboard timeline | [`DashboardTimeline.tsx`](linkd-fms/src/components/dashboard/DashboardTimeline.tsx) — recent activity |
+| Change dashboard pipeline bar | [`DashboardPipeline.tsx`](linkd-fms/src/components/dashboard/DashboardPipeline.tsx) — animated status bars |
+| Change concept stage progress indicator | [`ConceptWorkflowStage.tsx`](linkd-fms/src/components/concepts/ConceptWorkflowStage.tsx) — 5-stage bar |
+| Change designer concept work board | [`DesignerWorkBoard.tsx`](linkd-fms/src/components/concepts/DesignerWorkBoard.tsx) — grouped sections + inline actions |
+| Change task picker in sampling | [`TaskPicker.tsx`](linkd-fms/src/components/sampling/TaskPicker.tsx) — search-as-you-type |
+| Change profile page | [`ProfileView.tsx`](linkd-fms/src/views/ProfileView.tsx) — avatar + password + theme |
+| Change concept lifecycle predicates | [`lib/conceptStatus.ts`](linkd-fms/src/lib/conceptStatus.ts) — isConceptShipped() |
+| Change error boundary fallback | [`ErrorBoundary.tsx`](linkd-fms/src/components/ErrorBoundary.tsx) — class component |
+| Add a DB table or column | New file `supabase/migrations/0025_*.sql` + update `types/database.ts` |

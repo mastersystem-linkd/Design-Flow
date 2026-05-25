@@ -263,8 +263,8 @@ export function FullKittingModal({
 
       <ConfirmDialog
         open={confirmClose}
-        title="Discard kitting data?"
-        description="You've started filling in the kitting form. Closing will lose your unsaved changes."
+        title="Discard knitting data?"
+        description="You've started filling in the knitting form. Closing will lose your unsaved changes."
         variant="warning"
         confirmLabel="Discard"
         onConfirm={() => {

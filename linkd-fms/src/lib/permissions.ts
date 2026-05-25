@@ -56,8 +56,11 @@ export const canChangeUserRoles = isAdmin;
 /** Soft-deleting / reverting tasks — admin + coordinator. */
 export const canManageTaskLifecycle = isAdminOrCoordinator;
 
-/** Creating new briefs — admin + coordinator. */
-export const canCreateBriefs = isAdminOrCoordinator;
+/** Creating new briefs — all roles. Designers can log their own tasks from My Board;
+ *  RLS still enforces that `created_by` is the caller and forbids tombstoning. */
+export function canCreateBriefs(role: UserRole | null | undefined): boolean {
+  return role === "admin" || role === "design_coordinator" || role === "designer";
+}
 
 /** Logging sampling completion — admin + coordinator. */
 export const canLogSampling = isAdminOrCoordinator;

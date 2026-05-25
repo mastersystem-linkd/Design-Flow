@@ -33,7 +33,10 @@ export function PipelineHealth({ data }: { data: StatusDistribution[] }) {
 
   return (
     <Card className="h-full">
-      <CardContent className="space-y-1 py-4">
+      {/* Flex column so the bar list can grow + center inside the card when
+          the sibling (VolumeChart) stretches this card taller than its
+          content. Header stays pinned at the top, bars settle in the middle. */}
+      <CardContent className="flex h-full flex-col py-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">Concept Status</h3>
           <Badge variant="secondary" className="text-[10px]">
@@ -41,7 +44,7 @@ export function PipelineHealth({ data }: { data: StatusDistribution[] }) {
           </Badge>
         </div>
 
-        <div className="mt-3 space-y-2">
+        <div className="flex flex-1 flex-col justify-center space-y-2 py-3">
           {data.map((item, i) => {
             const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
             const barPct = Math.max(item.count > 0 ? 8 : 4, (item.count / maxCount) * 100);

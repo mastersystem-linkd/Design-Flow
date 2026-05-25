@@ -68,8 +68,8 @@ export function AtRiskTasks({ tasks }: Props) {
 
   return (
     <Card>
-      <CardContent className="py-5">
-        <div className="mb-4 flex items-center justify-between gap-2">
+      <CardContent className="py-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <AlertOctagon className="h-4 w-4 text-destructive" />
             <h3 className="text-sm font-semibold text-foreground">

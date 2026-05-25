@@ -137,7 +137,20 @@ export interface TaskDashboardMetrics {
    * the full list inside a "View all" dialog.
    */
   topClients: TopClient[];
-  sparklines: { completed: number[]; onTime: number[]; created: number[] };
+  /**
+   * 7-bucket time series for the KPI card sparklines.
+   *   - completed:   number of tasks completed per bucket
+   *   - onTime:      number of those that were on time (delay_days ≤ 1)
+   *   - created:     number of tasks created per bucket
+   *   - avgDelay:    average delay_days across completions per bucket
+   *                  (0 when no completions in that bucket)
+   */
+  sparklines: {
+    completed: number[];
+    onTime: number[];
+    created: number[];
+    avgDelay: number[];
+  };
   /** Raw tasks list, re-exported so consumers don't double-fetch via useTasks. */
   tasks: TaskWithRelations[];
   periodStart: Date;
@@ -265,14 +278,28 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     };
   }, [tasks, start, end, prevStart, prevEnd]);
 
-  // ── Pipeline ──────────────────────────────────────────────────────
+  // ── Pipeline (simplified Pool → In Progress → Done) ──────────────
+  // Legacy in-flight statuses (todo / full_kitting / approved / sampling)
+  // roll up into "In Progress" so the chart counts remain accurate.
   const pipeline = useMemo(() => {
-    const statuses = ["pool", "todo", "in_progress", "full_kitting", "done"];
     const total = tasks.length || 1;
-    return statuses.map((s) => {
-      const count = tasks.filter((t) => t.status === s).length;
-      return { status: s, count, percentage: Math.round((count / total) * 100) };
-    });
+    const counts = {
+      pool: tasks.filter((t) => t.status === "pool").length,
+      in_progress: tasks.filter(
+        (t) =>
+          t.status === "in_progress" ||
+          t.status === "todo" ||
+          t.status === "full_kitting" ||
+          t.status === "approved" ||
+          t.status === "sampling"
+      ).length,
+      done: tasks.filter((t) => t.status === "done").length,
+    } as const;
+    return (["pool", "in_progress", "done"] as const).map((s) => ({
+      status: s,
+      count: counts[s],
+      percentage: Math.round((counts[s] / total) * 100),
+    }));
   }, [tasks]);
 
   // ── Volume data (adapts to period: days for week, weeks for month, months for quarter) ──
@@ -466,6 +493,9 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     const completed: number[] = [];
     const onTime: number[] = [];
     const created: number[] = [];
+    // Per-bucket average delay (days late). 0 when no completions in the
+    // bucket so the line stays anchored at the baseline.
+    const avgDelay: number[] = [];
 
     for (let i = 0; i < buckets; i++) {
       const bStart = new Date(start.getTime() + i * step);
@@ -475,9 +505,10 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
       completed.push(comp.length);
       onTime.push(comp.filter((t) => (t.delay_days ?? 999) <= 1).length);
       created.push(tasks.filter((t) => inRange(t.created_at, bStart, bEnd)).length);
+      avgDelay.push(safeAvg(comp.map((t) => t.delay_days ?? 0)));
     }
 
-    return { completed, onTime, created };
+    return { completed, onTime, created, avgDelay };
   }, [tasks, start, end]);
 
   return {

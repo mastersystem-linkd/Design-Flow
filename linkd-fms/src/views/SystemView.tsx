@@ -10,6 +10,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import type { UserRole } from "@/types/database";
 import {
   Card,
   CardContent,
@@ -54,7 +55,7 @@ interface TabSpec {
   label: string;
   icon: typeof Info;
   /** Returns true when the user is allowed to see this tab. */
-  canAccess: (role: "admin" | "design_coordinator" | "designer") => boolean;
+  canAccess: (role: UserRole) => boolean;
   /** When true, the tab uses destructive coloring in the nav. */
   destructive?: boolean;
 }
@@ -203,10 +204,7 @@ export function SystemView() {
 // we double-check at render time in case the user navigates manually somehow.
 // ----------------------------------------------------------------------------
 
-function renderTab(
-  id: TabId,
-  role: "admin" | "design_coordinator" | "designer"
-) {
+function renderTab(id: TabId, role: UserRole) {
   // Defense-in-depth: re-verify role permissions per tab. This protects
   // against future bugs where the nav filter and the renderer drift apart.
   const adminOnly = (component: React.ReactNode) =>

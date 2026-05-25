@@ -351,27 +351,30 @@ export function FilesView() {
       </div>
 
       {/* ── Filter rail ──
-          Two rows so the controls have room without scrunching:
-            row 1 — search + bucket pills
-            row 2 — type / uploader / date range / clear
-          On mobile both rows wrap independently. */}
-      <div className="space-y-3 rounded-xl border border-border bg-card p-3">
-        {/* Row 1 — search + bucket pills */}
-        <div className="flex flex-wrap items-center gap-3">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search files…"
-            className="w-full sm:w-64"
-          />
-          <div className="flex flex-wrap gap-1.5">
+          Forced single row at all viewport widths. Overflow-x-auto kicks in
+          on narrow screens so nothing wraps; tightened control widths keep
+          the scroll bar from appearing on typical desktops. */}
+      <div className="overflow-x-auto rounded-xl border border-border bg-card p-3">
+        <div className="flex flex-nowrap items-end gap-x-2 gap-y-2">
+          {/* Search — narrower than before so we have budget for the rest */}
+          <div className="shrink-0">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search files…"
+              className="w-44"
+            />
+          </div>
+
+          {/* Bucket pills — compact padding so the whole cluster stays tight */}
+          <div className="flex shrink-0 flex-nowrap items-center gap-1">
             {BUCKET_FILTERS.map((bf) => (
               <button
                 key={bf.value}
                 type="button"
                 onClick={() => setBucket(bf.value)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
                   bucket === bf.value
                     ? "bg-primary text-white"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -391,18 +394,16 @@ export function FilesView() {
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Row 2 — type / uploader / date range + clear */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-          <FilterIcon className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground sm:inline" />
+          <div className="hidden h-8 w-px shrink-0 self-center bg-border md:block" aria-hidden />
+          <FilterIcon className="hidden h-3.5 w-3.5 shrink-0 self-center text-muted-foreground sm:inline" />
 
           {/* File type */}
           <FilterField label="Type">
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as FileTypeFilter)}
-              className="h-8 rounded-md border border-input bg-card px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 w-36 rounded-md border border-input bg-card px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
             >
               {FILE_TYPE_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -417,7 +418,7 @@ export function FilesView() {
             <select
               value={uploaderFilter}
               onChange={(e) => setUploaderFilter(e.target.value)}
-              className="h-8 rounded-md border border-input bg-card px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 w-36 rounded-md border border-input bg-card px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Anyone</option>
               {uploaderOptions.map((u) => (
@@ -428,28 +429,28 @@ export function FilesView() {
             </select>
           </FilterField>
 
-          {/* Date range */}
+          {/* Date range — pinned width so they don't grow */}
           <FilterField label="From">
-            <div className="relative">
+            <div className="relative shrink-0">
               <Calendar className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
                 max={toDate || undefined}
-                className="h-8 rounded-md border border-input bg-card pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-8 w-[140px] rounded-md border border-input bg-card pl-7 pr-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
           </FilterField>
           <FilterField label="To">
-            <div className="relative">
+            <div className="relative shrink-0">
               <Calendar className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
                 min={fromDate || undefined}
-                className="h-8 rounded-md border border-input bg-card pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-8 w-[140px] rounded-md border border-input bg-card pl-7 pr-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
           </FilterField>
@@ -458,7 +459,7 @@ export function FilesView() {
             <button
               type="button"
               onClick={clearFilters}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 self-center rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
               <X className="h-3 w-3" />
               Clear filters

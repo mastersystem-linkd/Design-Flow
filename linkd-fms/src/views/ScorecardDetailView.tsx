@@ -24,6 +24,7 @@ import {
   Zap,
   GitBranch,
   TrendingUp,
+  Pause,
 } from "lucide-react";
 import {
   format,
@@ -966,6 +967,82 @@ export function ScorecardDetailView() {
                 </div>
               </div>
             </div>
+
+            {/* ── Post-Approval Pipeline — work-status lifecycle metrics
+                 from migration 0026. Hidden when the designer has no
+                 lifecycle data yet so we don't show four "—" tiles. */}
+            {(data.concept.firstPassRate !== null ||
+              data.concept.avgRevisionRounds !== null ||
+              data.concept.avgDesignDays !== null ||
+              data.concept.holdRate !== null) && (
+              <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Sparkles className="h-3 w-3 text-primary" />
+                  Post-Approval Pipeline
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <LifecycleStat
+                    icon={<Sparkles className="h-3 w-3" />}
+                    label="First-Pass"
+                    value={
+                      data.concept.firstPassRate !== null
+                        ? `${data.concept.firstPassRate}%`
+                        : "—"
+                    }
+                    accentClass={
+                      data.concept.firstPassRate === null
+                        ? undefined
+                        : data.concept.firstPassRate >= 80
+                          ? "text-success"
+                          : data.concept.firstPassRate >= 60
+                            ? "text-warning"
+                            : "text-destructive"
+                    }
+                  />
+                  <LifecycleStat
+                    icon={<RotateCcw className="h-3 w-3" />}
+                    label="Avg Rounds"
+                    value={
+                      data.concept.avgRevisionRounds !== null
+                        ? data.concept.avgRevisionRounds.toFixed(1)
+                        : "—"
+                    }
+                  />
+                  <LifecycleStat
+                    icon={<CalendarIcon className="h-3 w-3" />}
+                    label="Working Days"
+                    value={
+                      data.concept.avgDesignDays !== null
+                        ? `${data.concept.avgDesignDays}d`
+                        : "—"
+                    }
+                  />
+                  <LifecycleStat
+                    icon={<Pause className="h-3 w-3" />}
+                    label="Hold Rate"
+                    value={
+                      data.concept.holdRate !== null
+                        ? `${data.concept.holdRate}%`
+                        : "—"
+                    }
+                    sub={
+                      data.concept.totalHolds > 0
+                        ? `${data.concept.totalHolds} total`
+                        : undefined
+                    }
+                    accentClass={
+                      data.concept.holdRate === null
+                        ? undefined
+                        : data.concept.holdRate <= 20
+                          ? "text-success"
+                          : data.concept.holdRate <= 50
+                            ? "text-warning"
+                            : "text-destructive"
+                    }
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -3155,6 +3232,46 @@ function ThroughputSparkline({
           Concepts approved
         </span>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// LifecycleStat — compact tile for the Post-Approval Pipeline strip inside
+// the Concept Performance card. Lives at file scope so it can be reused
+// without prop-drilling card-internal state.
+// ============================================================================
+
+function LifecycleStat({
+  icon,
+  label,
+  value,
+  sub,
+  accentClass,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  accentClass?: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground/80">
+        {icon}
+        {label}
+      </div>
+      <p
+        className={cn(
+          "mt-0.5 text-sm font-semibold tabular-nums text-foreground",
+          accentClass
+        )}
+      >
+        {value}
+      </p>
+      {sub && (
+        <p className="text-[10px] text-muted-foreground/70">{sub}</p>
+      )}
     </div>
   );
 }

@@ -8,6 +8,11 @@ import {
   FileText,
   Download,
   PackageCheck,
+  Hourglass,
+  PlayCircle,
+  Pause,
+  Sparkles,
+  Calendar,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAnalytics, type Period } from "@/hooks/useAnalytics";
@@ -21,6 +26,8 @@ import { ConceptFunnel } from "@/components/analytics/ConceptFunnel";
 import { MdReviewPanel } from "@/components/analytics/MdReviewPanel";
 import { DesignerConceptMatrix } from "@/components/analytics/DesignerConceptMatrix";
 import { TeamTargetHero } from "@/components/analytics/TeamTargetHero";
+import { DesignerConceptDashboard } from "@/components/concepts/ConceptDashboard";
+import { useNavigate } from "react-router-dom";
 import { isAdmin as isAdminCheck } from "@/lib/permissions";
 import {
   Card,
@@ -42,7 +49,13 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: "quarter", label: "Quarter" },
 ];
 
-export function AnalyticsView() {
+/**
+ * AnalyticsView — Concept Dashboard. Also rendered as a tab inside
+ * TaskDashboardView when the user hits `?tab=concepts`. Pass
+ * `embedded={true}` from that parent so the giant icon + H1 + sub-label
+ * header is skipped — the parent's tab strip already names the section.
+ */
+export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {}) {
   const { profile } = useAuth();
   const role: UserRole = profile?.role ?? "designer";
   const isDesigner = role === "designer";
@@ -50,7 +63,9 @@ export function AnalyticsView() {
   const [period, setPeriod] = useState<Period>("month");
   const a = useAnalytics(period);
   const { concepts } = useConcepts();
+  const navigate = useNavigate();
   const canExport = isAdminOrCoordinator(role);
+  const userId = profile?.id;
 
   function handleExportReport() {
     if (!a.designerStats.length) return;
@@ -86,12 +101,12 @@ export function AnalyticsView() {
 
   if (a.isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="h-8 w-48 animate-pulse rounded bg-secondary" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-3">
           <div className="lg:col-span-2"><SkeletonCard /></div>
           <SkeletonCard />
         </div>
@@ -106,158 +121,184 @@ export function AnalyticsView() {
     : null;
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Lightbulb className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              {isDesigner ? "My Concept Performance" : "Concept Dashboard"}
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">{a.periodLabel}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {canExport && a.designerStats.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportReport}
-              className="gap-1.5"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
-          )}
-          <div className="inline-flex rounded-lg bg-secondary p-1">
-            {PERIODS.map((p) => (
-              <button
-                key={p.value}
-                type="button"
-                onClick={() => setPeriod(p.value)}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  period === p.value
-                    ? "bg-primary text-white"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
+    <div className="space-y-4">
+      {/* ── Header ──
+          When `embedded`, the parent (TaskDashboardView) already shows a
+          tab strip naming this section, so we drop the giant icon + h1
+          and just render the controls + sub-label inline. */}
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {isDesigner ? "Your concepts · " : ""}
+            {a.periodLabel}
+          </p>
+          <div className="flex items-center gap-2">
+            {canExport && a.designerStats.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportReport}
+                className="gap-1.5"
               >
-                {p.label}
-              </button>
-            ))}
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+            )}
+            <div className="inline-flex rounded-lg bg-secondary p-1">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPeriod(p.value)}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    period === p.value
+                      ? "bg-primary text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* ── DESIGNER PERSONAL VIEW ── */}
-      {isDesigner && myStats ? (
-        <>
-          {/* Personal monthly progress ring */}
-          <Card className="overflow-hidden">
-            <CardContent className="py-6">
-              <div className="flex flex-col items-center gap-6 sm:flex-row">
-                <PersonalTargetRing approved={myStats.approved} target={myStats.target} />
-                <div className="flex-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Your monthly target
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-foreground">
-                    {myStats.approved} of {myStats.target} concepts approved
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {myStats.approved >= myStats.target
-                      ? "🎉 Target met — anything past this is bonus."
-                      : myStats.approved >= 1
-                      ? `${myStats.target - myStats.approved} more to hit this month's goal.`
-                      : "Get one concept across the line to start the streak."}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">
-                      {myStats.submitted} submitted
-                    </span>
-                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-warning">
-                      {myStats.revisions} revision
-                    </span>
-                    <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
-                      {myStats.rejected} rejected
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard
-              icon={<FileText className="h-4 w-4 text-primary" />}
-              label="Submitted"
-              value={myStats.submitted}
-              metric={{ current: myStats.submitted, previous: 0, trend: 0 }}
-              tintClass="bg-primary/10"
-              to={ROUTES.concepts}
-            />
-            <KpiCard
-              icon={<CheckCircle2 className="h-4 w-4 text-success" />}
-              label="Approved"
-              value={`${myStats.approved} / ${myStats.target}`}
-              metric={{ current: myStats.approved, previous: 0, trend: 0 }}
-              tintClass="bg-success/10"
-              valueColor={
-                myStats.approved >= 3 ? "text-success" : myStats.approved >= 1 ? "text-warning" : "text-destructive"
-              }
-              to={ROUTES.concepts}
-            />
-            <KpiCard
-              icon={<RotateCcw className="h-4 w-4 text-warning" />}
-              label="Revisions"
-              value={myStats.revisions}
-              metric={{ current: myStats.revisions, previous: 0, trend: 0 }}
-              tintClass="bg-warning/10"
-              to={ROUTES.concepts}
-            />
-            <KpiCard
-              icon={<Lightbulb className="h-4 w-4 text-primary" />}
-              label="Score"
-              value={myStats.score}
-              metric={{ current: myStats.score, previous: 0, trend: 0 }}
-              tintClass="bg-primary/10"
-              valueColor={
-                myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive"
-              }
-            />
+      ) : (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <Lightbulb className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {isDesigner ? "My Concept Performance" : "Concept Dashboard"}
+              </h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">{a.periodLabel}</p>
+            </div>
           </div>
+          <div className="flex items-center gap-2">
+            {canExport && a.designerStats.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportReport}
+                className="gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+            )}
+            <div className="inline-flex rounded-lg bg-secondary p-1">
+              {PERIODS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPeriod(p.value)}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    period === p.value
+                      ? "bg-primary text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-          <Card>
-            <CardContent className="flex flex-col items-center py-8">
-              <p className={cn(
-                "text-6xl font-bold tabular-nums",
-                myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive"
-              )}>
-                {myStats.score}
-              </p>
-              <div className="mt-3 h-3 w-64 overflow-hidden rounded-full bg-secondary">
+      {/* ── Designer concept dashboard (radial + KPI cards + Concept Progress
+          bars). Only rendered for designers — admin/coordinator get the
+          richer matrix + target hero below, which already covers the same
+          ground without the duplication. */}
+      {isDesigner && userId && (
+        <DesignerConceptDashboard
+          concepts={concepts}
+          userId={userId}
+          onSubmit={() => navigate(ROUTES.concepts)}
+          onConceptSelect={() => navigate(ROUTES.concepts)}
+        />
+      )}
+
+      {/* ── DESIGNER PERSONAL VIEW ──
+          DesignerConceptDashboard (above) already shows the monthly target
+          radial + KPI cards + Concept Progress bars + nudges. Here we just
+          add ONE compact performance card so the designer sees their score
+          and revisions without the radial / KPI duplication of the old layout. */}
+      {isDesigner && myStats ? (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Score column */}
+              <div className="flex items-center gap-3">
                 <div
                   className={cn(
-                    "h-full rounded-full transition-[width] duration-[800ms]",
-                    myStats.score >= 90 ? "bg-success" : myStats.score >= 75 ? "bg-warning" : "bg-destructive"
+                    "flex h-14 w-14 items-center justify-center rounded-xl",
+                    myStats.score >= 90
+                      ? "bg-success/10"
+                      : myStats.score >= 75
+                        ? "bg-warning/10"
+                        : "bg-destructive/10"
                   )}
-                  style={{ width: `${myStats.score}%` }}
-                />
+                >
+                  <span
+                    className={cn(
+                      "text-2xl font-bold tabular-nums",
+                      myStats.score >= 90
+                        ? "text-success"
+                        : myStats.score >= 75
+                          ? "text-warning"
+                          : "text-destructive"
+                    )}
+                  >
+                    {myStats.score}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Performance Score
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Your concept score this {period}
+                  </p>
+                </div>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Your concept performance score this {period}
-              </p>
-            </CardContent>
-          </Card>
-        </>
+
+              {/* Stat chips on the right */}
+              <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-warning">
+                  <RotateCcw className="h-3 w-3" />
+                  {myStats.revisions} revision{myStats.revisions === 1 ? "" : "s"}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-destructive">
+                  {myStats.rejected} rejected
+                </span>
+              </div>
+            </div>
+
+            {/* Score bar */}
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-[800ms]",
+                  myStats.score >= 90
+                    ? "bg-success"
+                    : myStats.score >= 75
+                      ? "bg-warning"
+                      : "bg-destructive"
+                )}
+                style={{ width: `${myStats.score}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         /* ── ADMIN / COORDINATOR VIEW ── */
         <>
           {/* KPI cards — 5 tiles, collapses to 2-col on tablet / 1-col on mobile */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <KpiCard
               icon={<FileText className="h-4 w-4 text-primary" />}
               label="Concepts Submitted"
@@ -288,6 +329,7 @@ export function AnalyticsView() {
               tintClass="bg-success/10"
               to={`${ROUTES.concepts}?tab=completed`}
               animateValue
+              sparklineData={a.sparklines.completed}
               valueColor={
                 a.kpis.completionRate.current >= 70 ? "text-success" :
                 a.kpis.completionRate.current >= 40 ? "text-warning" : undefined
@@ -304,6 +346,7 @@ export function AnalyticsView() {
               value={`${a.kpis.approvalRate.current}%`}
               metric={a.kpis.approvalRate}
               tintClass="bg-primary/10"
+              sparklineData={a.sparklines.approvalRate}
               valueColor={
                 a.kpis.approvalRate.current > 80 ? "text-success" : a.kpis.approvalRate.current < 50 ? "text-destructive" : "text-warning"
               }
@@ -317,6 +360,7 @@ export function AnalyticsView() {
               metric={a.kpis.avgApprovalHours}
               tintClass="bg-warning/10"
               invertTrend
+              sparklineData={a.sparklines.avgReviewHours}
               valueColor={
                 a.kpis.avgApprovalHours.current === 0 ? undefined :
                 a.kpis.avgApprovalHours.current < 24 ? "text-success" :
@@ -361,8 +405,191 @@ export function AnalyticsView() {
             </Badge>
           </div>
 
-          {/* Hero row: Designer matrix + Monthly target */}
-          <div className="grid gap-4 xl:grid-cols-5">
+          {/* ── Concept Work Pipeline — post-approval lifecycle health ──
+               Six pipeline counters + four quality KPIs. Sourced from the
+               work-status block on useAnalytics, which reads the columns
+               added in migration 0026 (work_status, hold_count,
+               revision_count, total_hold_duration). */}
+          <Card>
+            <CardContent className="p-4">
+              <header className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Concept Work Pipeline
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Post-approval lifecycle — what's moving, what's stuck.
+                    </p>
+                  </div>
+                </div>
+                <Badge className="bg-primary/10 text-primary border border-primary/20">
+                  {a.workStatus.inFlight} in flight
+                </Badge>
+              </header>
+
+              {/* Pipeline buckets — 4 across, deep-link into ConceptsView.
+                   "Ready" was removed (work auto-starts on MD approval per
+                   migration 0029) and "Changes Needed" was collapsed into
+                   "In Progress" (migration 0030). "Rejected" added so
+                   admins see terminal MD-rejections alongside the work
+                   pipeline. */}
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                <WorkPill
+                  icon={<PlayCircle className="h-3.5 w-3.5" />}
+                  label="In Progress"
+                  value={a.workStatus.inFlight - a.workStatus.onHold - a.workStatus.inRevision}
+                  tone="primary"
+                  href={`${ROUTES.concepts}?tab=approved`}
+                />
+                <WorkPill
+                  icon={<Pause className="h-3.5 w-3.5" />}
+                  label="On Hold"
+                  value={a.workStatus.onHold}
+                  tone="warning"
+                  href={`${ROUTES.concepts}?tab=approved`}
+                />
+                <WorkPill
+                  icon={<Hourglass className="h-3.5 w-3.5" />}
+                  label="In Revision"
+                  value={a.workStatus.inRevision}
+                  tone="destructive"
+                  href={`${ROUTES.concepts}?tab=approved`}
+                />
+                <WorkPill
+                  icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                  label="Completed"
+                  value={a.workStatus.completed}
+                  tone="success"
+                  href={`${ROUTES.concepts}?tab=completed`}
+                />
+                <WorkPill
+                  icon={<AlertTriangle className="h-3.5 w-3.5" />}
+                  label="Rejected"
+                  value={a.workStatus.rejected}
+                  tone="destructive"
+                  href={`${ROUTES.concepts}?tab=rejected`}
+                />
+              </div>
+
+              {/* Quality KPIs — first-pass rate, avg cycles, avg working
+                   days (hold-aware), hold frequency. Hidden when there's no
+                   completed data yet so we don't show four "—" boxes. */}
+              {(a.workStatus.firstPassRate !== null ||
+                a.workStatus.avgRevisionRounds !== null ||
+                a.workStatus.avgDesignDays !== null ||
+                a.workStatus.holdRate !== null ||
+                a.workStatus.avgTimeToStartHours !== null ||
+                a.workStatus.avgReviewTurnaroundHours !== null) && (
+                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3 md:grid-cols-3 xl:grid-cols-6">
+                  <QualityKpi
+                    icon={<Sparkles className="h-3.5 w-3.5 text-success" />}
+                    label="First-Pass Approval"
+                    value={
+                      a.workStatus.firstPassRate !== null
+                        ? `${a.workStatus.firstPassRate}%`
+                        : "—"
+                    }
+                    sub="Approved on first review"
+                    accentClass={
+                      a.workStatus.firstPassRate === null
+                        ? undefined
+                        : a.workStatus.firstPassRate >= 80
+                          ? "text-success"
+                          : a.workStatus.firstPassRate >= 60
+                            ? "text-warning"
+                            : "text-destructive"
+                    }
+                  />
+                  <QualityKpi
+                    icon={<RotateCcw className="h-3.5 w-3.5 text-primary" />}
+                    label="Avg Revision Rounds"
+                    value={
+                      a.workStatus.avgRevisionRounds !== null
+                        ? a.workStatus.avgRevisionRounds.toFixed(1)
+                        : "—"
+                    }
+                    sub="1 = first try, 2+ = rework"
+                  />
+                  <QualityKpi
+                    icon={<Calendar className="h-3.5 w-3.5 text-primary" />}
+                    label="Avg Design Days"
+                    value={
+                      a.workStatus.avgDesignDays !== null
+                        ? `${a.workStatus.avgDesignDays}d`
+                        : "—"
+                    }
+                    sub="Hold-time excluded"
+                  />
+                  <QualityKpi
+                    icon={<Pause className="h-3.5 w-3.5 text-warning" />}
+                    label="Hold Frequency"
+                    value={
+                      a.workStatus.holdRate !== null
+                        ? `${a.workStatus.holdRate}%`
+                        : "—"
+                    }
+                    sub={`${a.workStatus.totalHolds} total holds`}
+                    accentClass={
+                      a.workStatus.holdRate === null
+                        ? undefined
+                        : a.workStatus.holdRate <= 20
+                          ? "text-success"
+                          : a.workStatus.holdRate <= 50
+                            ? "text-warning"
+                            : "text-destructive"
+                    }
+                  />
+                  <QualityKpi
+                    icon={<PlayCircle className="h-3.5 w-3.5 text-primary" />}
+                    label="Time to Start"
+                    value={
+                      a.workStatus.avgTimeToStartHours !== null
+                        ? formatHoursShort(a.workStatus.avgTimeToStartHours)
+                        : "—"
+                    }
+                    sub="Approval → designer pickup"
+                    accentClass={
+                      a.workStatus.avgTimeToStartHours === null
+                        ? undefined
+                        : a.workStatus.avgTimeToStartHours <= 24
+                          ? "text-success"
+                          : a.workStatus.avgTimeToStartHours <= 72
+                            ? "text-warning"
+                            : "text-destructive"
+                    }
+                  />
+                  <QualityKpi
+                    icon={<Hourglass className="h-3.5 w-3.5 text-destructive" />}
+                    label="Review Turnaround"
+                    value={
+                      a.workStatus.avgReviewTurnaroundHours !== null
+                        ? formatHoursShort(a.workStatus.avgReviewTurnaroundHours)
+                        : "—"
+                    }
+                    sub="Done → Ma'am's verdict"
+                    accentClass={
+                      a.workStatus.avgReviewTurnaroundHours === null
+                        ? undefined
+                        : a.workStatus.avgReviewTurnaroundHours <= 24
+                          ? "text-success"
+                          : a.workStatus.avgReviewTurnaroundHours <= 48
+                            ? "text-warning"
+                            : "text-destructive"
+                    }
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Hero row: Designer matrix + Monthly target. Default `items-stretch`
+              so both cards match height; the TargetHero distributes its own
+              content via flex so it doesn't leave an empty band. */}
+          <div className="grid gap-3 xl:grid-cols-5">
             <div className="xl:col-span-3">
               <DesignerConceptMatrix />
             </div>
@@ -376,7 +603,7 @@ export function AnalyticsView() {
           </div>
 
           {/* Charts row */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <VolumeChart
                 data={a.volumeData}
@@ -465,6 +692,100 @@ function PersonalTargetRing({ approved, target }: { approved: number; target: nu
           approved
         </p>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Work-status pipeline mini components
+// ============================================================================
+
+/**
+ * Compact pipeline counter. Each tone maps to a token-backed background so
+ * the pill adapts to light/dark theme without a per-mode override.
+ */
+function WorkPill({
+  icon,
+  label,
+  value,
+  tone,
+  href,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone: "muted" | "primary" | "warning" | "destructive" | "success";
+  href: string;
+}) {
+  const navigate = useNavigate();
+  const toneClass = {
+    muted:       "bg-muted/20 text-muted-foreground border-border",
+    primary:     "bg-primary/10 text-primary border-primary/30",
+    warning:     "bg-warning/10 text-warning border-warning/30",
+    destructive: "bg-destructive/10 text-destructive border-destructive/30",
+    success:     "bg-success/10 text-success border-success/30",
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(href)}
+      className={cn(
+        "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-all hover:scale-[1.02] hover:shadow-card-soft active:scale-[0.98]",
+        toneClass
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="shrink-0">{icon}</span>
+        <span className="truncate text-[10px] font-medium uppercase tracking-wider opacity-80">
+          {label}
+        </span>
+      </div>
+      <span className="shrink-0 text-base font-bold tabular-nums">{value}</span>
+    </button>
+  );
+}
+
+/**
+ * Hours → compact label. < 1h shows minutes, < 48h shows "12h", 48h+ shows
+ * "3.2d" so the KPI tile stays readable regardless of magnitude.
+ */
+function formatHoursShort(hours: number): string {
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
+  const days = hours / 24;
+  return `${days.toFixed(days < 10 ? 1 : 0)}d`;
+}
+
+/** Compact quality KPI tile. Sub line stays muted so the value pops. */
+function QualityKpi({
+  icon,
+  label,
+  value,
+  sub,
+  accentClass,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub: string;
+  accentClass?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <p
+        className={cn(
+          "mt-1 text-xl font-bold tabular-nums text-foreground",
+          accentClass
+        )}
+      >
+        {value}
+      </p>
+      <p className="text-[10px] text-muted-foreground">{sub}</p>
     </div>
   );
 }

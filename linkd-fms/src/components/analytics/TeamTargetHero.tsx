@@ -58,6 +58,10 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
   const monthProgress = Math.round((elapsedDays / monthDays) * 100);
   const onPace = teamRate >= monthProgress - 10;
   const notStartedCount = data.filter((d) => d.approvedCount === 0).length;
+  const inProgressCount = data.filter(
+    (d) => d.approvedCount > 0 && !d.isOnTarget
+  ).length;
+  const teamProgressPct = Math.round((totalApproved / Math.max(1, teamTarget)) * 100);
   const champion = [...data].sort((a, b) => b.approvedCount - a.approvedCount)[0];
 
   const radialColor =
@@ -95,23 +99,25 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
 
   return (
     <Card className="h-full overflow-hidden">
-      <CardContent className="flex h-full flex-col py-5">
-        {/* Header label */}
-        <div className="mb-4 flex items-center gap-2">
-          <Trophy className="h-4 w-4 text-warning" />
-          <h3 className="text-sm font-semibold text-foreground">
-            Monthly Concept Target
-          </h3>
+      <CardContent className="flex h-full flex-col gap-3 py-4">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-warning" />
+            <h3 className="text-sm font-semibold text-foreground">
+              Monthly Concept Target
+            </h3>
+          </div>
+          {champion && champion.approvedCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+              🏆 {champion.name.split(" ")[0]} · {champion.approvedCount}
+            </span>
+          )}
         </div>
 
-        {/* Hero — donut fills the column, headline numbers stacked below.
-            240px square viewBox so r=96 has breathing room; the surrounding
-            soft halo (radial gradient on the parent div) lifts the ring off
-            the card. */}
-        <div className="flex flex-col items-center text-center">
-          <div className="relative h-[240px] w-[240px]">
-            {/* Soft outer halo — pure CSS, no extra DOM, only shows on
-                high-percentage states where it reads as celebratory. */}
+        {/* Hero row — donut + headline side-by-side. */}
+        <div className="flex items-center gap-4">
+          <div className="relative h-[120px] w-[120px] shrink-0">
             {teamRate >= 50 && (
               <div
                 aria-hidden
@@ -128,7 +134,6 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
                   <stop offset="100%" stopColor={gradEnd} />
                 </linearGradient>
                 <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
-                  {/* Subtle outer glow so the arc has a slight bloom */}
                   <feGaussianBlur stdDeviation="2" result="blur" />
                   <feMerge>
                     <feMergeNode in="blur" />
@@ -136,7 +141,6 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
                   </feMerge>
                 </filter>
               </defs>
-              {/* Track — recessed grey background ring */}
               <circle
                 cx="120"
                 cy="120"
@@ -144,7 +148,6 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
                 className="fill-none stroke-secondary"
                 strokeWidth={20}
               />
-              {/* Active arc with gradient fill + soft glow */}
               <circle
                 cx="120"
                 cy="120"
@@ -158,9 +161,6 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
                 filter={`url(#${glowId})`}
                 style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.4,0,0.2,1)" }}
               />
-              {/* Endpoint dot — pinpoints where the arc currently lands.
-                  Only renders once mounted so the dot animates IN with the
-                  arc rather than jumping from 0°. */}
               {mounted && teamRate > 0 && (
                 <circle
                   cx="120"
@@ -172,61 +172,72 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
                 />
               )}
             </svg>
-            {/* Centered composition — note we counter-rotate text by using
-                a positioned div rather than letting the SVG rotation flip it. */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <Target className={cn("h-5 w-5", radialColor.replace("stroke-", "text-"))} />
-              <p className="mt-1.5 text-6xl font-bold leading-none tabular-nums text-foreground">
+              <Target className={cn("h-3 w-3", radialColor.replace("stroke-", "text-"))} />
+              <p className="text-2xl font-bold leading-none tabular-nums text-foreground">
                 {teamRate}
-                <span className="text-3xl font-semibold text-muted-foreground">%</span>
+                <span className="text-sm font-semibold text-muted-foreground">%</span>
               </p>
-              <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground">
+              <p className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 on target
-              </p>
-              <p className="mt-1 text-[10px] text-muted-foreground/70">
-                {onTarget} of {totalDesigners} designers
               </p>
             </div>
           </div>
 
-          {/* Headline numbers — sit centered below the ring */}
-          <div className="mt-4 max-w-[280px]">
-            <p className="text-2xl font-bold tabular-nums leading-tight text-foreground">
+          {/* Headline numbers — right column of the hero */}
+          <div className="min-w-0 flex-1">
+            <p className="text-2xl font-bold tabular-nums leading-none text-foreground">
               {onTarget}
               <span className="text-base font-normal text-muted-foreground">
                 {" "}/ {totalDesigners}
               </span>
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
               designers hit <b className="text-foreground">{TARGET}</b> approved
             </p>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              {totalApproved}/{teamTarget} concepts approved this month
+            <p className="mt-1.5 rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+              <span className="font-semibold tabular-nums text-foreground">
+                {totalApproved}/{teamTarget}
+              </span>{" "}
+              concepts approved this month
             </p>
-            {champion && champion.approvedCount > 0 && (
-              <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
-                🏆 {champion.name.split(" ")[0]} · {champion.approvedCount}
-              </p>
-            )}
           </div>
         </div>
 
-        {/* Designer dock — comes BEFORE the stat strip per the new order. */}
-        <div className="mt-5">
+        {/* Designer roster — compact 3-column grid so 6 designers land in
+            2 rows (was a 2-col / 3-row block). */}
+        <div>
           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Designers this period
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
             {data.map((d) => (
-              <DesignerPip key={d.id} entry={d} />
+              <DesignerRow key={d.id} entry={d} />
             ))}
           </div>
         </div>
 
-        {/* Stat strip pinned to bottom — `mt-auto` pushes it to the card footer
-            so it sits at the very end regardless of how many designer pips
-            wrap above it. */}
-        <div className="mt-auto pt-4">
+        {/* Two compact charts. `flex-1` lets the grid grow when the sibling
+            matrix card is taller; each chart card uses `h-full` + internal
+            flex centering so their content sits in the middle of the cell
+            instead of leaving an empty band at the bottom. */}
+        <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+          <StatusDonut
+            onTarget={onTarget}
+            inProgress={inProgressCount}
+            notStarted={notStartedCount}
+            total={totalDesigners}
+          />
+          <PacingBars
+            teamProgressPct={teamProgressPct}
+            monthProgress={monthProgress}
+            totalApproved={totalApproved}
+            teamTarget={teamTarget}
+          />
+        </div>
+
+        {/* Stat strip — pinned to the card bottom. */}
+        <div>
           <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-[11px]">
             <Calendar className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">Days left:</span>
@@ -270,68 +281,190 @@ function Divider() {
   return <span className="mx-1.5 h-3 w-px shrink-0 bg-border" />;
 }
 
-function DesignerPip({ entry }: { entry: TargetRaceEntry }) {
-  const pct = Math.min(100, (entry.approvedCount / TARGET) * 100);
-  const ringColor = entry.isOnTarget
-    ? "rgb(var(--success))"
+function DesignerRow({ entry }: { entry: TargetRaceEntry }) {
+  const countColor = entry.isOnTarget
+    ? "text-success"
     : entry.approvedCount > 0
-    ? "rgb(var(--warning))"
-    : "rgb(var(--muted))";
+      ? "text-warning"
+      : "text-muted-foreground";
 
   return (
     <div
-      className="group flex items-center gap-1.5 rounded-full border border-border bg-card/70 py-0.5 pr-2 pl-0.5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm"
+      className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/40 px-1.5 py-1 transition-colors hover:border-primary/30 hover:bg-card"
       title={`${entry.name} — ${entry.approvedCount}/${TARGET} approved`}
     >
-      <div className="relative h-6 w-6 shrink-0">
-        <svg
-          viewBox="0 0 28 28"
-          className="-rotate-90 absolute inset-0 h-full w-full"
-          aria-hidden
-        >
-          <circle
-            cx="14"
-            cy="14"
-            r="12"
-            fill="none"
-            stroke="rgb(var(--border))"
-            strokeWidth="2"
-          />
-          <circle
-            cx="14"
-            cy="14"
-            r="12"
-            fill="none"
-            stroke={ringColor}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeDasharray={2 * Math.PI * 12}
-            strokeDashoffset={2 * Math.PI * 12 * (1 - pct / 100)}
-            style={{ transition: "stroke-dashoffset 700ms ease-out" }}
-          />
-        </svg>
-        <Avatar className="absolute inset-[3px] h-[18px] w-[18px]">
-          {entry.avatarUrl ? <AvatarImage src={entry.avatarUrl} /> : null}
-          <AvatarFallback className="text-[7px] bg-primary/10 text-primary">
-            {getInitials(entry.name)}
-          </AvatarFallback>
-        </Avatar>
-      </div>
-      <span className="text-[10px] font-medium text-foreground">
+      <Avatar className="h-4 w-4 shrink-0">
+        {entry.avatarUrl ? <AvatarImage src={entry.avatarUrl} /> : null}
+        <AvatarFallback className="bg-primary/10 text-[7px] text-primary">
+          {getInitials(entry.name)}
+        </AvatarFallback>
+      </Avatar>
+      <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-foreground">
         {entry.name.split(" ")[0]}
       </span>
-      <span
-        className={cn(
-          "text-[9px] font-semibold tabular-nums",
-          entry.isOnTarget
-            ? "text-success"
-            : entry.approvedCount > 0
-            ? "text-warning"
-            : "text-muted-foreground"
-        )}
-      >
+      <span className={cn("shrink-0 text-[9px] font-semibold tabular-nums", countColor)}>
         {entry.approvedCount}/{TARGET}
       </span>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------- //
+// StatusDonut — splits the team into On Target / In Progress / Not Started.
+// Compact 84px donut + legend on the right. Pure SVG to avoid recharts cost.
+// -------------------------------------------------------------------------- //
+
+function StatusDonut({
+  onTarget,
+  inProgress,
+  notStarted,
+  total,
+}: {
+  onTarget: number;
+  inProgress: number;
+  notStarted: number;
+  total: number;
+}) {
+  const slices = [
+    { value: onTarget, color: "rgb(34, 197, 94)", label: "On target" }, // success
+    { value: inProgress, color: "rgb(245, 158, 11)", label: "In progress" }, // warning
+    { value: notStarted, color: "rgb(148, 163, 184)", label: "Not started" }, // muted
+  ];
+  const safeTotal = Math.max(1, total);
+
+  // SVG donut math: build cumulative arc lengths
+  const r = 36;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+  const segs = slices.map((s) => {
+    const len = (s.value / safeTotal) * c;
+    const seg = { ...s, len, offset };
+    offset += len;
+    return seg;
+  });
+
+  return (
+    <div className="flex h-full items-center gap-3 rounded-lg border border-border/60 bg-card/40 p-3">
+      <div className="relative h-[84px] w-[84px] shrink-0">
+        <svg viewBox="0 0 84 84" className="-rotate-90 h-full w-full" aria-hidden>
+          {/* Background ring (covers 0-total gap if any) */}
+          <circle cx="42" cy="42" r={r} fill="none" stroke="rgb(var(--secondary))" strokeWidth="10" />
+          {segs.map(
+            (s, i) =>
+              s.value > 0 && (
+                <circle
+                  key={i}
+                  cx="42"
+                  cy="42"
+                  r={r}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="10"
+                  strokeDasharray={`${s.len} ${c}`}
+                  strokeDashoffset={-s.offset}
+                />
+              )
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-lg font-bold tabular-nums leading-none text-foreground">
+            {total}
+          </span>
+          <span className="text-[9px] text-muted-foreground">designers</span>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1 text-[10px]">
+        {slices.map((s) => (
+          <div key={s.label} className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: s.color }}
+            />
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{s.label}</span>
+            <span className="font-semibold tabular-nums text-foreground">{s.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------- //
+// PacingBars — side-by-side comparison of how far the team has gotten vs
+// how far through the period we are. Highlights the gap (delta) so the
+// "Behind/On pace" verdict has concrete numbers behind it.
+// -------------------------------------------------------------------------- //
+
+function PacingBars({
+  teamProgressPct,
+  monthProgress,
+  totalApproved,
+  teamTarget,
+}: {
+  teamProgressPct: number;
+  monthProgress: number;
+  totalApproved: number;
+  teamTarget: number;
+}) {
+  const ahead = teamProgressPct >= monthProgress;
+  const delta = teamProgressPct - monthProgress;
+
+  return (
+    <div className="flex h-full flex-col justify-center gap-2 rounded-lg border border-border/60 bg-card/40 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Pacing
+        </p>
+        <span
+          className={cn(
+            "rounded-full px-1.5 py-0.5 text-[9px] font-semibold tabular-nums",
+            ahead
+              ? "bg-success/10 text-success"
+              : delta >= -10
+                ? "bg-warning/10 text-warning"
+                : "bg-destructive/10 text-destructive"
+          )}
+        >
+          {delta >= 0 ? "+" : ""}
+          {delta}%
+        </span>
+      </div>
+
+      {/* Team progress bar */}
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-muted-foreground">Team progress</span>
+          <span className="font-semibold tabular-nums text-foreground">
+            {totalApproved}/{teamTarget}
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/60">
+          <div
+            className={cn(
+              "h-full rounded-full transition-[width] duration-700",
+              ahead ? "bg-success" : "bg-warning"
+            )}
+            style={{ width: `${Math.min(100, teamProgressPct)}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Month elapsed bar */}
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-muted-foreground">Month elapsed</span>
+          <span className="font-semibold tabular-nums text-foreground">
+            {monthProgress}%
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/60">
+          <div
+            className="h-full rounded-full bg-primary/60 transition-[width] duration-700"
+            style={{ width: `${Math.min(100, monthProgress)}%` }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

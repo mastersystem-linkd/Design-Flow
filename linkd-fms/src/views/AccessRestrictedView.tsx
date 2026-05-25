@@ -10,6 +10,7 @@ const ROLE_PHRASE: Record<UserRole, string> = {
   admin: "admins",
   design_coordinator: "design coordinators",
   designer: "designers",
+  deo: "data entry operators",
 };
 
 function rolesPhrase(roles: UserRole[]): string {

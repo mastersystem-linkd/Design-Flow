@@ -4,77 +4,199 @@
 
 @layer base {
   /* ================================================================
-     CSS Custom Properties — Light / Dark theme tokens
+     CSS Custom Properties — LinkD FMS redesigned dual-theme tokens
      ================================================================
-     Values are space-separated RGB channels so Tailwind's
-     `<alpha-value>` interpolation works:
-       bg-background       → rgb(var(--background))
-       bg-background/50    → rgb(var(--background) / 0.5)
+     Three coexisting token sets, all backed by the same source of
+     truth so we can ship the redesign without rewriting markup:
+
+       (1) Tailwind semantic tokens (rgb-channel triples) so
+           `bg-card`, `bg-primary/50`, `text-foreground`, etc.
+           continue to work everywhere.
+
+       (2) Spec design tokens (`--bg-canvas`, `--brand-primary`,
+           `--shadow-card`, `--brand-gradient`, …) stored as ready-
+           to-use CSS values for components that opt into them via
+           `bg-[var(--bg-canvas)]` or arbitrary class syntax.
+
+       (3) Legacy tokens (`--ink`, `--cream`, `--gold`) preserved as
+           aliases so older markup keeps rendering correctly.
      ================================================================ */
 
   :root {
-    /* ── Light mode (default) ─────────────────────────────── */
-    --background: 248 250 252;        /* slate-50 */
-    --foreground: 15 23 42;           /* slate-900 */
-    --card: 255 255 255;              /* white */
+    /* ── Tailwind semantic tokens (rgb-channel triples) ──────── */
+    --background: 243 244 248;        /* canvas */
+    --foreground: 15 23 42;
+    --card: 255 255 255;              /* surface */
     --card-foreground: 15 23 42;
     --popover: 255 255 255;
     --popover-foreground: 15 23 42;
-    --primary: 37 99 235;             /* blue-600 */
+    --primary: 67 56 202;             /* indigo-700 — brand */
     --primary-foreground: 255 255 255;
-    --secondary: 241 245 249;         /* slate-100 */
+    --secondary: 248 249 252;         /* surface-alt */
     --secondary-foreground: 15 23 42;
-    --accent: 37 99 235;
+    --accent: 67 56 202;
     --accent-foreground: 255 255 255;
     --muted: 148 163 184;             /* slate-400 */
-    --muted-foreground: 100 116 139;  /* slate-500 */
-    --destructive: 239 68 68;         /* red-500 */
+    --muted-foreground: 71 85 105;    /* slate-600 — body copy */
+    --destructive: 220 38 38;         /* red-600 */
     --destructive-foreground: 255 255 255;
-    --border: 226 232 240;            /* slate-200 */
-    --input: 226 232 240;
-    --ring: 37 99 235;
-    --success: 34 197 94;             /* green-500 */
-    --warning: 245 158 11;            /* amber-500 */
-    --coral: 239 68 68;               /* red-500 */
-    --sidebar: 15 23 42;              /* slate-900 — crisp dark sidebar */
-    --dashboard: 248 250 252;
+    --border: 226 230 240;            /* cool slate border */
+    --input: 235 237 243;             /* sunken inputs */
+    --ring: 67 56 202;
+    --success: 5 150 105;             /* emerald-600 */
+    --warning: 217 119 6;             /* amber-600 */
+    --coral: 220 38 38;
+    --sidebar: 17 24 39;              /* gray-900 */
+    --dashboard: 243 244 248;
 
-    /* Legacy tokens (resolved per theme) */
+    /* ── Spec design tokens (direct CSS values) ──────────────── */
+    --bg-canvas: #F3F4F8;
+    --bg-surface: #FFFFFF;
+    --bg-surface-alt: #F8F9FC;
+    --bg-surface-hover: #F0F1F5;
+    --bg-surface-sunken: #EBEDF3;
+    --bg-sidebar: #111827;
+    --bg-topnav: rgba(255, 255, 255, 0.72);
+
+    --brand-primary: #4338CA;
+    --brand-primary-hover: #3730A3;
+    --brand-primary-subtle: rgba(67, 56, 202, 0.06);
+    --brand-primary-muted: rgba(67, 56, 202, 0.12);
+    --brand-gradient: linear-gradient(135deg, #4338CA, #6366F1);
+
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-tertiary: #94A3B8;
+    --text-inverted: #FFFFFF;
+    --text-link: #4338CA;
+
+    --border-default: rgba(0, 0, 0, 0.06);
+    --border-hover: rgba(0, 0, 0, 0.1);
+    --border-strong: rgba(0, 0, 0, 0.15);
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+    --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.06);
+    --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.1);
+    --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.12);
+
+    --dot-color: rgba(67, 56, 202, 0.04);
+
+    --chart-bar-primary: rgba(67, 56, 202, 0.7);
+    --chart-bar-secondary: rgba(67, 56, 202, 0.2);
+    --chart-grid: rgba(0, 0, 0, 0.04);
+
+    /* ── Status pill palette (direct CSS values) ─────────────── */
+    --status-pool-dot: #94A3B8;
+    --status-pool-bg: rgba(148, 163, 184, 0.08);
+    --status-pool-text: #64748B;
+    --status-progress-dot: #4338CA;
+    --status-progress-bg: rgba(67, 56, 202, 0.06);
+    --status-progress-text: #4338CA;
+    --status-kitting-dot: #D97706;
+    --status-kitting-bg: rgba(217, 119, 6, 0.08);
+    --status-kitting-text: #B45309;
+    --status-done-dot: #059669;
+    --status-done-bg: rgba(5, 150, 105, 0.08);
+    --status-done-text: #047857;
+    --status-urgent-dot: #DC2626;
+    --status-urgent-bg: rgba(220, 38, 38, 0.06);
+    --status-urgent-text: #B91C1C;
+    --status-overdue-dot: #991B1B;
+    --status-overdue-bg: rgba(153, 27, 27, 0.08);
+    --status-overdue-text: #7F1D1D;
+
+    /* ── Legacy tokens (resolve per theme) ───────────────────── */
     --ink: 15 23 42;
     --cream: 255 255 255;
-    --gold: 37 99 235;
+    --gold: 67 56 202;
   }
 
   .dark {
-    /* ── Dark mode ────────────────────────────────────────── */
-    --background: 17 18 27;           /* deeper dark */
-    --foreground: 248 250 252;        /* slate-50 */
-    --card: 26 27 39;                 /* slightly lighter */
-    --card-foreground: 248 250 252;
-    --popover: 26 27 39;
-    --popover-foreground: 248 250 252;
-    --primary: 79 110 247;            /* #4F6EF7 */
+    /* ── Tailwind semantic tokens — dark ─────────────────────── */
+    --background: 11 15 25;           /* deep navy canvas */
+    --foreground: 241 245 249;
+    --card: 21 27 43;                 /* surface */
+    --card-foreground: 241 245 249;
+    --popover: 21 27 43;
+    --popover-foreground: 241 245 249;
+    --primary: 129 140 248;           /* indigo-400 */
     --primary-foreground: 255 255 255;
-    --secondary: 30 31 45;
-    --secondary-foreground: 248 250 252;
-    --accent: 79 110 247;
+    --secondary: 26 32 53;            /* surface-alt */
+    --secondary-foreground: 241 245 249;
+    --accent: 129 140 248;
     --accent-foreground: 255 255 255;
-    --muted: 107 114 142;
-    --muted-foreground: 131 138 168;
-    --destructive: 242 108 108;       /* #F26C6C */
+    --muted: 100 116 139;             /* slate-500 — chip backgrounds */
+    --muted-foreground: 148 163 184;  /* slate-400 — body copy */
+    --destructive: 248 113 113;       /* red-400 */
     --destructive-foreground: 255 255 255;
-    --border: 40 42 58;
-    --input: 40 42 58;
-    --ring: 79 110 247;
-    --success: 60 201 122;            /* #3CC97A */
-    --warning: 245 166 35;            /* #F5A623 */
-    --coral: 242 108 108;
-    --sidebar: 12 13 22;
-    --dashboard: 17 18 27;
+    --border: 39 46 67;               /* indigo-tinted divider */
+    --input: 14 18 32;                /* sunken */
+    --ring: 129 140 248;
+    --success: 52 211 153;            /* emerald-400 */
+    --warning: 251 191 36;            /* amber-400 */
+    --coral: 248 113 113;
+    --sidebar: 8 12 22;
+    --dashboard: 11 15 25;
 
-    --ink: 248 250 252;
-    --cream: 26 27 39;
-    --gold: 79 110 247;
+    /* ── Spec design tokens — dark ───────────────────────────── */
+    --bg-canvas: #0B0F19;
+    --bg-surface: #151B2B;
+    --bg-surface-alt: #1A2035;
+    --bg-surface-hover: #1E2540;
+    --bg-surface-sunken: #0E1220;
+    --bg-sidebar: #080C16;
+    --bg-topnav: rgba(11, 15, 25, 0.78);
+
+    --brand-primary: #818CF8;
+    --brand-primary-hover: #6366F1;
+    --brand-primary-subtle: rgba(129, 140, 248, 0.08);
+    --brand-primary-muted: rgba(129, 140, 248, 0.12);
+    /* Gradient stays same in both modes — it's the visual anchor */
+
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-tertiary: #64748B;
+    --text-link: #A5B4FC;
+
+    --border-default: rgba(255, 255, 255, 0.06);
+    --border-hover: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.12);
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+
+    --dot-color: rgba(129, 140, 248, 0.05);
+
+    --chart-bar-primary: rgba(129, 140, 248, 0.7);
+    --chart-bar-secondary: rgba(129, 140, 248, 0.2);
+    --chart-grid: rgba(255, 255, 255, 0.04);
+
+    /* ── Status pill palette — dark ──────────────────────────── */
+    --status-pool-dot: #64748B;
+    --status-pool-bg: rgba(148, 163, 184, 0.1);
+    --status-pool-text: #94A3B8;
+    --status-progress-dot: #818CF8;
+    --status-progress-bg: rgba(129, 140, 248, 0.1);
+    --status-progress-text: #A5B4FC;
+    --status-kitting-dot: #FBBF24;
+    --status-kitting-bg: rgba(251, 191, 36, 0.1);
+    --status-kitting-text: #FCD34D;
+    --status-done-dot: #34D399;
+    --status-done-bg: rgba(52, 211, 153, 0.1);
+    --status-done-text: #6EE7B7;
+    --status-urgent-dot: #F87171;
+    --status-urgent-bg: rgba(248, 113, 113, 0.08);
+    --status-urgent-text: #FCA5A5;
+    --status-overdue-dot: #EF4444;
+    --status-overdue-bg: rgba(239, 68, 68, 0.1);
+    --status-overdue-text: #FCA5A5;
+
+    /* ── Legacy tokens — dark ────────────────────────────────── */
+    --ink: 241 245 249;
+    --cream: 21 27 43;
+    --gold: 129 140 248;
   }
 
   html {
@@ -87,7 +209,17 @@
 
   body {
     @apply bg-background text-foreground;
-    transition: background-color 200ms, color 200ms;
+    /* Canvas dot-grid — evokes a designer's cutting mat. Driven by
+       --dot-color so it adapts per theme (faint indigo on light
+       canvas, slightly brighter on deep navy canvas). */
+    background-image: radial-gradient(
+      circle,
+      var(--dot-color) 1px,
+      transparent 1px
+    );
+    background-size: 24px 24px;
+    background-attachment: fixed;
+    transition: background-color 200ms ease, color 200ms ease;
   }
 
   h1, h2, h3, h4 {
@@ -101,6 +233,20 @@
   select option {
     background-color: rgb(var(--card));
     color: rgb(var(--foreground));
+  }
+
+  /* Theme-switch smoothing on major surfaces so toggling light↔dark
+     glides instead of snapping. Inputs included so focus states
+     don't flash. */
+  .card,
+  .table-container,
+  .drawer,
+  .topnav,
+  input,
+  textarea,
+  select {
+    transition: background-color 200ms ease, color 200ms ease,
+      border-color 200ms ease;
   }
 
   /* Smoother scrollbars */
@@ -117,6 +263,41 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: rgb(var(--muted));
+  }
+}
+
+@layer components {
+  /* ============================================================
+     Hero gradient — the brand-anchor visual. Same in both modes.
+     Used by TaskHealthHero / TeamTargetHero / hero KPI rows.
+     ============================================================ */
+  .bg-hero-gradient {
+    background: var(--brand-gradient);
+    color: var(--text-inverted);
+  }
+
+  /* Drop-in shadows for opt-in components — these layer cleanly on
+     both themes because the box-shadow tokens already account for
+     the surrounding canvas. */
+  .shadow-card-soft {
+    box-shadow: var(--shadow-card);
+  }
+  .shadow-card-soft-hover:hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+  .shadow-overlay {
+    box-shadow: var(--shadow-overlay);
+  }
+  .shadow-dropdown {
+    box-shadow: var(--shadow-dropdown);
+  }
+
+  /* TopNav glassmorphism — themed background that frosts the canvas
+     dot-grid behind it. */
+  .topnav-glass {
+    background: var(--bg-topnav);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 }
 
@@ -198,3 +379,21 @@
 @keyframes login-float-3 { from { transform: translate(0, 0); } to { transform: translate(25px, 15px); } }
 @keyframes login-brand-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes login-field-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+
+/* ================================================================
+   T-shirt loader — waving silhouette + caption.
+   Used via the <TShirtLoader> React component.
+   Colors use theme tokens so it works in light + dark mode.
+   ================================================================ */
+
+/* Pivot the t-shirt at the bottom-center so the wave rotates from there. */
+.tshirt-loader {
+  animation: tshirt-wave 1.5s infinite ease-in-out;
+  transform-origin: bottom center;
+}
+
+@keyframes tshirt-wave {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-15deg); }
+  75%      { transform: rotate(15deg); }
+}

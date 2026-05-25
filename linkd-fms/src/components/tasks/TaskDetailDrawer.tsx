@@ -23,9 +23,9 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { toast, LazyImage } from "@/components/ui";
 import {
-  Sheet,
-  SheetContent,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -45,7 +45,6 @@ import { useTaskDetail, type FileWithUploader, type TaskLogWithUser } from "@/ho
 import { useTaskMutations, type UpdateTaskFields } from "@/hooks/useTaskMutations";
 import { useTaskComments } from "@/hooks/useTaskComments";
 import { useProfiles } from "@/hooks/useProfiles";
-import { getSamplesForTask } from "@/hooks/useSamples";
 import { sendNotification } from "@/lib/notifications";
 import {
   STATUS_ORDER,
@@ -132,8 +131,8 @@ export function TaskDetailDrawer({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex flex-col gap-0 overflow-hidden p-0 sm:w-[460px]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[90vh] w-[95vw] max-w-[560px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
         {isLoading || !task ? (
           <DrawerSkeleton error={error} />
         ) : (
@@ -149,7 +148,7 @@ export function TaskDetailDrawer({
 
             <div
               className={cn(
-                "flex-1 space-y-6 overflow-y-auto px-5 py-5",
+                "flex-1 space-y-4 overflow-y-auto px-5 py-4",
                 editMode && "bg-primary/[0.02]"
               )}
             >
@@ -192,8 +191,10 @@ export function TaskDetailDrawer({
                 <BriefDetails task={task} onChanged={handleChanged} />
               )}
 
-              {/* Full Knitting file upload removed — handled via the
-                  Full Knitting toggle + Knitting Form in the task table */}
+              {/* Full Kitting reference — visible to ALL roles. Shows the
+                  coordinator-uploaded photo + any DEO progress so designers
+                  see the kitting context before they start. */}
+              <FullKittingReference task={task} />
 
               {task.status === "in_progress" && (
                 <QtyTracker
@@ -207,7 +208,7 @@ export function TaskDetailDrawer({
 
               <Discussion task={task} />
 
-              <SamplingRecords task={task} />
+              {/* SamplingRecords removed — sampling is now decoupled from tasks. */}
             </div>
 
             <ActionFooter
@@ -227,8 +228,8 @@ export function TaskDetailDrawer({
             />
           </>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -242,7 +243,7 @@ export function TaskDetailDrawer({
  */
 function statusLabelForTask(task: TaskWithRelations): string {
   if (!isConceptTrackTask(task)) {
-    // Full kitting displays as "In Progress" for regular tasks
+    // Full knitting displays as "In Progress" for regular tasks
     if (task.status === "full_kitting") return STATUS_LABELS.in_progress;
     return STATUS_LABELS[task.status];
   }
@@ -281,7 +282,7 @@ function DrawerHeader({
   onDelete?: () => void;
 }) {
   return (
-    <div className="shrink-0 border-b border-border bg-card/80 px-5 pt-5 pb-4 backdrop-blur">
+    <div className="shrink-0 border-b border-border bg-card/80 px-5 pt-4 pb-3 backdrop-blur">
       {/* Row 1: code + status + action buttons */}
       <div className="flex items-center gap-2 pr-8">
         <span className="font-mono text-[11px] uppercase tracking-wider text-primary">
@@ -349,7 +350,11 @@ function DrawerHeader({
  * positions stay sensible.
  */
 const PIPELINE_STAGES: TaskStatus[] = STATUS_ORDER.filter(
-  (s) => s !== "approved" && s !== "sampling" && s !== "full_kitting"
+  (s) =>
+    s !== "approved" &&
+    s !== "sampling" &&
+    s !== "full_kitting" &&
+    s !== "todo"
 );
 
 const STAGE_HINTS: Record<TaskStatus, string> = {
@@ -364,7 +369,10 @@ const STAGE_HINTS: Record<TaskStatus, string> = {
 
 function ProgressPipeline({ current }: { current: TaskStatus }) {
   const effectiveCurrent: TaskStatus =
-    current === "approved" || current === "sampling" || current === "full_kitting"
+    current === "approved" ||
+    current === "sampling" ||
+    current === "full_kitting" ||
+    current === "todo"
       ? "in_progress"
       : current;
   const currentIndex = PIPELINE_STAGES.indexOf(effectiveCurrent);
@@ -884,7 +892,7 @@ function BriefDetails({
 
   return (
     <Section title="Brief details">
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2">
         <InfoCard label="Fabric">{task.fabric}</InfoCard>
 
         <InfoCard label="Quantity">
@@ -997,11 +1005,11 @@ function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-md border border-border bg-card p-2.5">
+    <div className="rounded-md border border-border bg-card px-2.5 py-2">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
-      <div className="mt-1 text-sm font-medium text-foreground">{children}</div>
+      <div className="mt-0.5 text-sm font-medium text-foreground">{children}</div>
     </div>
   );
 }
@@ -1297,7 +1305,7 @@ function FullKittingSection({
       setUploading(false);
       setProgress(0);
     }, 250);
-    toast.success("Full kitting file uploaded");
+    toast.success("Full knitting file uploaded");
     onChanged();
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -1366,7 +1374,7 @@ function FullKittingSection({
             <a href={signedUrl} target="_blank" rel="noreferrer">
               <img
                 src={signedUrl}
-                alt="Full kitting"
+                alt="Full knitting"
                 className="block max-h-[260px] w-full object-contain"
               />
             </a>
@@ -1668,7 +1676,6 @@ function FileUploadZone({
   onUploaded: () => void;
 }) {
   const { user } = useAuth();
-  const { updateTaskStatus } = useTaskMutations();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1725,19 +1732,8 @@ function FileUploadZone({
 
     toast.success("File uploaded ✓");
     onUploaded();
-
-    // Auto-advance to Full Kitting when both qty + file are in place.
-    if (
-      task.status === "in_progress" &&
-      task.qty_completed >= task.qty &&
-      task.qty > 0
-    ) {
-      const { error: statusErr } = await updateTaskStatus(task.id, "full_kitting");
-      if (!statusErr) {
-        toast.success("Moved to Full Knitting");
-        onUploaded();
-      }
-    }
+    // No auto-advance — designer marks the task Done explicitly with the
+    // Completed CTA. Keeps the simplified Pool → In Progress → Done flow.
     setUploading(false);
   }
 
@@ -1904,17 +1900,19 @@ function FileTile({ file }: { file: FileWithUploader }) {
 const COMPACT_LIMIT = 5;
 
 /**
- * Clean display labels for the activity log.
- * The actual pipeline the user sees is: Pool → To-Do → In Progress → Done.
- * "full_kitting" is an internal DB status that means "submitted for completion" —
- * we show it as "Submitted" so the log reads naturally.
- * "approved" / "sampling" are legacy statuses shown as "Done".
+ * Activity-log labels for the simplified Pool → In Progress → Done pipeline.
+ * Legacy DB statuses (`todo`, `full_kitting`, `approved`, `sampling`) collapse
+ * onto the closest visible stage so old transitions don't expose retired stage
+ * names ("To-Do", "Submitted"). The `cleanLogs` helper then drops any entries
+ * whose from/to labels resolve to the same value (e.g. an in-flight
+ * to-do → in_progress transition now renders as In Progress → In Progress and
+ * is filtered out).
  */
 const ACTIVITY_LABELS: Record<string, string> = {
   pool: "Pool",
-  todo: "To-Do",
+  todo: "In Progress",
   in_progress: "In Progress",
-  full_kitting: "Submitted",
+  full_kitting: "In Progress",
   approved: "Done",
   sampling: "Done",
   done: "Done",
@@ -2112,7 +2110,8 @@ function ActionFooter({
       );
       return;
     }
-    void advance("full_kitting", "Marked completed ✓");
+    // Simplified pipeline: In Progress → Done (skips full_kitting hop).
+    void advance("done", "Marked completed ✓");
   }
 
   // ----------------- DONE: completion badge -----------------
@@ -2828,108 +2827,170 @@ function CommentItem({
 export type { Profile };
 
 // ============================================================================
-// Section 10 — Sampling Records (reverse lookup from sample.task_id)
+// FullKittingReference — read-only section visible to all roles
 // ============================================================================
 //
-// Counterpart to the linked-task picker in SamplingFormDrawer: when a brief
-// has had samples logged against it, we list them here so admins/coordinators
-// can see how the work has been moving through the printing stage without
-// jumping to the Sampling Hub.
+// Designers + admins + coordinators all need visibility into the task's
+// full-kitting status. This section shows:
+//   * Nothing — if the task doesn't require kitting (no section rendered).
+//   * "Awaiting form upload" — if requires_full_kitting=true but no record + no image.
+//   * Photo preview + status pill + DEO progress — once a kitting record exists.
 //
-// Loads on mount via getSamplesForTask — one cheap indexed query per drawer
-// open. Real-time updates aren't critical (samples are coordinator-driven,
-// not high-frequency) so we skip the channel subscription cost.
+// Sources used (any of):
+//   * tasks.full_kitting_image_url   (legacy / new brief upload)
+//   * tasks.full_kitting_notes       (legacy)
+//   * full_kitting_details.image_url (Stage A / unified path)
+//   * full_kitting_details.data_entry_status / form_payload (DEO digitization)
+// ============================================================================
 
-function SamplingRecords({ task }: { task: TaskWithRelations }) {
-  const [samples, setSamples] = useState<Sample[] | null>(null);
-  const [loading, setLoading] = useState(true);
+interface KittingRecord {
+  id: string;
+  image_url: string | null;
+  data_entry_status:
+    | "pending_image"
+    | "pending_deo"
+    | "in_progress"
+    | "completed";
+  completed_at: string | null;
+}
+
+const KITTING_STATUS_LABEL: Record<KittingRecord["data_entry_status"], string> = {
+  pending_image: "Awaiting image",
+  pending_deo: "Pending DEO",
+  in_progress: "DEO in progress",
+  completed: "Digitized",
+};
+
+const KITTING_STATUS_TONE: Record<KittingRecord["data_entry_status"], string> = {
+  pending_image: "bg-muted/30 text-muted-foreground border-border",
+  pending_deo: "bg-warning/10 text-warning border-warning/30",
+  in_progress: "bg-primary/10 text-primary border-primary/30",
+  completed: "bg-success/10 text-success border-success/30",
+};
+
+function FullKittingReference({ task }: { task: TaskWithRelations }) {
+  const [record, setRecord] = useState<KittingRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  // Only render the section when the task has been flagged for kitting OR a
+  // kitting image was uploaded at brief time (legacy column). Otherwise skip
+  // the network call entirely — most tasks don't need this section.
+  const hasFlag =
+    !!task.requires_full_kitting || !!task.full_kitting_image_url;
 
   useEffect(() => {
+    if (!hasFlag) return;
     let cancelled = false;
     setLoading(true);
-    void getSamplesForTask(task.id).then((rows) => {
+    void (async () => {
+      const { data } = await supabase
+        .from("full_kitting_details")
+        .select("id, image_url, data_entry_status, completed_at")
+        .eq("task_id", task.id)
+        .maybeSingle();
       if (cancelled) return;
-      setSamples(rows);
+      setRecord((data as KittingRecord | null) ?? null);
       setLoading(false);
-    });
+    })();
     return () => {
       cancelled = true;
     };
-  }, [task.id]);
+  }, [task.id, hasFlag]);
 
-  // Section is hidden entirely when the task has never been sampled —
-  // adding visual noise to brand-new briefs without sampling activity
-  // would crowd the drawer. The "Add Sample" action lives in the sampling
-  // page; this section is informational.
-  if (!loading && (samples?.length ?? 0) === 0) {
-    return null;
-  }
+  // Resolve a signed URL for whichever image we have (record's image_url
+  // takes priority over the legacy task column).
+  const imagePath = record?.image_url ?? task.full_kitting_image_url ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!imagePath) {
+      setPhotoUrl(null);
+      return;
+    }
+    void (async () => {
+      const { data } = await supabase.storage
+        .from("sample-files")
+        .createSignedUrl(imagePath, 3600);
+      if (cancelled) return;
+      setPhotoUrl(data?.signedUrl ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [imagePath]);
+
+  if (!hasFlag) return null;
 
   return (
-    <Section title="Sampling Records" countBadge={samples?.length}>
+    <Section title="Full Knitting" countBadge={record ? 1 : undefined}>
       {loading ? (
-        <div className="space-y-1.5">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-9 animate-pulse rounded bg-secondary/60" />
-          ))}
-        </div>
-      ) : samples && samples.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-xs">
-            <thead className="bg-secondary/40 text-[10px] uppercase tracking-wider text-muted-foreground">
-              <tr className="text-left">
-                <th className="px-2 py-1.5 font-medium">Date</th>
-                <th className="px-2 py-1.5 font-medium">Party</th>
-                <th className="px-2 py-1.5 font-medium text-right">Recvd</th>
-                <th className="px-2 py-1.5 font-medium text-right">Printed</th>
-                <th className="px-2 py-1.5 font-medium text-right">Pending</th>
-                <th className="px-2 py-1.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {samples.map((s) => (
-                <tr key={s.id} className="border-t border-border/60">
-                  <td className="whitespace-nowrap px-2 py-1.5 text-muted-foreground">
-                    {formatDate(s.created_at)}
-                  </td>
-                  <td className="px-2 py-1.5 text-foreground">
-                    {s.party_name}
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">
-                    {s.total_fabrics_received ?? "—"}
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">
-                    {s.printed_mtr}
-                  </td>
-                  <td
-                    className={cn(
-                      "px-2 py-1.5 text-right tabular-nums",
-                      s.pending_qty > 0 ? "text-warning" : "text-success"
-                    )}
-                  >
-                    {s.pending_qty}
-                  </td>
-                  <td className="px-2 py-1.5">
-                    {s.is_completed ? (
-                      <Badge className="bg-success/15 text-success border border-success/30 px-1.5 py-0 text-[9px]">
-                        Done
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-warning/15 text-warning border border-warning/30 px-1.5 py-0 text-[9px]">
-                        Pending
-                      </Badge>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <p className="text-xs text-muted-foreground">Loading…</p>
       ) : (
-        <p className="text-xs italic text-muted-foreground">
-          No sampling records linked to this task.
-        </p>
+        <div className="space-y-3">
+          {/* Status pill (top) */}
+          <div className="flex items-center gap-2">
+            {record ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "border text-[11px]",
+                  KITTING_STATUS_TONE[record.data_entry_status]
+                )}
+              >
+                {KITTING_STATUS_LABEL[record.data_entry_status]}
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="border-border bg-muted/30 text-[11px] text-muted-foreground"
+              >
+                {imagePath ? "Photo on file" : "Awaiting form upload"}
+              </Badge>
+            )}
+          </div>
+
+          {/* Form photo preview (signed URL, 1h TTL) */}
+          {imagePath ? (
+            photoUrl ? (
+              <a
+                href={photoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block overflow-hidden rounded-lg border border-border bg-secondary/30"
+                title="Open full size"
+              >
+                <img
+                  src={photoUrl}
+                  alt="Kitting form photo"
+                  className="block max-h-48 w-full object-contain"
+                />
+              </a>
+            ) : (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-border bg-secondary/30 text-xs text-muted-foreground">
+                Loading photo…
+              </div>
+            )
+          ) : (
+            <p className="rounded-md border border-border bg-secondary/30 px-3 py-2 text-[11px] text-muted-foreground">
+              The coordinator hasn't uploaded the kitting form photo yet.
+              You'll see it here once they do.
+            </p>
+          )}
+
+          {/* Legacy notes from the New Brief form (pre-digitization era) */}
+          {task.full_kitting_notes && (
+            <div className="rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Coordinator notes
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap text-xs text-foreground">
+                {task.full_kitting_notes}
+              </p>
+            </div>
+          )}
+        </div>
       )}
     </Section>
   );
 }
+

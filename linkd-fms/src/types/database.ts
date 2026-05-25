@@ -10,7 +10,7 @@ export type Json =
 // Enum unions
 // ============================================================================
 
-export type UserRole = "admin" | "design_coordinator" | "designer";
+export type UserRole = "admin" | "design_coordinator" | "designer" | "deo";
 
 export type TaskStatus =
   | "pool"
@@ -35,13 +35,54 @@ export type ConceptStatus =
 
 export type MdStatus = ConceptStatus;
 
-/** A single entry in the concept completion history log. */
+// Concept work-status — the post-approval lifecycle (designer Start → Hold →
+// Mark Done → MD final review). Added in migration 0025. Independent of
+// `md_status`; both columns coexist on the concepts row.
+export type ConceptWorkStatus =
+  | "not_started"
+  | "in_progress"
+  | "on_hold"
+  | "done_partial"
+  | "in_revision"
+  | "changes_requested"
+  | "completed";
+
+/** A single entry in the concept completion history log.
+ *
+ * Legacy types (kept for back-compat with existing rows):
+ *   `done`     — designer ticked the legacy "Mark as completed" button
+ *   `revision` — MD asked for revisions at the final-approval step
+ *   `resubmit` — designer re-submitted after legacy revision feedback
+ *   `approved` — MD granted final approval
+ *
+ * Work-status types (added with migration 0026 lifecycle):
+ *   `started`              — designer started a concept (T6)
+ *   `held`                 — designer paused (T7); `feedback` carries the reason
+ *   `resumed`              — designer resumed from hold (T8)
+ *   `marked_done`          — designer sent to MD review (T9+T10)
+ *   `design_approved`      — MD approved the finished design (T11, terminal)
+ *   `changes_requested`    — MD asked for changes (T12); `feedback` carries the ask
+ *   `start_changes`        — designer started reworking after MD feedback (T13)
+ */
 export interface CompletionHistoryEntry {
-  type: "done" | "revision" | "resubmit" | "approved";
+  type:
+    | "done"
+    | "revision"
+    | "resubmit"
+    | "approved"
+    | "started"
+    | "held"
+    | "resumed"
+    | "marked_done"
+    | "design_approved"
+    | "changes_requested"
+    | "start_changes";
   date: string;
   by?: string;           // user full_name
-  feedback?: string;     // MD's revision notes
-  delay_days?: number;   // days late vs planned
+  feedback?: string;     // MD revision notes OR hold reason — type-specific
+  delay_days?: number;   // days late vs planned (legacy types only)
+  /** Round number this entry belongs to — useful for marked_done/changes_requested. */
+  round?: number;
 }
 
 // ============================================================================
@@ -62,6 +103,9 @@ export type Database = {
           avatar_url: string | null;
           created_at: string;
           updated_at: string;
+          is_active: boolean | null;
+          deactivated_at: string | null;
+          deactivated_by: string | null;
         };
         Insert: {
           id: string;
@@ -70,6 +114,9 @@ export type Database = {
           avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
+          is_active?: boolean | null;
+          deactivated_at?: string | null;
+          deactivated_by?: string | null;
         };
         Update: {
           id?: string;
@@ -78,6 +125,9 @@ export type Database = {
           avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
+          is_active?: boolean | null;
+          deactivated_at?: string | null;
+          deactivated_by?: string | null;
         };
         Relationships: [];
       };
@@ -186,8 +236,24 @@ export type Database = {
           final_approval_notes: string | null;
           final_approved_at: string | null;
           approved_designs_count: number | null;
+          /** Total designs the designer submitted (denominator at final approval). Added 0028. */
+          designs_count: number | null;
+          /** Storage paths for every uploaded file on this concept (added in 0018).
+           *  First entry mirrors `image_url`; revisions append more entries. */
+          files: string[] | null;
           remarks: string | null;
           completion_history: CompletionHistoryEntry[];
+          // Added in 0026 — work-status lifecycle
+          work_status: ConceptWorkStatus;
+          work_started_at: string | null;
+          work_held_at: string | null;
+          work_resumed_at: string | null;
+          work_completed_at: string | null;
+          hold_reason: string | null;
+          hold_count: number;
+          revision_count: number;
+          md_feedback: string | null;
+          total_hold_duration: string | null;
         };
         Insert: {
           id?: string;
@@ -217,8 +283,20 @@ export type Database = {
           final_approval_notes?: string | null;
           final_approved_at?: string | null;
           approved_designs_count?: number | null;
+          designs_count?: number | null;
+          files?: string[] | null;
           remarks?: string | null;
           completion_history?: CompletionHistoryEntry[];
+          work_status?: ConceptWorkStatus;
+          work_started_at?: string | null;
+          work_held_at?: string | null;
+          work_resumed_at?: string | null;
+          work_completed_at?: string | null;
+          hold_reason?: string | null;
+          hold_count?: number;
+          revision_count?: number;
+          md_feedback?: string | null;
+          total_hold_duration?: string | null;
         };
         Update: {
           id?: string;
@@ -248,8 +326,20 @@ export type Database = {
           final_approval_notes?: string | null;
           final_approved_at?: string | null;
           approved_designs_count?: number | null;
+          designs_count?: number | null;
+          files?: string[] | null;
           remarks?: string | null;
           completion_history?: CompletionHistoryEntry[];
+          work_status?: ConceptWorkStatus;
+          work_started_at?: string | null;
+          work_held_at?: string | null;
+          work_resumed_at?: string | null;
+          work_completed_at?: string | null;
+          hold_reason?: string | null;
+          hold_count?: number;
+          revision_count?: number;
+          md_feedback?: string | null;
+          total_hold_duration?: string | null;
         };
         Relationships: [
           {
@@ -835,13 +925,34 @@ export type Database = {
           colors: string | null;
           quantity: number | null;
           accessories: string | null;
-          packing_type: "standard" | "premium" | "bulk" | "custom";
+          packing_type: "standard" | "premium" | "bulk" | "custom" | null;
           special_instructions: string | null;
           file_url: string | null;
           /** Storage paths for every attached file. First entry is mirrored
            *  into `file_url` so legacy single-file readers still work. */
           files: string[];
           created_at: string;
+          // ── Added in 0021_full_kitting_form_fields.sql ───────────────
+          form_payload:
+            | Record<string, unknown>
+            | null;
+          data_entry_status:
+            | "pending_image"
+            | "pending_deo"
+            | "in_progress"
+            | "completed";
+          priority:
+            | "very_urgent"
+            | "2_days"
+            | "3_days"
+            | "4_days"
+            | "5_days"
+            | null;
+          form_date: string | null;
+          party_name: string | null;
+          image_url: string | null;
+          completed_at: string | null;
+          completed_by: string | null;
         };
         Insert: {
           id?: string;
@@ -851,11 +962,29 @@ export type Database = {
           colors?: string | null;
           quantity?: number | null;
           accessories?: string | null;
-          packing_type: "standard" | "premium" | "bulk" | "custom";
+          packing_type?: "standard" | "premium" | "bulk" | "custom" | null;
           special_instructions?: string | null;
           file_url?: string | null;
           files?: string[];
           created_at?: string;
+          form_payload?: Record<string, unknown> | null;
+          data_entry_status?:
+            | "pending_image"
+            | "pending_deo"
+            | "in_progress"
+            | "completed";
+          priority?:
+            | "very_urgent"
+            | "2_days"
+            | "3_days"
+            | "4_days"
+            | "5_days"
+            | null;
+          form_date?: string | null;
+          party_name?: string | null;
+          image_url?: string | null;
+          completed_at?: string | null;
+          completed_by?: string | null;
         };
         Update: {
           id?: string;
@@ -865,11 +994,29 @@ export type Database = {
           colors?: string | null;
           quantity?: number | null;
           accessories?: string | null;
-          packing_type?: "standard" | "premium" | "bulk" | "custom";
+          packing_type?: "standard" | "premium" | "bulk" | "custom" | null;
           special_instructions?: string | null;
           file_url?: string | null;
           files?: string[];
           created_at?: string;
+          form_payload?: Record<string, unknown> | null;
+          data_entry_status?:
+            | "pending_image"
+            | "pending_deo"
+            | "in_progress"
+            | "completed";
+          priority?:
+            | "very_urgent"
+            | "2_days"
+            | "3_days"
+            | "4_days"
+            | "5_days"
+            | null;
+          form_date?: string | null;
+          party_name?: string | null;
+          image_url?: string | null;
+          completed_at?: string | null;
+          completed_by?: string | null;
         };
         Relationships: [
           {
@@ -890,12 +1037,43 @@ export type Database = {
       };
     };
     Views: {
-      [_ in never]: never;
+      // 0023_deo_policies.sql — read-only view of kitting records awaiting
+      // (or in the middle of) DEO data entry. The shape matches the SELECT
+      // list in the migration exactly.
+      deo_kitting_queue: {
+        Row: {
+          id: string;
+          task_id: string | null;
+          image_url: string | null;
+          party_name: string | null;
+          priority:
+            | "very_urgent"
+            | "2_days"
+            | "3_days"
+            | "4_days"
+            | "5_days"
+            | null;
+          data_entry_status:
+            | "pending_image"
+            | "pending_deo"
+            | "in_progress"
+            | "completed";
+          form_date: string | null;
+          created_at: string;
+          task_code: string | null;
+          concept: string | null;
+          client_id: string | null;
+          client_party_name: string | null;
+          assignee_id: string | null;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
       auth_role: { Args: Record<string, never>; Returns: UserRole };
       is_admin: { Args: Record<string, never>; Returns: boolean };
       is_admin_or_coordinator: { Args: Record<string, never>; Returns: boolean };
+      is_deo: { Args: Record<string, never>; Returns: boolean };
       next_task_code: { Args: Record<string, never>; Returns: string };
       next_concept_code: { Args: Record<string, never>; Returns: string };
     };
@@ -904,6 +1082,7 @@ export type Database = {
       task_status: TaskStatus;
       task_priority: TaskPriority;
       md_status: ConceptStatus;
+      concept_work_status: ConceptWorkStatus;
       designer_status: DesignerStatus;
     };
     CompositeTypes: {

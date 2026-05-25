@@ -84,8 +84,8 @@ const TABLE_SPECS: TableSpec[] = [
   {
     key: "full_kitting_details",
     table: "full_kitting_details",
-    label: "Full Kitting",
-    description: "Structured kitting form submissions.",
+    label: "Full Knitting",
+    description: "Structured knitting form submissions.",
   },
   {
     key: "task_comments",
