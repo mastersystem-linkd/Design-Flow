@@ -1119,13 +1119,13 @@ function TopBar({
         </div>
       )}
 
-      <div className="shrink-0 sm:min-w-[140px] md:min-w-[180px]">
+      <div className="w-[120px] shrink-0 sm:w-[150px] md:w-[180px]">
         <SearchInput
           ref={searchInputRef}
           value={search}
           onChange={setSearch}
           placeholder="Search…"
-          className="h-7 text-[11px]"
+          className="[&_input]:!h-7 [&_input]:!text-[11px] [&_input]:!pl-7 [&_svg:first-child]:!h-3 [&_svg:first-child]:!w-3 [&_svg:first-child]:!left-2"
         />
       </div>
 
