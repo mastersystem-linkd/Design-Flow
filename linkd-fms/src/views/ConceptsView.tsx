@@ -690,7 +690,7 @@ export function ConceptsView() {
 
                 <StageHeader
                   stage="creation"
-                  colSpan={6}
+                  colSpan={7}
                   step={1}
                   label="Concept Submitted"
                 />
@@ -730,6 +730,7 @@ export function ConceptsView() {
                 <ColHead>Submitted</ColHead>
                 <ColHead>Designer</ColHead>
                 <ColHead>Concept</ColHead>
+                <ColHead>Description</ColHead>
                 <ColHead>Party</ColHead>
                 <ColHead center>Designs</ColHead>
                 <ColHead border>Assigned By</ColHead>
@@ -792,10 +793,14 @@ export function ConceptsView() {
                           {c.concept_code}
                         </span>
                       )}
-                      {c.description && (
-                        <span className="mt-0.5 block max-w-[260px] truncate text-[11px] italic text-muted-foreground/80">
+                    </td>
+                    <td className="px-3 py-3">
+                      {c.description ? (
+                        <span className="max-w-[200px] text-xs text-muted-foreground line-clamp-2">
                           {c.description}
                         </span>
+                      ) : (
+                        <Dash />
                       )}
                     </td>
                     <Cell>{c.client?.party_name || "—"}</Cell>
