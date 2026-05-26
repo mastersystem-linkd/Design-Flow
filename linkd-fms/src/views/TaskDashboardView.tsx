@@ -303,7 +303,7 @@ export function TaskDashboardView() {
                     ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
                     : "bg-warning/10 text-warning border-warning/20"
                 )}
-                onClick={() => navigate(dashLink({ overdue: "1" }))}
+                onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
               >
                 {a.kpis.overdueCount} overdue
               </Badge>
@@ -538,7 +538,7 @@ export function TaskDashboardView() {
                 value={a.kpis.overdueCount}
                 pulse={a.kpis.overdueCount > 3}
                 sub={a.kpis.overdueCount > 0 ? "past deadline" : "on schedule"}
-                onClick={() => navigate(dashLink({ overdue: "1" }))}
+                onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
               />
             </div>
           </TextileHeroWrapper>

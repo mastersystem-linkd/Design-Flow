@@ -420,6 +420,17 @@ export function KanbanView() {
     return map;
   }, [scoped]);
 
+  // When overdueOnly is active without an explicit status URL param,
+  // auto-jump to the first tab that has overdue tasks so the user
+  // doesn't land on an empty Pool tab.
+  useEffect(() => {
+    if (!overdueOnly || urlStatus) return;
+    const current = grouped[statusTab] ?? [];
+    if (current.length > 0) return;
+    const firstNonEmpty = DASHBOARD_STATUSES.find((s) => (grouped[s]?.length ?? 0) > 0);
+    if (firstNonEmpty) setStatusTab(firstNonEmpty);
+  }, [overdueOnly, grouped, statusTab, urlStatus]);
+
   /**
    * Sorted tasks for the currently visible tab, mirroring what
    * `TaskTableSection` renders. Used by keyboard shortcuts (J/K/Enter) to
