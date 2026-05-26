@@ -25,7 +25,6 @@ import {
 } from "@/hooks/useTaskAnalytics";
 import { KpiCard } from "@/components/analytics/KpiCard";
 import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
-import { AlertBanner } from "@/components/analytics/AlertBanner";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
@@ -304,18 +303,24 @@ export function TaskDashboardView() {
                     ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
                     : "bg-warning/10 text-warning border-warning/20"
                 )}
-                onClick={() => navigate(dashLink({ overdue: "true" }))}
+                onClick={() => navigate(dashLink({ overdue: "1" }))}
               >
                 {a.kpis.overdueCount} overdue
               </Badge>
             )}
             {a.kpis.urgentCount > 0 && (
-              <Badge className="border border-destructive/20 bg-destructive/10 text-destructive">
+              <Badge
+                className="cursor-pointer border border-destructive/20 bg-destructive/10 text-destructive"
+                onClick={() => navigate(dashLink({ status: "in_progress" }))}
+              >
                 {a.kpis.urgentCount} urgent
               </Badge>
             )}
             {a.kpis.activePipeline > 0 && (
-              <Badge className="border border-primary/20 bg-primary/10 text-primary">
+              <Badge
+                className="cursor-pointer border border-primary/20 bg-primary/10 text-primary"
+                onClick={() => navigate(dashLink({ status: "in_progress" }))}
+              >
                 {a.kpis.activePipeline} in flight
               </Badge>
             )}
@@ -537,19 +542,6 @@ export function TaskDashboardView() {
               />
             </div>
           </TextileHeroWrapper>
-
-          {/* Alert banner — surfaces overdue tasks above the fold so the
-              MD doesn't have to scroll the dashboard to see the count. */}
-          {a.kpis.overdueCount > 0 && (
-            <AlertBanner
-              variant="danger"
-              title="Overdue Tasks"
-              count={a.kpis.overdueCount}
-              description="Tasks past their planned deadline — open the filtered list to triage."
-              actionLabel="View"
-              onAction={() => navigate(dashLink({ overdue: "1" }))}
-            />
-          )}
 
           {/* Charts */}
           <div className="grid gap-3 lg:grid-cols-3">
