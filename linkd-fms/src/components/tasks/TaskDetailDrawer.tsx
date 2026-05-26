@@ -102,10 +102,9 @@ export function TaskDetailDrawer({
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Edit visible to admin/coordinator OR the designer who owns the task
-  const canEdit =
-    isAdminRole(profile?.role) ||
-    (task && (task.assigned_to === user?.id || task.created_by === user?.id));
-  const canDelete = profile?.role === "admin" || profile?.role === "design_coordinator";
+  const isOwner = !!(task && (task.assigned_to === user?.id || task.created_by === user?.id));
+  const canEdit = isAdminRole(profile?.role) || isOwner;
+  const canDelete = isAdminRole(profile?.role) || isOwner;
 
   // Reset edit mode when drawer closes or task changes
   useEffect(() => {

@@ -2533,6 +2533,7 @@ function TaskRow({
           {/* ⋮ Dropdown — View / Edit / Full Kitting / Delete */}
           <RowActionMenu
             role={role}
+            isMine={isMine}
             onView={onClick}
             onEdit={onEdit}
             onDelete={onDelete}
@@ -2693,12 +2694,14 @@ function getCtasForRow(args: {
 
 function RowActionMenu({
   role,
+  isMine,
   onView,
   onEdit,
   onDelete,
   onFullKitting,
 }: {
   role: UserRole;
+  isMine: boolean;
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -2712,8 +2715,9 @@ function RowActionMenu({
     left: 0,
   });
 
-  const canEdit = isAdminOrCoordinator(role);
-  const canDelete = isAdminOrCoordinator(role);
+  const isAdmin = isAdminOrCoordinator(role);
+  const canEdit = isAdmin || isMine;
+  const canDelete = isAdmin || isMine;
 
   // Close on outside click
   useEffect(() => {
