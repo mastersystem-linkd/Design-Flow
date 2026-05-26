@@ -262,6 +262,67 @@ export function TaskDashboardView() {
            space-y-3 / sm:space-y-4 matches every other dashboard. */}
       <div className="space-y-3 sm:space-y-4">
 
+      {/* ── Production Studio Banner — mirrors Concept Dashboard's Design Studio banner ── */}
+      <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
+        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
+        <svg
+          className="absolute right-0 top-0 h-full w-40 opacity-[0.03]"
+          viewBox="0 0 160 80"
+          aria-hidden="true"
+        >
+          {Array.from({ length: 20 }).map((_, i) => (
+            <line key={`h${i}`} x1="0" y1={i * 4} x2="160" y2={i * 4} stroke="currentColor" strokeWidth="1" />
+          ))}
+          {Array.from({ length: 40 }).map((_, i) => (
+            <line key={`v${i}`} x1={i * 4} y1="0" x2={i * 4} y2="80" stroke="currentColor" strokeWidth="0.5" />
+          ))}
+        </svg>
+        <div className="relative flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <LayoutGrid className="h-[18px] w-[18px] text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Production Studio</p>
+              <p className="text-[11px] text-muted-foreground">
+                Task production pipeline · {a.periodLabel}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden items-center gap-1 sm:flex" title="Pipeline stages">
+              <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm" />
+              <span className="h-2.5 w-2.5 rounded-full bg-success shadow-sm" />
+              <span className="h-2.5 w-2.5 rounded-full bg-warning shadow-sm" />
+              <span className="h-2.5 w-2.5 rounded-full bg-destructive shadow-sm" />
+            </div>
+            {a.kpis.overdueCount > 0 && (
+              <Badge
+                className={cn(
+                  "cursor-pointer border transition-colors",
+                  a.kpis.overdueCount > 3
+                    ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
+                    : "bg-warning/10 text-warning border-warning/20"
+                )}
+                onClick={() => navigate(dashLink({ overdue: "true" }))}
+              >
+                {a.kpis.overdueCount} overdue
+              </Badge>
+            )}
+            {a.kpis.urgentCount > 0 && (
+              <Badge className="border border-destructive/20 bg-destructive/10 text-destructive">
+                {a.kpis.urgentCount} urgent
+              </Badge>
+            )}
+            {a.kpis.activePipeline > 0 && (
+              <Badge className="border border-primary/20 bg-primary/10 text-primary">
+                {a.kpis.activePipeline} in flight
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Designer personal view */}
       {isDesigner && myStats ? (
         <>
