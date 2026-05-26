@@ -25,42 +25,45 @@ interface Props {
  * indicator. Sorted by total assigned, descending.
  */
 export function WorkloadDistribution({ data, onDesignerClick }: Props) {
-  const filtered = data.filter((d) => d.assigned > 0);
-  const max = Math.max(1, ...filtered.map((d) => d.assigned));
+  const active = data.filter((d) => d.assigned > 0);
+  const inactive = data.filter((d) => d.assigned === 0);
+  const sorted = [...active, ...inactive];
+  const max = Math.max(1, ...active.map((d) => d.assigned));
   const teamAvg =
-    filtered.length > 0
+    active.length > 0
       ? Math.round(
-          (filtered.reduce((s, d) => s + d.assigned, 0) / filtered.length) * 10
+          (active.reduce((s, d) => s + d.assigned, 0) / active.length) * 10
         ) / 10
       : 0;
 
-  if (filtered.length === 0) {
+  if (data.length === 0) {
     return (
       <Card>
         <CardContent className="py-6 text-center text-sm text-muted-foreground">
-          No designer activity in this period yet.
+          No designers found.
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <CardContent className="py-4">
-        <div className="mb-3 flex items-center justify-between">
+    <Card className="h-full">
+      <CardContent className="flex h-full flex-col py-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-y-1">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">
               Workload Distribution
             </h3>
           </div>
-          <Badge variant="secondary" className="text-[10px]">
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
             Avg {teamAvg}/designer
           </Badge>
         </div>
 
         <div className="space-y-3">
-          {filtered.map((d, i) => {
+          {sorted.map((d, i) => {
+            const isIdle = d.assigned === 0;
             const remaining = Math.max(0, d.assigned - d.completed - d.inProgress);
             const widthPct = (d.assigned / max) * 100;
 
@@ -76,14 +79,14 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
               teamAvg > 0 && d.assigned < teamAvg * 0.5 && d.assigned > 0 ? "under" : null;
 
             return (
-              <div key={d.id} className="flex items-center gap-3">
+              <div key={d.id} className={cn("flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3", isIdle && "opacity-50")}>
                 {/* Avatar block */}
                 <button
                   type="button"
                   onClick={() => onDesignerClick?.(d.id)}
                   disabled={!onDesignerClick}
                   className={cn(
-                    "flex w-[150px] shrink-0 items-center gap-2 rounded-md text-left",
+                    "flex w-full items-center gap-2 rounded-md text-left sm:w-[150px] sm:shrink-0",
                     onDesignerClick && "cursor-pointer hover:opacity-80"
                   )}
                   title={onDesignerClick ? "View scorecard" : undefined}
@@ -107,12 +110,28 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
                       {d.designerCode} · {d.assigned} task{d.assigned !== 1 ? "s" : ""}
                     </p>
                   </div>
+                  {/* Overload pill — visible on mobile inline */}
+                  <div className="shrink-0 text-right sm:hidden">
+                    {isIdle ? (
+                      <Badge className="bg-muted/30 text-muted-foreground border border-border text-[9px]">
+                        Idle
+                      </Badge>
+                    ) : overload === "over" ? (
+                      <Badge className="bg-destructive/10 text-destructive border border-destructive/25 text-[9px]">
+                        Overloaded
+                      </Badge>
+                    ) : overload === "under" ? (
+                      <Badge className="bg-muted/30 text-muted-foreground border border-border text-[9px]">
+                        Light
+                      </Badge>
+                    ) : null}
+                  </div>
                 </button>
 
                 {/* Stacked bar */}
                 <div className="relative flex-1">
                   <div
-                    className="flex h-6 overflow-hidden rounded-md border border-border bg-secondary/40 transition-[width] duration-[700ms] ease-out"
+                    className="flex h-5 overflow-hidden rounded-md border border-border bg-secondary/40 transition-[width] duration-[700ms] ease-out sm:h-6"
                     style={{
                       width: `${Math.max(8, widthPct)}%`,
                       transitionDelay: `${i * 60}ms`,
@@ -136,9 +155,13 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
                   </div>
                 </div>
 
-                {/* Overload pill */}
-                <div className="w-20 shrink-0 text-right">
-                  {overload === "over" ? (
+                {/* Overload pill — desktop only */}
+                <div className="hidden w-20 shrink-0 text-right sm:block">
+                  {isIdle ? (
+                    <Badge className="bg-muted/30 text-muted-foreground border border-border text-[9px]">
+                      Idle
+                    </Badge>
+                  ) : overload === "over" ? (
                     <Badge className="bg-destructive/10 text-destructive border border-destructive/25 text-[9px]">
                       Overloaded
                     </Badge>

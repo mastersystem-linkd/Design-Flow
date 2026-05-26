@@ -340,7 +340,7 @@ export function ProfileView() {
             Choose how the app looks for you.
           </p>
 
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
             {THEME_OPTIONS.map((opt) => {
               const active = theme === opt.value;
               return (
@@ -349,7 +349,7 @@ export function ProfileView() {
                   type="button"
                   onClick={() => setTheme(opt.value)}
                   className={cn(
-                    "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
+                    "flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 transition-all sm:gap-2 sm:p-4",
                     active
                       ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                       : "border-border bg-card hover:border-muted-foreground/30"
@@ -357,19 +357,19 @@ export function ProfileView() {
                 >
                   <opt.icon
                     className={cn(
-                      "h-6 w-6",
+                      "h-5 w-5 sm:h-6 sm:w-6",
                       active ? "text-primary" : "text-muted-foreground"
                     )}
                   />
                   <span
                     className={cn(
-                      "text-xs font-medium",
+                      "text-[11px] font-medium sm:text-xs",
                       active ? "text-primary" : "text-foreground"
                     )}
                   >
                     {opt.label}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="hidden text-[10px] text-muted-foreground sm:inline">
                     {opt.description}
                   </span>
                 </button>

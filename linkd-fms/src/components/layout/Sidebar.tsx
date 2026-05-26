@@ -171,7 +171,7 @@ export function Sidebar({
 
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 flex h-screen w-[220px] flex-col bg-sidebar text-white transition-transform duration-200",
+          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col bg-sidebar text-white transition-transform duration-200",
           "md:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}

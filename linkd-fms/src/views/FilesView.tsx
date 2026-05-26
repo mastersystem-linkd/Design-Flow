@@ -294,9 +294,9 @@ export function FilesView() {
   return (
     <div className="space-y-4">
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
             <FolderOpen className="h-5 w-5 text-primary" />
           </div>
           <div>
@@ -317,7 +317,7 @@ export function FilesView() {
             className="gap-1.5"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           {/* View toggle — list is default */}
           <div className="flex rounded-lg border border-border p-0.5">

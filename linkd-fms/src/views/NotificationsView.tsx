@@ -139,8 +139,8 @@ export function NotificationsView() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto">
           {FILTER_TABS.map((t) => {
             const active = tab === t.id;
             const count = tabCounts[t.id];
@@ -153,7 +153,7 @@ export function NotificationsView() {
                   setVisibleCount(PAGE_SIZE);
                 }}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:text-sm",
                   active
                     ? "bg-primary text-white"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"

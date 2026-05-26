@@ -153,8 +153,8 @@ export function TaskDashboardView() {
   ) : null;
 
   const tabsRow = (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border">
-      <div className="-mb-px flex items-center gap-1 overflow-x-auto">
+    <div className="flex flex-col gap-2 border-b border-border sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+      <div className="-mb-px flex items-center gap-1 overflow-x-auto no-scrollbar">
         <DashboardTabButton
           active={tab === "tasks"}
           onClick={() => setTab("tasks")}
@@ -174,7 +174,7 @@ export function TaskDashboardView() {
         ) : (
           <>
             {conceptControls?.periodLabel && (
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
                 <Calendar className="h-3.5 w-3.5" />
                 {conceptControls.periodLabel}
               </span>
@@ -375,7 +375,7 @@ export function TaskDashboardView() {
               The textile wrapper is shared with every other dashboard so
               the visual language stays uniform. */}
           <TextileHeroWrapper className="p-0 sm:p-0">
-            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-7">
+            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-4 lg:grid-cols-7">
               <HeroKpiTile
                 icon={CheckCircle2}
                 label="Delivered"
@@ -391,17 +391,21 @@ export function TaskDashboardView() {
                 icon={Clock}
                 label="On-Time"
                 tone={
-                  a.kpis.onTimeRate.current > 85
+                  a.kpis.totalCompleted.current === 0
+                    ? "muted"
+                    : a.kpis.onTimeRate.current > 85
                     ? "success"
                     : a.kpis.onTimeRate.current < 70
                       ? "destructive"
                       : "warning"
                 }
-                value={`${a.kpis.onTimeRate.current}%`}
-                trend={a.kpis.onTimeRate}
-                sparklineData={a.sparklines.onTime}
+                value={a.kpis.totalCompleted.current === 0 ? "—" : `${a.kpis.onTimeRate.current}%`}
+                trend={a.kpis.totalCompleted.current === 0 ? undefined : a.kpis.onTimeRate}
+                sparklineData={a.kpis.totalCompleted.current === 0 ? undefined : a.sparklines.onTime}
                 sub={
-                  a.kpis.lateCompletions.current > 0
+                  a.kpis.totalCompleted.current === 0
+                    ? "no completions yet"
+                    : a.kpis.lateCompletions.current > 0
                     ? `${a.kpis.lateCompletions.current} late this period`
                     : "No late completions"
                 }
@@ -447,7 +451,7 @@ export function TaskDashboardView() {
                     ? `${(
                         Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
                         10
-                      ).toFixed(1)}/dev`
+                      ).toFixed(1)} per designer`
                     : "in flight"
                 }
                 onClick={() => navigate(dashLink({ status: "in_progress" }))}
@@ -497,12 +501,12 @@ export function TaskDashboardView() {
                   </h3>
                   <p className="text-xs text-muted-foreground">Created vs Completed</p>
                 </div>
-                <div className="h-[280px]">
+                <div className="h-[220px] sm:h-[280px]">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                    <BarChart data={a.volumeData} barGap={4}>
+                    <BarChart data={a.volumeData} barGap={4} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                       <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis allowDecimals={false} tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} width={30} />
+                      <YAxis allowDecimals={false} tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
                       <Tooltip contentStyle={{ backgroundColor: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 8, fontSize: 12, color: "rgb(var(--foreground))" }} />
                       <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="circle" iconSize={8} />
                       <Bar dataKey="created" name="Created" fill="rgb(var(--muted))" opacity={0.4} radius={[4, 4, 0, 0]} />
@@ -522,23 +526,19 @@ export function TaskDashboardView() {
           </div>
 
           {/* Workload + At-risk */}
-          <div className="grid gap-3 lg:grid-cols-5">
-            <div className="lg:col-span-3">
-              <WorkloadDistribution
-                data={a.designerStats}
-                onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <AtRiskTasks tasks={tasks} />
-            </div>
+          <div className="grid items-stretch gap-3 lg:grid-cols-2">
+            <WorkloadDistribution
+              data={a.designerStats}
+              onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
+            />
+            <AtRiskTasks tasks={tasks} />
           </div>
 
           {/* Detail row — Kitting mix · Priority · Cycle time · Top clients.
               These rollups were missing from the original dashboard. They
               cover the FK staffing question, the priority load, the actual
               effort distribution, and the demand-by-client view. */}
-          <div className="grid items-stretch gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <div className="grid items-stretch gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
             <KittingMixCard data={a.kittingMix} />
             <PriorityMixCard data={a.priorityMix} />
             <CycleTimeCard data={a.cycleTimeDist} />
@@ -618,8 +618,8 @@ function HeroKpiTile({
     const t = trend.trend;
     if (t === 999) {
       trendNode = (
-        <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
-          NEW
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
+          <TrendingUp className="h-2.5 w-2.5" />
         </span>
       );
     } else if (t !== 0) {
@@ -729,7 +729,7 @@ function PipelineWidget({
           </Badge>
         </div>
 
-        <div className="flex flex-1 flex-col justify-center space-y-2 py-3">
+        <div className="flex flex-1 flex-col justify-center space-y-3 py-3">
           {pipeline.map((item, i) => {
             const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
             const barPct = Math.max(item.count > 0 ? 8 : 4, (item.count / maxCount) * 100);
@@ -744,17 +744,17 @@ function PipelineWidget({
                 type="button"
                 onClick={() => navigate(dashLink({ status: item.status }))}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg border-l-[3px] px-2 py-1.5 transition-all",
+                  "flex w-full items-center gap-2 rounded-lg border-l-[3px] px-1.5 py-2 transition-all sm:gap-3 sm:px-2",
                   "cursor-pointer hover:bg-secondary/40 hover:ring-1 hover:ring-primary/20",
                   borderColor
                 )}
               >
-                <span className="w-[90px] shrink-0 text-left text-xs font-medium text-foreground">
+                <span className="w-[72px] shrink-0 truncate text-left text-xs font-medium text-foreground sm:w-[90px]">
                   {label}
                 </span>
-                <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
+                <div className="flex-1 overflow-hidden rounded bg-secondary/60">
                   <div
-                    className={cn("h-7 rounded-md", barColor)}
+                    className={cn("h-2.5 rounded", barColor)}
                     style={{
                       width: mounted ? `${barPct}%` : "0%",
                       transition: "width 600ms cubic-bezier(0.4,0,0.2,1)",
@@ -763,7 +763,7 @@ function PipelineWidget({
                     }}
                   />
                 </div>
-                <div className="flex w-16 shrink-0 items-center justify-end gap-1">
+                <div className="flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-16 sm:gap-1">
                   <span className="text-sm font-semibold tabular-nums text-foreground">
                     {item.count}
                   </span>
@@ -963,9 +963,54 @@ function TaskLeaderboard({
       <CardContent className="py-4">
         <div className="mb-4 flex items-center gap-2">
           <Trophy className="h-5 w-5 text-warning" />
-          <h3 className="text-lg font-semibold text-foreground">Designer Task Performance</h3>
+          <h3 className="text-sm font-semibold text-foreground sm:text-lg">Designer Task Performance</h3>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* Mobile card view */}
+        <div className="space-y-2 sm:hidden">
+          {sorted.map((d, i) => {
+            const rank = i + 1;
+            const emoji = RANK_EMOJI[rank];
+            const otRatio = d.assigned > 0 ? d.onTime / d.assigned : 0;
+            const scoreColor = d.score >= 90 ? "bg-success" : d.score >= 75 ? "bg-warning" : "bg-destructive";
+            return (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => onDesignerClick?.(d.id)}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors active:scale-[0.99]",
+                  onDesignerClick && "hover:bg-secondary/50"
+                )}
+              >
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-lg">{emoji ?? <span className="text-sm text-muted-foreground">#{rank}</span>}</span>
+                  <Avatar className="h-8 w-8">
+                    {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
+                    <AvatarFallback className="bg-primary/10 text-primary text-[10px]">{getInitials(d.full_name)}</AvatarFallback>
+                  </Avatar>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{d.full_name}</p>
+                  <div className="mt-1.5 grid grid-cols-3 gap-x-2 gap-y-1 text-[11px]">
+                    <div><span className="text-muted-foreground">Done </span><span className="font-semibold text-success">{d.completed}</span></div>
+                    <div><span className="text-muted-foreground">OT </span><span className={cn("font-semibold", d.assigned === 0 ? "text-muted-foreground" : otRatio > 0.85 ? "text-success" : "text-warning")}>{d.assigned > 0 ? `${d.onTime}/${d.assigned}` : "—"}</span></div>
+                    <div><span className="text-muted-foreground">Avg </span><span className="font-semibold">{d.completed > 0 ? `${d.avgDays}d` : "—"}</span></div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="relative h-4 flex-1 overflow-hidden rounded-full bg-secondary">
+                      <div className={cn("h-full rounded-full", scoreColor)} style={{ width: `${d.score}%` }} />
+                      <span className={cn("absolute top-1/2 -translate-y-1/2 text-[10px] font-bold tabular-nums", d.score >= 20 ? "left-1.5 text-white" : "right-1.5 text-foreground")}>{d.score}</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Desktop table view */}
+        <div className="hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[650px] text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/50 text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -991,7 +1036,8 @@ function TaskLeaderboard({
                     onClick={() => onDesignerClick?.(d.id)}
                     className={cn(
                       "border-b border-border transition-colors hover:bg-primary/[0.03]",
-                      onDesignerClick && "cursor-pointer"
+                      onDesignerClick && "cursor-pointer",
+                      d.score === 0 && "opacity-50"
                     )}
                   >
                     <td className={cn("px-4 py-3 text-center", rank === 1 && "bg-warning/10", rank === 2 && "bg-muted/20", rank === 3 && "bg-warning/5")}>
@@ -1018,9 +1064,16 @@ function TaskLeaderboard({
                       {d.completed > 0 ? `${d.avgDays}d` : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="relative h-6 w-full overflow-hidden rounded-full bg-secondary">
-                        <div className={cn("h-full rounded-full transition-[width] duration-[800ms] ease-[cubic-bezier(0.4,0,0.2,1)]", scoreColor)} style={{ width: `${d.score}%`, transitionDelay: `${i * 80}ms` }} />
-                        <span className={cn("absolute top-1/2 -translate-y-1/2 text-xs font-bold tabular-nums", d.score >= 20 ? "left-2 text-white" : "right-2 text-foreground")}>{d.score}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+                          <div className={cn("h-full rounded-full", scoreColor)} style={{ width: `${d.score}%` }} />
+                        </div>
+                        <span className={cn(
+                          "rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums",
+                          d.score >= 90 ? "bg-success/10 text-success" : d.score >= 75 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"
+                        )}>
+                          {d.score}
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -1066,7 +1119,7 @@ function KittingMixCard({ data }: { data: KittingMix }) {
   const c = 2 * Math.PI * r;
   const dash = total > 0 ? (data.withKitting / total) * c : 0;
   return (
-    <Card className="h-full">
+    <Card className="h-full min-h-[270px]">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Package className="h-3 w-3" />
@@ -1075,11 +1128,11 @@ function KittingMixCard({ data }: { data: KittingMix }) {
         <h3 className="text-sm font-semibold text-foreground">FK requirement mix</h3>
 
         {total === 0 ? (
-          <p className="mt-4 rounded-lg bg-secondary/40 p-3 text-center text-xs italic text-muted-foreground">
+          <p className="mt-4 flex-1 rounded-lg bg-secondary/40 p-3 text-center text-xs italic text-muted-foreground">
             No tasks created in this period.
           </p>
         ) : (
-          <div className="mt-3 flex items-center gap-4">
+          <div className="mt-3 flex flex-1 items-center gap-4">
             <div className="relative h-[88px] w-[88px] shrink-0">
               <svg viewBox="0 0 88 88" className="-rotate-90 h-full w-full" aria-hidden>
                 <circle
@@ -1173,7 +1226,7 @@ function PriorityMixCard({ data }: { data: PriorityMix }) {
     { label: "Low", value: data.low, bar: "bg-muted-foreground/40", dot: "bg-muted-foreground/60" },
   ];
   return (
-    <Card className="h-full">
+    <Card className="h-full min-h-[270px]">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Zap className="h-3 w-3" />
@@ -1182,9 +1235,25 @@ function PriorityMixCard({ data }: { data: PriorityMix }) {
         <h3 className="text-sm font-semibold text-foreground">Active queue priority mix</h3>
 
         {total === 0 ? (
-          <p className="mt-4 rounded-lg bg-secondary/40 p-3 text-center text-xs italic text-muted-foreground">
-            No active tasks right now.
-          </p>
+          <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-1">
+            <p className="text-4xl font-bold tabular-nums text-muted-foreground">0</p>
+            <p className="text-xs text-muted-foreground">No active tasks right now</p>
+          </div>
+        ) : total <= 3 ? (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {rows.filter((r) => r.value > 0).map((r) => (
+                <div key={r.label} className="flex items-center gap-2 rounded-lg border border-border bg-secondary/30 px-2.5 py-2">
+                  <span className={cn("h-2.5 w-2.5 rounded-full", r.dot)} />
+                  <span className="text-xs font-medium text-foreground">{r.label}</span>
+                  <span className="ml-auto text-sm font-bold tabular-nums text-foreground">{r.value}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-auto pt-2 text-[10px] text-muted-foreground">
+              {total} active task{total !== 1 ? "s" : ""} in pipeline
+            </p>
+          </>
         ) : (
           <>
             {/* Stacked segment bar */}
@@ -1202,7 +1271,7 @@ function PriorityMixCard({ data }: { data: PriorityMix }) {
                 );
               })}
             </div>
-            <ul className="mt-3 space-y-1.5 text-xs">
+            <ul className="mt-3 flex-1 space-y-1.5 text-xs">
               {rows.map((r) => {
                 const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
                 return (
@@ -1235,7 +1304,7 @@ function CycleTimeCard({ data }: { data: CycleTimeBucket[] }) {
   const total = data.reduce((s, b) => s + b.count, 0);
   const max = Math.max(1, ...data.map((b) => b.count));
   return (
-    <Card className="h-full">
+    <Card className="h-full min-h-[270px]">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Flame className="h-3 w-3" />
@@ -1244,11 +1313,24 @@ function CycleTimeCard({ data }: { data: CycleTimeBucket[] }) {
         <h3 className="text-sm font-semibold text-foreground">Time to complete</h3>
 
         {total === 0 ? (
-          <p className="mt-4 rounded-lg bg-secondary/40 p-3 text-center text-xs italic text-muted-foreground">
-            No completions yet — cycle time will populate as tasks ship.
-          </p>
+          <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-1">
+            <p className="text-4xl font-bold tabular-nums text-muted-foreground">0</p>
+            <p className="text-xs text-muted-foreground">No completions yet</p>
+          </div>
+        ) : total <= 2 ? (
+          <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-2">
+            <p className="text-3xl font-bold tabular-nums text-foreground">{total}</p>
+            <p className="text-xs text-muted-foreground">completion{total !== 1 ? "s" : ""} this period</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {data.filter((b) => b.count > 0).map((b) => (
+                <span key={b.label} className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[10px] font-medium text-foreground">
+                  {b.label}: {b.count}
+                </span>
+              ))}
+            </div>
+          </div>
         ) : (
-          <ul className="mt-3 space-y-1.5 text-xs">
+          <ul className="mt-3 flex-1 space-y-1.5 text-xs">
             {data.map((b) => {
               const pct = (b.count / max) * 100;
               return (
@@ -1292,7 +1374,7 @@ function TopClientsCard({ data }: { data: TopClient[] }) {
   const { clients: allClients } = useClients();
 
   return (
-    <Card className="h-full">
+    <Card className="h-full min-h-[270px]">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Building2 className="h-3 w-3" />
@@ -1315,12 +1397,13 @@ function TopClientsCard({ data }: { data: TopClient[] }) {
         </div>
 
         {data.length === 0 ? (
-          <p className="mt-4 rounded-lg bg-secondary/40 p-3 text-center text-xs italic text-muted-foreground">
-            No client activity in this period.
-          </p>
+          <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-1">
+            <p className="text-4xl font-bold tabular-nums text-muted-foreground">0</p>
+            <p className="text-xs text-muted-foreground">No client activity this period</p>
+          </div>
         ) : (
           <>
-            <ul className="mt-3 space-y-2 text-xs">
+            <ul className="mt-3 flex-1 space-y-2 text-xs">
               {preview.map((c, i) => {
                 const pct = Math.max(8, (c.total / max) * 100);
                 return (

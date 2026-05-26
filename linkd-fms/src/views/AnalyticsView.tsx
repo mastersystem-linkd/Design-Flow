@@ -156,16 +156,16 @@ export function AnalyticsView({
           tab strip naming this section, so we drop the giant icon + h1
           and just render the controls + sub-label inline. */}
       {embedded ? null : (
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                 {isDesigner ? "My Concept Performance" : "Concept Dashboard"}
               </h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">{a.periodLabel}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">{a.periodLabel}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -320,7 +320,7 @@ export function AnalyticsView({
                 />
               ))}
             </svg>
-            <div className="relative flex items-center justify-between gap-4 px-5 py-3">
+            <div className="relative flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
                   <Palette className="h-[18px] w-[18px] text-primary" />
@@ -431,7 +431,7 @@ export function AnalyticsView({
           {/* ── Print Production Pipeline — post-approval lifecycle ── */}
           <Card>
             <CardContent className="p-4">
-              <header className="mb-3 flex items-center justify-between gap-2">
+              <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <Layers className="h-4 w-4" />
@@ -525,7 +525,7 @@ export function AnalyticsView({
                 a.workStatus.holdRate !== null ||
                 a.workStatus.avgTimeToStartHours !== null ||
                 a.workStatus.avgReviewTurnaroundHours !== null) && (
-                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3 md:grid-cols-3 xl:grid-cols-6">
+                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-3 xl:grid-cols-6">
                   <QualityKpi
                     icon={<Sparkles className="h-3.5 w-3.5 text-success" />}
                     label="First-Pass Approval"
@@ -750,11 +750,11 @@ function WorkPill({
 }) {
   const navigate = useNavigate();
   const toneClass = {
-    muted:       "bg-muted/20 text-muted-foreground border-border",
-    primary:     "bg-primary/10 text-primary border-primary/30",
-    warning:     "bg-warning/10 text-warning border-warning/30",
-    destructive: "bg-destructive/10 text-destructive border-destructive/30",
-    success:     "bg-success/10 text-success border-success/30",
+    muted:       "bg-muted/20 text-muted-foreground border-border border-l-muted-foreground",
+    primary:     "bg-primary/10 text-primary border-primary/30 border-l-primary",
+    warning:     "bg-warning/10 text-warning border-warning/30 border-l-warning",
+    destructive: "bg-destructive/10 text-destructive border-destructive/30 border-l-destructive",
+    success:     "bg-success/10 text-success border-success/30 border-l-success",
   }[tone];
 
   return (
@@ -762,7 +762,7 @@ function WorkPill({
       type="button"
       onClick={() => navigate(href)}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-all hover:scale-[1.02] hover:shadow-card-soft active:scale-[0.98]",
+        "flex items-center justify-between gap-2 rounded-lg border border-l-[3px] px-3 py-2 text-left transition-all hover:scale-[1.02] hover:shadow-card-soft active:scale-[0.98]",
         toneClass
       )}
     >
@@ -803,7 +803,7 @@ function QualityKpi({
   accentClass?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
+    <div className={cn("rounded-lg border border-border border-l-[3px] bg-secondary/30 px-3 py-2.5", accentClass ? accentClass.replace("text-", "border-l-") : "border-l-primary")}>
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {icon}
         {label}

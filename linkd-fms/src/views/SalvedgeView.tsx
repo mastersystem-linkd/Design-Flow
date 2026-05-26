@@ -150,9 +150,9 @@ export function SalvedgeView() {
             <line key={`v${i}`} x1={i * 4} y1="0" x2={i * 4} y2="80" stroke="currentColor" strokeWidth="0.5" />
           ))}
         </svg>
-        <div className="relative flex items-center justify-between gap-4 px-5 py-3">
+        <div className="relative flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               <Palette className="h-[18px] w-[18px] text-primary" />
             </div>
             <div>
@@ -162,7 +162,7 @@ export function SalvedgeView() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <div className="hidden items-center gap-1 sm:flex" title="Fabric color palette">
               <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm" />
               <span className="h-2.5 w-2.5 rounded-full bg-success shadow-sm" />
@@ -182,7 +182,7 @@ export function SalvedgeView() {
               </Badge>
             )}
             <Button variant="outline" size="sm" onClick={() => void refetch()} className="gap-1.5">
-              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+              <RefreshCw className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Refresh</span>
             </Button>
             {isAdmin && (
               <Button size="sm" className="gap-1.5" onClick={() => { setEditRecord(null); setFormOpen(true); }}>
@@ -324,8 +324,8 @@ export function SalvedgeView() {
                   {analytics.designerData.map((d) => {
                     const pct = d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0;
                     return (
-                      <div key={d.name} className="flex items-center gap-3">
-                        <div className="w-28 shrink-0 truncate text-[13px] font-medium text-foreground" title={d.name}>
+                      <div key={d.name} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                        <div className="w-full truncate text-[13px] font-medium text-foreground sm:w-28 sm:shrink-0" title={d.name}>
                           {d.name}
                         </div>
                         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -339,7 +339,7 @@ export function SalvedgeView() {
                             {pct}%
                           </span>
                         </div>
-                        <div className="flex shrink-0 gap-1.5 text-[10px]">
+                        <div className="flex shrink-0 flex-wrap gap-1.5 text-[10px]">
                           <span className="rounded-full bg-success/10 px-2 py-0.5 font-medium text-success">{d.completed} done</span>
                           {d.pending > 0 && (
                             <span className="rounded-full bg-warning/10 px-2 py-0.5 font-medium text-warning">{d.pending} pending</span>

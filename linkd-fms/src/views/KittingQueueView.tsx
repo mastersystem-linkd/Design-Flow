@@ -150,9 +150,9 @@ export default function KittingQueueView() {
   return (
     <div className="space-y-4">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
             <ClipboardList className="h-5 w-5 text-primary" />
           </div>
           <div>
@@ -358,42 +358,44 @@ function QueueTab({
     <Card>
       <CardContent className="space-y-3 p-4">
         {/* Toolbar: date-range filter + summary */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-            <span className="text-[11px] font-medium text-muted-foreground">From</span>
-            <Input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="h-9 w-[150px] text-sm"
-            />
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              <span className="text-[11px] font-medium text-muted-foreground">From</span>
+              <Input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-9 w-[140px] text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">To</span>
+              <Input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-9 w-[140px] text-sm"
+              />
+            </div>
+            {(fromDate || toDate) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className="gap-1 text-muted-foreground"
+              >
+                <X className="h-3 w-3" />
+                Clear
+              </Button>
+            )}
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">To</span>
-            <Input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="h-9 w-[150px] text-sm"
-            />
-          </div>
-          {(fromDate || toDate) && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setFromDate("");
-                setToDate("");
-              }}
-              className="gap-1 text-muted-foreground"
-            >
-              <X className="h-3 w-3" />
-              Clear
-            </Button>
-          )}
-          <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground sm:ml-auto">
             {filtered.length} of {rows.length} · {pendingCount} pending · {inProgressCount} in progress
           </span>
         </div>

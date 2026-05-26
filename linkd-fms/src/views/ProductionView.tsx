@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -15,6 +17,11 @@ import {
   TrendingUp,
   PieChart as PieChartIcon,
   Layers,
+  MoreVertical,
+  Eye,
+  Pencil,
+  Trash2,
+  ClipboardList,
 } from "lucide-react";
 import {
   BarChart,
@@ -59,6 +66,9 @@ import { type CsvColumn } from "@/lib/exportCSV";
 import { COLUMN_ACCENT, COLUMN_DOT, STATUS_LABELS } from "@/lib/constants";
 import { cn, formatDate } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { kittingDetailPath } from "@/lib/routes";
+import { getKittingBySample } from "@/lib/kittingQueries";
+import { ConfirmDialog } from "@/components/ui";
 import {
   TABLE_HEAD,
   TABLE_TH,
@@ -128,8 +138,11 @@ export function ProductionView() {
   const visibleSamples = samples.slice(samplePg.from, samplePg.to + 1);
 
   // ── State ──
+  const navigate = useNavigate();
   const [formOpen, setFormOpen] = useState(false);
   const [editSample, setEditSample] = useState<SampleWithTask | Sample | null>(null);
+  const [deleteSampleTarget, setDeleteSampleTarget] = useState<SampleWithTask | Sample | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Full Knitting tab — search + export are lifted into the page header
   // so they sit next to the title instead of inside the table card.
@@ -290,9 +303,9 @@ export function ProductionView() {
   return (
     <div className="space-y-4">
       {/* ── Header — title left, primary actions right ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
         <div className="flex items-center gap-3 shrink-0">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/10">
             <Package className="h-5 w-5 text-warning" />
           </div>
           <div>
@@ -456,10 +469,10 @@ export function ProductionView() {
                 <SampleMobileCard
                   key={s.id}
                   sample={s}
-                  onOpen={() => {
-                    setEditSample(s);
-                    setFormOpen(true);
-                  }}
+                  canDelete={isAdmin}
+                  onOpen={() => { setEditSample(s); setFormOpen(true); }}
+                  onEdit={() => { setEditSample(s); setFormOpen(true); }}
+                  onDelete={() => setDeleteSampleTarget(s)}
                 />
               ))}
             </div>
@@ -494,6 +507,7 @@ export function ProductionView() {
                     <th className={TABLE_TH}>Comments</th>
                     <th className={TABLE_TH}>Full Knitting</th>
                     <th className={TABLE_TH}>FK Image</th>
+                    <th className={TABLE_TH}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -502,10 +516,10 @@ export function ProductionView() {
                       key={s.id}
                       sample={s}
                       profileMap={profileMap}
-                      onOpen={() => {
-                        setEditSample(s);
-                        setFormOpen(true);
-                      }}
+                      canDelete={isAdmin}
+                      onView={() => { setEditSample(s); setFormOpen(true); }}
+                      onEdit={() => { setEditSample(s); setFormOpen(true); }}
+                      onDelete={() => setDeleteSampleTarget(s)}
                     />
                   ))}
                 </tbody>
@@ -577,6 +591,31 @@ export function ProductionView() {
         defaultFilename="linkd-samples"
         dateField="created_at"
       />
+
+      <ConfirmDialog
+        open={!!deleteSampleTarget}
+        title="Delete sample?"
+        description={
+          deleteSampleTarget
+            ? `Delete sample "${deleteSampleTarget.party_name}" (${deleteSampleTarget.uid || "no UID"})? This cannot be undone.`
+            : ""
+        }
+        confirmLabel={deleting ? "Deleting…" : "Delete sample"}
+        variant="danger"
+        onCancel={() => setDeleteSampleTarget(null)}
+        onConfirm={async () => {
+          if (!deleteSampleTarget) return;
+          setDeleting(true);
+          const { error } = await deleteSample(deleteSampleTarget.id);
+          setDeleting(false);
+          if (error) {
+            toast.error(error);
+            return;
+          }
+          toast.success("Sample deleted");
+          setDeleteSampleTarget(null);
+        }}
+      />
     </div>
   );
 }
@@ -646,87 +685,128 @@ function KpiTile({
 }
 
 // ----------------------------------------------------------------------------
-// SampleMobileCard — phone-friendly summary for one sample. The 23-column
-// table is hidden below sm; this stack surfaces the fields a coordinator
-// needs at a glance and taps through to the full edit dialog.
+// SampleMobileCard — phone-friendly summary with action menu.
 // ----------------------------------------------------------------------------
 function SampleMobileCard({
   sample: s,
+  canDelete,
   onOpen,
+  onEdit,
+  onDelete,
 }: {
   sample: SampleWithTask | Sample;
+  canDelete: boolean;
   onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  const handleMenu = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      const top = Math.min(r.bottom + 4, window.innerHeight - 220);
+      const left = Math.max(8, Math.min(r.right - 180, window.innerWidth - 188));
+      setPos({ top, left });
+    }
+    setMenuOpen((p) => !p);
+  }, []);
+
+  const handleFullKnitting = useCallback(async () => {
+    setMenuOpen(false);
+    if (!s.requires_full_kitting) {
+      toast.error("Full Knitting is not enabled for this sample");
+      return;
+    }
+    const { data: row } = await getKittingBySample(s.id);
+    if (row) {
+      navigate(kittingDetailPath(row.id));
+    } else {
+      toast.error("No Full Knitting record found for this sample");
+    }
+  }, [s, navigate]);
+
   const pending = s.pending_qty;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="block w-full rounded-xl border border-border/60 bg-card p-3 text-left transition-colors hover:bg-card/80 active:scale-[0.99]"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">
-            {s.party_name}
-          </p>
-          <p className="mt-0.5 truncate font-mono text-[11px] text-primary">
-            {s.uid || "—"}
-          </p>
-        </div>
-        {s.is_completed ? (
-          <Badge className="shrink-0 border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
-            <Check className="mr-0.5 h-3 w-3" />
-            Done
-          </Badge>
-        ) : (
-          <Badge className="shrink-0 border border-warning/30 bg-warning/15 px-1.5 py-0 text-[10px] text-warning">
-            Pending
-          </Badge>
-        )}
+    <>
+      <div className={cn("relative rounded-xl border border-l-[3px] border-border/60 bg-card p-3.5 shadow-sm transition-colors hover:bg-card/80 active:scale-[0.99]", s.is_completed ? "border-l-success" : "border-l-warning")}>
+        <button type="button" onClick={onOpen} className="block w-full pr-7 text-left">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-foreground">{s.party_name}</p>
+              <p className="mt-0.5 truncate font-mono text-[11px] text-primary">{s.uid || "—"}</p>
+            </div>
+            {s.is_completed ? (
+              <Badge className="shrink-0 border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
+                <Check className="mr-0.5 h-3 w-3" />Done
+              </Badge>
+            ) : (
+              <Badge className="shrink-0 border border-warning/30 bg-warning/15 px-1.5 py-0 text-[10px] text-warning">Pending</Badge>
+            )}
+          </div>
+          <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span>{formatDate(s.created_at)}</span>
+            {s.quality && (<><span aria-hidden>·</span><span className="truncate">{s.quality}</span></>)}
+            {s.printed_mtr > 0 && (<><span aria-hidden>·</span><span className="tabular-nums">{s.printed_mtr}m</span></>)}
+          </div>
+          {pending > 0 && <p className="mt-1.5 text-[11px] font-medium text-warning">{pending} pending</p>}
+        </button>
+        <button ref={btnRef} type="button" onClick={handleMenu} className="absolute right-2 top-2.5 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <MoreVertical className="h-4 w-4" />
+        </button>
       </div>
-      <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
-        <span>{formatDate(s.created_at)}</span>
-        {s.quality && (
-          <>
-            <span aria-hidden>·</span>
-            <span className="truncate">{s.quality}</span>
-          </>
-        )}
-        {s.printed_mtr > 0 && (
-          <>
-            <span aria-hidden>·</span>
-            <span className="tabular-nums">{s.printed_mtr}m</span>
-          </>
-        )}
-      </div>
-      {pending > 0 && (
-        <p className="mt-1.5 text-[11px] font-medium text-warning">
-          {pending} pending
-        </p>
+      {menuOpen && createPortal(
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setMenuOpen(false)} />
+          <div className="fixed z-50 min-w-[180px] rounded-lg border border-border bg-card py-1 shadow-xl" style={{ top: pos.top, left: pos.left }} role="menu">
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onOpen(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
+              <Eye className="h-3.5 w-3.5 text-muted-foreground" />View details
+            </button>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />Edit sample
+            </button>
+            {s.requires_full_kitting && (
+              <button type="button" role="menuitem" onClick={handleFullKnitting} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
+                <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />Full Knitting
+              </button>
+            )}
+            {canDelete && (
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
+                <Trash2 className="h-3.5 w-3.5" />Delete sample
+              </button>
+            )}
+          </div>
+        </>,
+        document.body
       )}
-    </button>
+    </>
   );
 }
 
 function SampleRow({
   sample: s,
   profileMap,
-  onOpen,
+  canDelete,
+  onView,
+  onEdit,
+  onDelete,
 }: {
   sample: SampleWithTask | Sample;
-  /** profile_id → full_name lookup. Used for the "Sample Entry By" column
-   *  which resolves the row's `created_by` uuid to a name. */
   profileMap: Map<string, string>;
-  /** Open the centered view/edit dialog. The whole row is clickable so
-   *  every cell is read-only here — uploads, status toggles, and edits
-   *  all happen inside the dialog. */
-  onOpen: () => void;
+  canDelete: boolean;
+  onView: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const pending = s.pending_qty;
   const entryBy = s.created_by ? profileMap.get(s.created_by) ?? "—" : "—";
 
   return (
-    <tr onClick={onOpen} className={TABLE_ROW_CLICKABLE}>
+    <tr onClick={onView} className={TABLE_ROW_CLICKABLE}>
       {/* Timestamp */}
       <td className={cn(TABLE_TD, "whitespace-nowrap text-[12px] text-muted-foreground")}>
         {formatDate(s.created_at)}
@@ -863,7 +943,90 @@ function SampleRow({
 
       {/* FK Image */}
       <td className={TABLE_TD}><FilePresenceCell path={s.full_kitting_image_url} /></td>
+
+      {/* Actions */}
+      <td className={TABLE_TD}>
+        <SampleActionsMenu sample={s} canDelete={canDelete} onView={onView} onEdit={onEdit} onDelete={onDelete} />
+      </td>
     </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SampleActionsMenu — portal-based 3-dot dropdown for each row.
+// ---------------------------------------------------------------------------
+function SampleActionsMenu({
+  sample: s,
+  canDelete,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  sample: SampleWithTask | Sample;
+  canDelete: boolean;
+  onView: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const navigate = useNavigate();
+
+  const handleOpen = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect();
+        const top = Math.min(r.bottom + 4, window.innerHeight - 220);
+        const left = Math.max(8, Math.min(r.right - 180, window.innerWidth - 188));
+        setPos({ top, left });
+      }
+      setOpen((p) => !p);
+    },
+    []
+  );
+
+  const handleFullKnitting = useCallback(async () => {
+    setOpen(false);
+    const { data: row } = await getKittingBySample(s.id);
+    if (row) {
+      navigate(kittingDetailPath(row.id));
+    } else {
+      toast.error("No Full Knitting record found");
+    }
+  }, [s.id, navigate]);
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={handleOpen} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open && createPortal(
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} />
+          <div className="fixed z-50 min-w-[180px] rounded-lg border border-border bg-card py-1 shadow-xl" style={{ top: pos.top, left: pos.left }} role="menu">
+            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onView(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
+              <Eye className="h-3.5 w-3.5 text-muted-foreground" />View details
+            </button>
+            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />Edit sample
+            </button>
+            {s.requires_full_kitting && (
+              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); handleFullKnitting(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
+                <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />Full Knitting
+              </button>
+            )}
+            {canDelete && (
+              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
+                <Trash2 className="h-3.5 w-3.5" />Delete sample
+              </button>
+            )}
+          </div>
+        </>,
+        document.body
+      )}
+    </>
   );
 }
 

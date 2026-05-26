@@ -105,7 +105,14 @@ export function TeamView() {
     }).then(({ data, error: apiErr }) => {
       if (cancelled) return;
       if (apiErr) {
-        console.error("[TeamView] list_emails failed:", apiErr);
+        // Expected 404 in `npm run dev` (Vite doesn't serve /api/* routes).
+        // Downgrade to info so the DevTools console isn't full of red errors
+        // when developing locally. The UI shows a friendly dev banner anyway.
+        if (import.meta.env.DEV && apiErr.status === 404) {
+          console.info("[TeamView] /api unavailable in dev — email column shows dashes.");
+        } else {
+          console.error("[TeamView] list_emails failed:", apiErr);
+        }
         setEmailsError(formatAdminApiError(apiErr, "Couldn't load emails"));
         return;
       }
@@ -230,7 +237,7 @@ export function TeamView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline gap-3">
           <p className="text-sm text-muted-foreground">
             {profiles.length} member{profiles.length === 1 ? "" : "s"}
@@ -266,14 +273,25 @@ export function TeamView() {
       </div>
 
       {canManage && emailsError && (
-        <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning-foreground">
-          <span className="font-medium">Email column unavailable:</span> {emailsError}
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            The <code className="font-mono">/api/admin-update-user</code> route needs to be live on Vercel with the{" "}
-            <code className="font-mono">SUPABASE_URL</code>, <code className="font-mono">SUPABASE_ANON_KEY</code>, and{" "}
-            <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> env vars set. Check the Vercel function logs for runtime errors.
-          </p>
-        </div>
+        import.meta.env.DEV ? (
+          // Dev: `npm run dev` only runs Vite, not Vercel serverless functions,
+          // so /api/* is naturally 404. Show a low-key note instead of a scary
+          // warning. Use `npx vercel dev` if you need to exercise the API locally.
+          <div className="rounded-md border border-border bg-card/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+            Email column needs the Vercel API route, which isn't served by{" "}
+            <code className="font-mono">npm run dev</code>. It works on the deployed site.
+            Run <code className="font-mono">npx vercel dev</code> to test locally.
+          </div>
+        ) : (
+          <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning-foreground">
+            <span className="font-medium">Email column unavailable:</span> {emailsError}
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              The <code className="font-mono">/api/admin-update-user</code> route needs to be live on Vercel with the{" "}
+              <code className="font-mono">SUPABASE_URL</code>, <code className="font-mono">SUPABASE_ANON_KEY</code>, and{" "}
+              <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> env vars set. Check the Vercel function logs for runtime errors.
+            </p>
+          </div>
+        )
       )}
 
       <Card>
@@ -799,7 +817,11 @@ function EditUserDialog({
       )
         .then(({ data, error: apiErr }) => {
           if (apiErr) {
-            console.error("[EditUserDialog] fetch failed:", apiErr);
+            if (import.meta.env.DEV && apiErr.status === 404) {
+              console.info("[EditUserDialog] /api unavailable in dev — current email/joining date won't pre-fill.");
+            } else {
+              console.error("[EditUserDialog] fetch failed:", apiErr);
+            }
             setError(formatAdminApiError(apiErr, "Couldn't load user details"));
           } else if (data) {
             setEmail(data.email ?? "");
@@ -980,7 +1002,7 @@ function EditUserDialog({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={saving}
-                placeholder="Leave blank to keep current"
+                placeholder="Set a new password to reset"
                 className="pr-10"
                 autoComplete="new-password"
               />
@@ -995,7 +1017,7 @@ function EditUserDialog({
               </button>
             </div>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Min 8 characters. Share the new password with the user out-of-band.
+              Existing passwords are hashed and can't be displayed. Type a new value (min 8 chars) to overwrite, then share with the user out-of-band.
             </p>
           </div>
 

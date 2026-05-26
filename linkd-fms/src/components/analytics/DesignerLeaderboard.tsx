@@ -58,17 +58,62 @@ export function DesignerLeaderboard({
     <>
       <Card>
         <CardContent className="py-4">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Trophy className="h-5 w-5 text-warning" />
-              <h3 className="text-lg font-semibold text-foreground">
+              <h3 className="text-sm font-semibold text-foreground sm:text-lg">
                 Designer Concept Performance
               </h3>
             </div>
-            <span className="text-xs text-muted-foreground">Monthly target: 3</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">Monthly target: 3</span>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Mobile card view */}
+          <div className="space-y-2 sm:hidden">
+            {sorted.map((d, i) => {
+              const rank = i + 1;
+              const emoji = RANK_EMOJI[rank];
+              const scoreColor =
+                d.score >= 90 ? "bg-success" : d.score >= 75 ? "bg-warning" : "bg-destructive";
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setScorecardDesignerId(d.id)}
+                  className="flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors active:scale-[0.99] hover:bg-secondary/50"
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-lg">{emoji ?? <span className="text-sm text-muted-foreground">#{rank}</span>}</span>
+                    <Avatar className="h-8 w-8">
+                      {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
+                      <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
+                        {getInitials(d.full_name)}
+                      </AvatarFallback>
+                    </Avatar>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{d.full_name}</p>
+                    <div className="mt-1.5 grid grid-cols-4 gap-x-2 text-[11px]">
+                      <div><span className="text-muted-foreground">Sub </span><span className="font-semibold">{d.submitted}</span></div>
+                      <div><span className="text-muted-foreground">Apv </span><span className="font-semibold text-success">{d.approved}</span></div>
+                      <div><span className="text-muted-foreground">Rej </span><span className="font-semibold text-destructive">{d.rejected}</span></div>
+                      <div><span className="text-muted-foreground">Rev </span><span className="font-semibold text-warning">{d.revisions}</span></div>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="relative h-4 flex-1 overflow-hidden rounded-full bg-secondary">
+                        <div className={cn("h-full rounded-full", scoreColor)} style={{ width: `${d.score}%` }} />
+                        <span className={cn("absolute top-1/2 -translate-y-1/2 text-[10px] font-bold tabular-nums", d.score >= 20 ? "left-1.5 text-white" : "right-1.5 text-foreground")}>{d.score}</span>
+                      </div>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">{d.approved}/{d.target}</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[650px] text-sm">
               <caption className="sr-only">Designer performance rankings</caption>
               <thead>

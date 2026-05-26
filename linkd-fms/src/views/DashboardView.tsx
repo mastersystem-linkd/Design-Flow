@@ -292,7 +292,14 @@ function QuickAction({
   return (
     <Link
       to={to}
-      className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 transition-all hover:border-primary/30 hover:bg-secondary/50"
+      className={cn(
+        "group flex items-center gap-3 rounded-xl border border-border border-l-[3px] bg-card p-3.5 transition-all hover:border-primary/30 hover:bg-secondary/50",
+        accent === "primary"
+          ? "border-l-primary"
+          : accent === "warning"
+          ? "border-l-warning"
+          : "border-l-muted-foreground"
+      )}
     >
       <div
         className={cn(

@@ -1760,9 +1760,14 @@ function MobileTaskCard({
     <li
       onClick={() => onSelectTask(task.id)}
       className={cn(
-        "rounded-xl border border-border bg-card p-3 transition-colors",
+        "rounded-xl border border-border border-l-[3px] bg-card p-3.5 shadow-sm transition-colors active:scale-[0.99]",
         "hover:bg-card/80 active:bg-card/60 cursor-pointer",
         selected && "bg-primary/[0.04] ring-1 ring-primary/40",
+        task.status === "done" ? "border-l-success"
+          : task.status === "in_progress" ? "border-l-primary"
+          : task.status === "approved" ? "border-l-warning"
+          : isUrgent ? "border-l-destructive"
+          : "border-l-muted-foreground/40",
         isUrgent && !selected && "border-destructive/30"
       )}
     >
@@ -2536,20 +2541,6 @@ function TaskRow({
               </button>
             );
           })}
-
-          {/* 👁 View detail — opens task in centered popup */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick();
-            }}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-            title="View task detail"
-            aria-label="View task detail"
-          >
-            <Eye className="h-3.5 w-3.5" />
-          </button>
 
           {/* ⋮ Dropdown — View / Edit / Full Kitting / Delete */}
           <RowActionMenu

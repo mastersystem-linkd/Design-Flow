@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -19,6 +20,7 @@ import {
   TrendingUp,
   Zap,
   Crown,
+  X,
 } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import {
@@ -32,8 +34,6 @@ import {
   YAxis,
 } from "recharts";
 import {
-  Sheet,
-  SheetContent,
   Card,
   Badge,
   Button,
@@ -88,38 +88,46 @@ export function DesignerScorecardDrawer({
   const isAdmin = isAdminCheck(role);
   const isSelf = !!designerId && viewer?.id === designerId;
 
-  // Non-admin viewing someone else: do not render
-  if (designerId && !isAdmin && !isSelf) {
-    return (
-      <Sheet open={!!designerId} onOpenChange={(o) => !o && onClose()}>
-        <SheetContent className="w-full sm:w-[400px]">
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={<AlertTriangle className="h-8 w-8" />}
-              title="Restricted"
-              description="Scorecards are visible to admins only."
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
+  useEffect(() => {
+    if (!designerId) return;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, [designerId]);
+
+  if (!designerId) return null;
+
+  // Non-admin viewing someone else
+  if (!isAdmin && !isSelf) {
+    return createPortal(
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+        <div className="relative z-10 mx-4 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xl">
+          <EmptyState
+            icon={<AlertTriangle className="h-8 w-8" />}
+            title="Restricted"
+            description="Scorecards are visible to admins only."
+          />
+        </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
-    <Sheet open={!!designerId} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent
-        className="w-full overflow-y-auto bg-gradient-to-b from-card via-card to-background p-0 sm:w-[640px] lg:w-[680px]"
-      >
-        {designerId && (
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative z-10 mx-4 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-gradient-to-b from-card via-card to-background shadow-2xl sm:mx-auto">
+        <div className="flex-1 overflow-y-auto p-0">
           <ScorecardBody
             designerId={designerId}
             onClose={onClose}
             isSelf={isSelf}
             isAdmin={isAdmin}
           />
-        )}
-      </SheetContent>
-    </Sheet>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -253,6 +261,7 @@ function ScorecardBody({
         compositeScore={data.compositeScore}
         rank={data.rank}
         hasActivity={hasActivity}
+        onClose={onClose}
       />
 
       <div className="space-y-4 px-5">
@@ -1014,6 +1023,7 @@ function HeroBlock({
   compositeScore,
   rank,
   hasActivity,
+  onClose,
 }: {
   profile: { id: string; full_name: string; avatar_url: string | null; role: UserRole };
   designerCodes: string[];
@@ -1022,6 +1032,7 @@ function HeroBlock({
   compositeScore: number;
   rank: { overallRank: number; totalDesigners: number };
   hasActivity: boolean;
+  onClose: () => void;
 }) {
   // Composite tier — drives both the gauge color and the verdict copy.
   const tier = compositeTier(compositeScore, hasActivity);
@@ -1029,7 +1040,7 @@ function HeroBlock({
   return (
     <div
       className={cn(
-        "relative overflow-hidden border-b border-border/60",
+        "relative overflow-hidden rounded-t-2xl border-b border-border/60",
         // Top-edge gradient bleed colored by tier — subtle, not loud.
         "bg-gradient-to-br",
         tier.gradient
@@ -1047,6 +1058,13 @@ function HeroBlock({
         }}
       />
       <div className="relative px-5 pb-5 pt-6">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <div className="flex items-start gap-4">
           {/* Avatar halo — the colored ring is the at-a-glance tier signal. */}
           <div className="relative shrink-0">

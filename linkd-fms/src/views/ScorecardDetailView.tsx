@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronRight,
   Download,
   MessageSquare,
   Send as SendIcon,
@@ -66,6 +67,11 @@ import {
   SkeletonCard,
   EmptyState,
   toast,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -823,70 +829,53 @@ export function ScorecardDetailView() {
         </Card>
       )}
 
-      {/* ── HERO with Reliability gauge ── */}
+      {/* ── HERO: identity + date filter + reliability ── */}
       <Card className="border border-border">
-        <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
-          {/* Identity */}
-          <div className="flex items-center gap-4">
-            <Avatar className="h-14 w-14">
-              {data.profile.avatar_url ? (
-                <AvatarImage src={data.profile.avatar_url} />
-              ) : null}
-              <AvatarFallback className="bg-primary/10 text-primary text-base font-bold">
-                {getInitials(data.profile.full_name)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                {data.profile.full_name}
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                {ROLE_LABELS[data.profile.role]}{" "}
-                {data.designerCodes.length > 0 && (
-                  <>
-                    · {" "}
-                    <span className="font-mono">
-                      {data.designerCodes.join(", ")}
-                    </span>
-                  </>
-                )}
-              </p>
-              <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-border bg-secondary/40 px-2 py-0.5 text-[10px] text-muted-foreground">
-                <CalendarIcon className="h-3 w-3" />
-                {format(rangeStart, "dd/MM/yyyy")} →{" "}
-                {format(rangeEnd, "dd/MM/yyyy")} ·{" "}
-                {differenceInDays(rangeEnd, rangeStart) + 1} DAYS
+        <div className="flex flex-col gap-3 p-4 sm:p-5">
+          {/* Row: identity left · date filters center · reliability right */}
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+            <div className="flex items-center gap-4 shrink-0">
+              <Avatar className="h-14 w-14">
+                {data.profile.avatar_url ? (
+                  <AvatarImage src={data.profile.avatar_url} />
+                ) : null}
+                <AvatarFallback className="bg-primary/10 text-primary text-base font-bold">
+                  {getInitials(data.profile.full_name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                  {data.profile.full_name}
+                </h1>
+                <p className="text-xs text-muted-foreground">
+                  {ROLE_LABELS[data.profile.role]}{" "}
+                  {data.designerCodes.length > 0 && (
+                    <>
+                      · {" "}
+                      <span className="font-mono">
+                        {data.designerCodes.join(", ")}
+                      </span>
+                    </>
+                  )}
+                </p>
               </div>
             </div>
-          </div>
-
-          {/* Reliability gauge */}
-          <ReliabilityGauge reliability={reliability} tier={tier} />
-        </div>
-      </Card>
-
-      {/* ── Date Range Filter — controls ALL charts + KPIs ── */}
-      <Card className="border border-border">
-        <div className="p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <CalendarIcon className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">Date Range</h3>
-              <span className="rounded-md border border-border/60 bg-secondary/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {format(rangeStart, "dd MMM yyyy")} – {format(rangeEnd, "dd MMM yyyy")} · {differenceInDays(rangeEnd, rangeStart) + 1} days
-              </span>
+            <div className="flex flex-wrap items-center gap-2 xl:ml-auto">
+              <RangeControls
+                preset={preset}
+                setPreset={setPreset}
+                customFrom={customFrom}
+                customTo={customTo}
+                setCustomFrom={setCustomFrom}
+                setCustomTo={setCustomTo}
+                rangeStart={rangeStart}
+                rangeEnd={rangeEnd}
+              />
+            </div>
+            <div className="shrink-0">
+              <ReliabilityGauge reliability={reliability} tier={tier} />
             </div>
           </div>
-          <RangeControls
-            preset={preset}
-            setPreset={setPreset}
-            customFrom={customFrom}
-            customTo={customTo}
-            setCustomFrom={setCustomFrom}
-            setCustomTo={setCustomTo}
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-          />
         </div>
       </Card>
 
@@ -987,7 +976,7 @@ export function ScorecardDetailView() {
       {/* ── ROW: Concept + Task performance (detailed score cards) ── */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="border border-border">
-          <div className="p-5">
+          <div className="p-3.5 sm:p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">
                 Concept Performance
@@ -1056,7 +1045,7 @@ export function ScorecardDetailView() {
             {/* Completion + revision-cycle footnote — exposes the gap between
                 "MD approved" and "actually shipped" so the reviewer can spot a
                 designer who lands approvals but stalls on finalisation. */}
-            <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs">
+            <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-l-[3px] border-l-success border-border/60 bg-secondary/40 px-3 py-2 text-xs">
               <div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
                   Shipped
@@ -1118,7 +1107,7 @@ export function ScorecardDetailView() {
               data.concept.avgRevisionRounds !== null ||
               data.concept.avgDesignDays !== null ||
               data.concept.holdRate !== null) && (
-              <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 p-3">
+              <div className="mt-3 rounded-lg border border-l-[3px] border-l-primary border-border/60 bg-secondary/40 p-3">
                 <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <Sparkles className="h-3 w-3 text-primary" />
                   Post-Approval Pipeline
@@ -1190,129 +1179,102 @@ export function ScorecardDetailView() {
         </Card>
 
         <Card className="border border-border">
-          <div className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">
-                Task Performance
-              </h3>
+          <div className="p-3.5 sm:p-5">
+            {/* Header */}
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+                  <Activity className="h-3.5 w-3.5 text-primary" />
+                </div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Task Performance
+                </h3>
+              </div>
               <ScorePill score={data.task.score} />
             </div>
-            <DetailedPipelineBar
-              completed={data.task.completed}
-              inProgress={data.task.inProgress}
-              assigned={data.task.assigned}
-            />
-            <div className="mt-4 space-y-2">
-              <ScoreBar
-                label="Volume"
-                points={data.task.breakdown.volume}
-                max={30}
-                fillClass="bg-primary"
-                index={0}
-              />
-              <ScoreBar
-                label="On-Time"
-                points={data.task.breakdown.onTime}
-                max={35}
-                fillClass="bg-success"
-                index={1}
-              />
-              <ScoreBar
-                label="Speed"
-                points={data.task.breakdown.speed}
-                max={20}
-                fillClass="bg-primary"
-                index={2}
-              />
-              <ScoreBar
-                label="Active"
-                points={data.task.breakdown.active}
-                max={15}
-                fillClass="bg-primary"
-                index={3}
+
+            {/* Pipeline bar */}
+            <div>
+              <DetailedPipelineBar
+                completed={data.task.completed}
+                inProgress={data.task.inProgress}
+                assigned={data.task.assigned}
               />
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Avg completion:{" "}
-              <span
-                className={cn(
-                  "font-semibold",
-                  data.task.completed === 0
-                    ? "text-muted-foreground"
-                    : data.task.avgDays < 3
-                    ? "text-success"
-                    : data.task.avgDays <= 5
-                    ? "text-warning"
+
+            {/* Score breakdown bars */}
+            <div className="mt-6 space-y-3">
+              <ScoreBar label="Volume" points={data.task.breakdown.volume} max={30} fillClass="bg-primary" index={0} />
+              <ScoreBar label="On-Time" points={data.task.breakdown.onTime} max={35} fillClass="bg-success" index={1} />
+              <ScoreBar label="Speed" points={data.task.breakdown.speed} max={20} fillClass="bg-primary" index={2} />
+              <ScoreBar label="Active" points={data.task.breakdown.active} max={15} fillClass="bg-primary" index={3} />
+            </div>
+
+            {/* Divider */}
+            <div className="my-5 border-t border-border/50" />
+
+            {/* Bottom stats — 3-column grid */}
+            <div className="grid grid-cols-3 gap-3">
+              {/* Avg Completion */}
+              <div className="rounded-xl border border-border/50 bg-secondary/20 p-3 text-center">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Avg Completion
+                </p>
+                <p className={cn(
+                  "mt-1.5 text-xl font-bold tabular-nums leading-none",
+                  data.task.completed === 0 ? "text-muted-foreground"
+                    : data.task.avgDays < 3 ? "text-success"
+                    : data.task.avgDays <= 5 ? "text-warning"
                     : "text-destructive"
-                )}
-              >
-                {data.task.completed === 0 ? "—" : `${data.task.avgDays}d`}
-              </span>
-              {data.task.completed > 0 && data.task.teamAvgDays > 0 && (() => {
-                const delta = Math.round((data.task.avgDays - data.task.teamAvgDays) * 10) / 10;
-                if (Math.abs(delta) < 0.1)
-                  return (
-                    <span className="ml-2 text-muted-foreground/70">on team avg</span>
-                  );
-                return delta > 0 ? (
-                  <span className="ml-2 text-destructive">+{delta}d slower</span>
-                ) : (
-                  <span className="ml-2 text-success">{delta}d faster</span>
-                );
-              })()}
-            </p>
-            {/* Cycle time + late count footnote — "Avg completion" above is
-                delay-from-deadline; this splits out true effort time
-                (assigned→done) and the count of late completions in the same
-                window so the two signals don't get mistaken for each other. */}
-            <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs">
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                  Cycle time
-                </div>
-                <div className="mt-0.5 flex items-baseline gap-1.5">
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      data.task.completed === 0
-                        ? "text-muted-foreground"
-                        : data.task.avgCycleDays <= 3
-                        ? "text-success"
-                        : data.task.avgCycleDays <= 6
-                        ? "text-warning"
-                        : "text-destructive"
-                    )}
-                  >
-                    {data.task.completed === 0 ? "—" : `${data.task.avgCycleDays}d`}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    assigned→done
-                  </span>
-                </div>
+                )}>
+                  {data.task.completed === 0 ? "—" : `${data.task.avgDays}d`}
+                </p>
+                {data.task.completed > 0 && data.task.teamAvgDays > 0 && (() => {
+                  const delta = Math.round((data.task.avgDays - data.task.teamAvgDays) * 10) / 10;
+                  if (Math.abs(delta) < 0.1)
+                    return <p className="mt-1 text-[10px] text-muted-foreground/60">on team avg</p>;
+                  return delta > 0
+                    ? <p className="mt-1 text-[10px] text-destructive">+{delta}d slower</p>
+                    : <p className="mt-1 text-[10px] text-success">{delta}d faster</p>;
+                })()}
               </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                  Late completions
-                </div>
-                <div className="mt-0.5 flex items-baseline gap-1.5">
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      data.task.late === 0
-                        ? "text-success"
-                        : data.task.late > data.task.onTime
-                        ? "text-destructive"
-                        : "text-warning"
-                    )}
-                  >
-                    {data.task.late}
-                  </span>
+
+              {/* Cycle Time */}
+              <div className="rounded-xl border border-border/50 bg-secondary/20 p-3 text-center">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Cycle Time
+                </p>
+                <p className={cn(
+                  "mt-1.5 text-xl font-bold tabular-nums leading-none",
+                  data.task.completed === 0 ? "text-muted-foreground"
+                    : data.task.avgCycleDays <= 3 ? "text-success"
+                    : data.task.avgCycleDays <= 6 ? "text-warning"
+                    : "text-destructive"
+                )}>
+                  {data.task.completed === 0 ? "—" : `${data.task.avgCycleDays}d`}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground/60">assigned→done</p>
+              </div>
+
+              {/* Late Completions */}
+              <div className="rounded-xl border border-border/50 bg-secondary/20 p-3 text-center">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Late
+                </p>
+                <p className={cn(
+                  "mt-1.5 text-xl font-bold tabular-nums leading-none",
+                  data.task.late === 0 ? "text-success"
+                    : data.task.late > data.task.onTime ? "text-destructive"
+                    : "text-warning"
+                )}>
+                  {data.task.late}
                   {data.task.completed > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      of {data.task.completed}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      /{data.task.completed}
                     </span>
                   )}
-                </div>
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground/60">completions</p>
               </div>
             </div>
           </div>
@@ -1357,49 +1319,56 @@ export function ScorecardDetailView() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <CalendarHeatmap
-                rangeStart={rangeStart}
-                rangeEnd={rangeEnd}
-                dayMap={dayMap}
-                selectedDay={selectedDay}
-                onSelect={(day) =>
-                  setSelectedDay((cur) => (cur === day ? null : day))
-                }
-              />
-            </div>
+            <CalendarHeatmap
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              dayMap={dayMap}
+              selectedDay={selectedDay}
+              onSelect={(day) =>
+                setSelectedDay((cur) => (cur === day ? null : day))
+              }
+            />
 
-            {selectedDay && (
-              <DrillInPanel
-                date={selectedDay}
-                cell={dayMap.get(selectedDay) ?? null}
-                events={selectedDayEvents}
-                onClose={() => setSelectedDay(null)}
-              />
-            )}
+            <Dialog
+              open={selectedDay !== null}
+              onOpenChange={(open) => { if (!open) setSelectedDay(null); }}
+            >
+              <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-0 overflow-hidden p-0">
+                <DrillInPanel
+                  date={selectedDay ?? ""}
+                  cell={selectedDay ? dayMap.get(selectedDay) ?? null : null}
+                  events={selectedDayEvents}
+                  onClose={() => setSelectedDay(null)}
+                />
+              </DialogContent>
+            </Dialog>
           </div>
         </Card>
 
         {/* Composition donut */}
-        <Card className="border border-border">
-          <div className="p-4">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Composition
             </p>
             <h3 className="text-sm font-semibold text-foreground">
               On-time · Late · Pending
             </h3>
-            <CompositionDonut
-              onTime={totals.onTime}
-              late={totals.delayed}
-              pending={totals.pending}
-            />
+            <div className="flex flex-1 items-center">
+              <div className="w-full">
+                <CompositionDonut
+                  onTime={totals.onTime}
+                  late={totals.delayed}
+                  pending={totals.pending}
+                />
+              </div>
+            </div>
           </div>
         </Card>
 
         {/* Weekly throughput sparkline */}
-        <Card className="border border-border">
-          <div className="p-4">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <TrendingUp className="h-3 w-3" />
               <span>Throughput</span>
@@ -1407,7 +1376,11 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Weekly Throughput
             </h3>
-            <ThroughputSparkline data={throughputWeekly} />
+            <div className="flex flex-1 items-center">
+              <div className="w-full">
+                <ThroughputSparkline data={throughputWeekly} />
+              </div>
+            </div>
           </div>
         </Card>
       </div>
@@ -1452,10 +1425,13 @@ export function ScorecardDetailView() {
         </Card>
       </div>
 
-      {/* ── ROW: Priority + Vs Team + Concept Funnel ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border border-border">
-          <div className="p-4">
+      {/* ── ROW: Priority + Vs Team + Concept Funnel ──
+          `items-stretch` + `h-full` on every card so the priority donut
+          (now substantially taller after the redesign) doesn't leave gaps
+          next to its row-mates. */}
+      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Zap className="h-3 w-3" />
               <span>Priority</span>
@@ -1463,7 +1439,9 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Task priority mix
             </h3>
-            <PriorityBreakdown data={priorityBreakdown} />
+            <div className="flex-1">
+              <PriorityBreakdown data={priorityBreakdown} />
+            </div>
           </div>
         </Card>
 
@@ -1500,45 +1478,8 @@ export function ScorecardDetailView() {
         </Card>
       </div>
 
-      {/* ── Activity timeline + Insights ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border border-border lg:col-span-2">
-          <div className="p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <Activity className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">
-                Recent Activity
-              </h3>
-              <span className="text-xs text-muted-foreground">
-                last {data.activity.length} events
-              </span>
-            </div>
-            {data.activity.length === 0 ? (
-              <EmptyState
-                icon={<Activity className="h-7 w-7" />}
-                title="No recent activity"
-                description="Submitted concepts and task completions will appear here."
-              />
-            ) : (
-              <ul className="space-y-3">
-                {data.activity.map((ev, i) => (
-                  <ActivityRow key={`${ev.at}-${i}`} ev={ev} />
-                ))}
-              </ul>
-            )}
-          </div>
-        </Card>
-
-        <Card className="border border-border">
-          <div className="p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-warning" />
-              <h3 className="text-sm font-semibold text-foreground">Insights</h3>
-            </div>
-            <InsightsList insights={data.insights} />
-          </div>
-        </Card>
-      </div>
+      {/* ── Activity + Insights — compact cards, click to expand ── */}
+      <ActivityInsightsRow activity={data.activity} insights={data.insights} />
     </div>
   );
 }
@@ -1693,7 +1634,7 @@ function ReliabilityGauge({
   tier: ReturnType<typeof reliabilityTier>;
 }) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-border bg-secondary/30 p-3">
+    <div className={cn("flex items-center gap-4 rounded-xl border border-l-[3px] bg-secondary/30 p-3", tier.textClass === "text-success" ? "border-l-success" : tier.textClass === "text-primary" ? "border-l-primary" : tier.textClass === "text-warning" ? "border-l-warning" : "border-l-destructive")}>
       <div className="text-center">
         <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
           Reliability
@@ -1768,10 +1709,10 @@ function TrendBars({
             <span className={cn("text-xs font-semibold tabular-nums", color)}>
               {d.pct}%
             </span>
-            <div className="h-12 w-full overflow-hidden rounded-md bg-secondary/40">
+            <div className="h-12 w-full overflow-hidden rounded bg-secondary/40">
               <div
                 className={cn(
-                  "w-full rounded-md",
+                  "w-full rounded",
                   d.pct >= 85
                     ? "bg-success"
                     : d.pct >= 50
@@ -1827,10 +1768,10 @@ function WeekdayPattern({
             <span className="w-9 shrink-0 text-[10px] font-medium text-muted-foreground">
               {d.label}
             </span>
-            <div className="flex-1 overflow-hidden rounded-md bg-secondary/40">
+            <div className="flex-1 overflow-hidden rounded bg-secondary/40">
               <div
                 className={cn(
-                  "h-2 rounded-md",
+                  "h-2 rounded",
                   d.pct >= 85 ? "bg-success" : d.pct >= 50 ? "bg-warning" : "bg-muted-foreground/50"
                 )}
                 style={{
@@ -1873,18 +1814,13 @@ function WeekdayPattern({
 function ScorePill({ score }: { score: number }) {
   const color =
     score >= 80
-      ? "bg-success/15 text-success"
+      ? "bg-success/10 text-success border-l-success ring-success/20"
       : score >= 50
-      ? "bg-warning/15 text-warning"
-      : "bg-destructive/15 text-destructive";
+      ? "bg-warning/10 text-warning border-l-warning ring-warning/20"
+      : "bg-destructive/10 text-destructive border-l-destructive ring-destructive/20";
   return (
-    <span
-      className={cn(
-        "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-        color
-      )}
-    >
-      {score}/100
+    <span className={cn("rounded-full border-l-2 px-2.5 py-1 text-[11px] font-bold tabular-nums ring-1", color)}>
+      {score}<span className="font-normal text-muted-foreground">/100</span>
     </span>
   );
 }
@@ -1907,25 +1843,22 @@ function ScoreBar({
   index: number;
 }) {
   const pct = max > 0 ? (points / max) * 100 : 0;
+  const isFull = points >= max;
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-[68px] shrink-0 text-xs text-muted-foreground">
+    <div className="flex items-center gap-3">
+      <span className="w-[72px] shrink-0 text-[12px] font-medium text-muted-foreground">
         {label}
       </span>
-      <div className="relative h-[14px] flex-1 overflow-hidden rounded-full bg-secondary/40">
+      <div className="relative h-2 flex-1 overflow-hidden rounded bg-secondary/50">
         <div
-          className={cn(
-            "absolute inset-y-0 left-0 rounded-full transition-[width]",
-            fillClass
-          )}
-          style={{
-            width: `${pct}%`,
-            transitionDuration: "600ms",
-            transitionDelay: `${index * 50}ms`,
-          }}
+          className={cn("absolute inset-y-0 left-0 rounded transition-[width]", fillClass)}
+          style={{ width: `${pct}%`, transitionDuration: "700ms", transitionDelay: `${index * 60}ms` }}
         />
       </div>
-      <span className="w-12 text-right text-[11px] font-medium tabular-nums text-muted-foreground">
+      <span className={cn(
+        "w-[46px] text-right text-[11px] font-semibold tabular-nums",
+        isFull ? "text-success" : "text-muted-foreground"
+      )}>
         {points}/{max}
       </span>
     </div>
@@ -2066,35 +1999,25 @@ function DetailedPipelineBar({
 
   return (
     <div>
-      <div className="flex h-[30px] overflow-hidden rounded-md border border-border/50 bg-secondary/40">
-        <div
-          className="h-full bg-success transition-[width]"
-          style={{ width: `${seg(completed)}%`, transitionDuration: "600ms" }}
-          title={`${completed} completed`}
-        />
-        <div
-          className="h-full bg-primary"
-          style={{ width: `${seg(inProgress)}%` }}
-          title={`${inProgress} in progress`}
-        />
-        <div
-          className="h-full bg-muted/60"
-          style={{ width: `${seg(remaining)}%` }}
-          title={`${remaining} remaining`}
-        />
+      <div className="flex h-6 overflow-hidden rounded-lg bg-secondary/40">
+        <div className="h-full rounded-l-lg bg-success transition-[width]"
+          style={{ width: `${seg(completed)}%`, transitionDuration: "700ms" }} title={`${completed} completed`} />
+        <div className="h-full bg-primary transition-[width]"
+          style={{ width: `${seg(inProgress)}%`, transitionDuration: "700ms", transitionDelay: "100ms" }} title={`${inProgress} in progress`} />
+        <div className="h-full bg-muted/40"
+          style={{ width: `${seg(remaining)}%` }} title={`${remaining} remaining`} />
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-        <span>
-          <span className="inline-block h-2 w-2 rounded-sm bg-success" />{" "}
+      <div className="mt-2.5 flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-success" />
           Completed: <b className="text-foreground tabular-nums">{completed}</b>
         </span>
-        <span>
-          <span className="inline-block h-2 w-2 rounded-sm bg-primary" />{" "}
-          In Progress:{" "}
-          <b className="text-foreground tabular-nums">{inProgress}</b>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-primary" />
+          In Progress: <b className="text-foreground tabular-nums">{inProgress}</b>
         </span>
-        <span>
-          <span className="inline-block h-2 w-2 rounded-sm bg-muted/60" />{" "}
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-muted/60" />
           Remaining: <b className="text-foreground tabular-nums">{remaining}</b>
         </span>
       </div>
@@ -2492,20 +2415,20 @@ function CalendarHeatmap({
   const today = new Date();
 
   return (
-    <div className="mt-3 mx-auto inline-block">
+    <div className="mt-3">
       {/* Weekday headers */}
       <div className="mb-1 grid grid-cols-7 gap-1">
         {WEEKDAY_LABELS_MON.map((w) => (
           <span
             key={w}
-            className="w-9 text-center text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
+            className="text-center text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
           >
             {w}
           </span>
         ))}
       </div>
 
-      {/* Cells — fixed 36x36 squares so the heatmap stays compact */}
+      {/* Cells — capped at 44px square, centered in the card */}
       <div className="grid grid-cols-7 gap-1">
         {weeks.flatMap((week, wi) =>
           week.map((d, di) => {
@@ -2513,7 +2436,7 @@ function CalendarHeatmap({
               return (
                 <div
                   key={`${wi}-${di}`}
-                  className="h-9 w-9 rounded-md bg-secondary/30 opacity-50"
+                  className="h-10 w-full rounded-md bg-secondary/30 opacity-50"
                   aria-hidden
                 />
               );
@@ -2565,7 +2488,7 @@ function DayHeatCell({
       type="button"
       onClick={onClick}
       className={cn(
-        "group relative flex h-9 w-9 flex-col items-center justify-center rounded-md border text-center transition-all hover:scale-[1.04]",
+        "group relative flex h-10 w-full flex-col items-center justify-center rounded-md border text-center transition-all hover:scale-[1.04]",
         tier.bg,
         tier.border,
         isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-card",
@@ -2680,56 +2603,179 @@ function DrillInPanel({
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-primary/30 bg-primary/[0.04] p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-foreground">
-          {niceDate}
-          {cell && cell.completed > 0 && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              · {cell.onTime}/{cell.completed} on-time
-            </span>
-          )}
-        </p>
+    <>
+      <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+          <CalendarIcon className="h-4 w-4 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <DialogHeader className="p-0">
+            <DialogTitle className="text-base">{niceDate}</DialogTitle>
+            <DialogDescription className="text-xs">
+              {cell && cell.completed > 0
+                ? `${cell.onTime}/${cell.completed} on-time · ${cell.total} total events`
+                : events.length > 0
+                  ? `${events.length} event${events.length !== 1 ? "s" : ""}`
+                  : "No events"}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-5 py-3">
+        {events.length === 0 ? (
+          <p className="rounded-lg bg-secondary/30 p-4 text-center text-sm text-muted-foreground">
+            No tracked events on this day.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {events.map((ev, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-secondary/20 px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{ev.title}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {ev.sub}
+                  </p>
+                </div>
+                <Badge
+                  className={cn(
+                    "shrink-0 text-[9px]",
+                    ev.tone === "success" && "bg-success/15 text-success border border-success/30",
+                    ev.tone === "warning" && "bg-warning/15 text-warning border border-warning/30",
+                    ev.tone === "destructive" && "bg-destructive/15 text-destructive border border-destructive/30",
+                    ev.tone === "primary" && "bg-primary/10 text-primary border border-primary/30"
+                  )}
+                >
+                  {ev.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
+// ActivityInsightsRow — compact summary cards, click to open full popup
+// ============================================================================
+
+function ActivityInsightsRow({
+  activity,
+  insights,
+}: {
+  activity: ScorecardActivity[];
+  insights: ScorecardInsight[];
+}) {
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+
+  const strengths = insights.filter((i) => i.kind === "strength").length;
+  const warnings = insights.length - strengths;
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {/* Activity compact card */}
         <button
           type="button"
-          onClick={onClose}
-          className="rounded p-1 text-muted-foreground hover:text-foreground"
-          title="Close"
+          onClick={() => setActivityOpen(true)}
+          className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary/30 hover:shadow-md"
         >
-          <X className="h-3.5 w-3.5" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+            <Activity className="h-4 w-4 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Recent Activity</p>
+            <p className="text-xs text-muted-foreground">
+              {activity.length === 0
+                ? "No events yet"
+                : `${activity.length} events — tap to view`}
+            </p>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
+
+        {/* Insights compact card */}
+        <button
+          type="button"
+          onClick={() => setInsightsOpen(true)}
+          className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-warning/30 hover:shadow-md"
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning/10">
+            <Sparkles className="h-4 w-4 text-warning" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Insights</p>
+            <p className="text-xs text-muted-foreground">
+              {insights.length === 0
+                ? "No patterns this period"
+                : `${strengths} strength${strengths !== 1 ? "s" : ""}, ${warnings} area${warnings !== 1 ? "s" : ""} to watch`}
+            </p>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
       </div>
-      {events.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tracked events on this day.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {events.map((ev, i) => (
-            <li
-              key={i}
-              className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-xs"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-foreground">{ev.title}</p>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {ev.sub}
-                </p>
+
+      {/* Activity popup */}
+      <Dialog open={activityOpen} onOpenChange={setActivityOpen}>
+        <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-0 overflow-hidden p-0">
+          <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <Activity className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <DialogHeader className="p-0">
+                <DialogTitle className="text-base">Recent Activity</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Last {activity.length} events in this period
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-3">
+            {activity.length === 0 ? (
+              <EmptyState
+                icon={<Activity className="h-7 w-7" />}
+                title="No recent activity"
+                description="Submitted concepts and task completions will appear here."
+              />
+            ) : (
+              <div className="space-y-1.5">
+                {activity.map((ev, i) => (
+                  <ActivityRow key={`${ev.at}-${i}`} ev={ev} />
+                ))}
               </div>
-              <Badge
-                className={cn(
-                  "text-[9px]",
-                  ev.tone === "success" && "bg-success/15 text-success border border-success/30",
-                  ev.tone === "warning" && "bg-warning/15 text-warning border border-warning/30",
-                  ev.tone === "destructive" && "bg-destructive/15 text-destructive border border-destructive/30",
-                  ev.tone === "primary" && "bg-primary/10 text-primary border border-primary/30"
-                )}
-              >
-                {ev.status}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Insights popup */}
+      <Dialog open={insightsOpen} onOpenChange={setInsightsOpen}>
+        <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-0 overflow-hidden p-0">
+          <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10">
+              <Sparkles className="h-4 w-4 text-warning" />
+            </div>
+            <div>
+              <DialogHeader className="p-0">
+                <DialogTitle className="text-base">Insights</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Patterns detected in the selected period
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-3">
+            <InsightsList insights={insights} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -2738,7 +2784,7 @@ function DrillInPanel({
 // ============================================================================
 
 function ActivityRow({ ev }: { ev: ScorecardActivity }) {
-  const dotClass = activityDotClass(ev);
+  const { bg, text } = activityTone(ev);
   let when: string;
   try {
     when = formatDistanceToNow(parseISO(ev.at), { addSuffix: true });
@@ -2746,28 +2792,25 @@ function ActivityRow({ ev }: { ev: ScorecardActivity }) {
     when = "";
   }
   return (
-    <li className="flex items-start gap-3">
-      <div className="mt-1 flex flex-col items-center">
-        <span className={cn("h-2 w-2 rounded-full", dotClass)} />
-        <span className="mt-0.5 h-full w-px bg-border" />
-      </div>
+    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 px-3 py-2.5">
+      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", bg)} />
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-foreground">{ev.title}</p>
-        <p className="text-xs text-muted-foreground">{when}</p>
+        <p className="text-sm font-medium text-foreground">{ev.title}</p>
       </div>
-    </li>
+      <span className={cn("shrink-0 text-[10px] tabular-nums", text)}>{when}</span>
+    </div>
   );
 }
 
-function activityDotClass(ev: ScorecardActivity): string {
+function activityTone(ev: ScorecardActivity): { bg: string; text: string } {
   if (ev.type === "concept_reviewed") {
-    if (ev.status === "approved") return "bg-success";
-    if (ev.status === "rejected") return "bg-destructive";
-    return "bg-warning";
+    if (ev.status === "approved") return { bg: "bg-success", text: "text-success" };
+    if (ev.status === "rejected") return { bg: "bg-destructive", text: "text-destructive" };
+    return { bg: "bg-warning", text: "text-warning" };
   }
-  if (ev.type === "task_completed") return "bg-success";
-  if (ev.type === "revision_requested") return "bg-warning";
-  return "bg-primary";
+  if (ev.type === "task_completed") return { bg: "bg-success", text: "text-success" };
+  if (ev.type === "revision_requested") return { bg: "bg-warning", text: "text-warning" };
+  return { bg: "bg-primary", text: "text-muted-foreground" };
 }
 
 function InsightsList({ insights }: { insights: ScorecardInsight[] }) {
@@ -3182,7 +3225,7 @@ function ConceptFunnelChart({
   }
 
   return (
-    <div className="mt-3 space-y-2">
+    <div className="mt-3 space-y-3">
       {rows.map((r, i) => {
         const pct = max > 0 ? (r.value / max) * 100 : 0;
         const prevValue = i > 0 ? rows[i - 1]!.value : 0;
@@ -3192,20 +3235,20 @@ function ConceptFunnelChart({
             : 0;
         return (
           <div key={r.label}>
-            <div className="flex items-baseline justify-between text-[10px]">
+            <div className="flex items-baseline justify-between text-xs">
               <span className="font-semibold text-foreground">{r.label}</span>
               <span className="tabular-nums text-foreground">
                 {r.value}
                 {i > 0 && dropPct > 0 && (
-                  <span className="ml-1 text-[9px] text-destructive">
+                  <span className="ml-1 text-[10px] text-destructive">
                     -{dropPct}%
                   </span>
                 )}
               </span>
             </div>
-            <div className="mt-0.5 h-2.5 overflow-hidden rounded-full bg-secondary/40">
+            <div className="mt-1 h-5 overflow-hidden rounded-md bg-secondary/40">
               <div
-                className={cn("h-full rounded-full", r.color)}
+                className={cn("h-full rounded-md", r.color)}
                 style={{
                   width: `${Math.max(4, pct)}%`,
                   transition: "width 700ms ease-out",
@@ -3236,15 +3279,15 @@ function ThroughputSparkline({
   const avg = Math.round((total / data.length) * 10) / 10;
 
   return (
-    <div className="mt-3">
-      <div className="flex items-end gap-1" style={{ height: 120 }}>
+    <div className="mt-3 flex flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 items-end gap-1">
         {data.map((d) => {
           const h = d.total > 0 ? (d.total / max) * 100 : 0;
           const taskH = d.total > 0 ? (d.tasks / d.total) * 100 : 0;
           return (
             <div
               key={d.label}
-              className="flex flex-1 flex-col justify-end"
+              className="flex flex-1 flex-col justify-end self-stretch"
               title={`${d.label}: ${d.tasks} tasks · ${d.concepts} concepts (${d.total} total)`}
             >
               <div
@@ -3254,12 +3297,10 @@ function ThroughputSparkline({
                   transition: "height 700ms ease-out",
                 }}
               >
-                {/* tasks (primary) on bottom */}
                 <div
                   className="w-full bg-primary"
                   style={{ height: `${taskH}%` }}
                 />
-                {/* concepts (success) on top */}
                 <div
                   className="w-full bg-success"
                   style={{ height: `${100 - taskH}%` }}

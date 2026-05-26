@@ -52,8 +52,8 @@ export function KpiCard({
       : "rgb(var(--primary))";
 
   const trendPill = !metric ? null : isNew ? (
-    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-      New
+    <span className="flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
+      <TrendingUp className="h-2.5 w-2.5" />
     </span>
   ) : trend !== 0 ? (
     <span

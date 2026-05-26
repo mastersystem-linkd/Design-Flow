@@ -67,8 +67,8 @@ export function AtRiskTasks({ tasks }: Props) {
   const urgentCount = urgent.length;
 
   return (
-    <Card>
-      <CardContent className="py-4">
+    <Card className="h-full">
+      <CardContent className="flex h-full flex-col py-4">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <AlertOctagon className="h-4 w-4 text-destructive" />
@@ -194,9 +194,13 @@ function RiskRow({
     warning: "bg-warning/15 text-warning border-warning/30",
     destructive: "bg-destructive/15 text-destructive border-destructive/30",
   };
+  const borderLeft: Record<typeof subTone, string> = {
+    warning: "border-l-warning",
+    destructive: "border-l-destructive",
+  };
 
   return (
-    <li className="group flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 transition-all hover:border-primary/30 hover:bg-primary/[0.03]">
+    <li className={cn("group flex items-center gap-3 rounded-lg border border-border border-l-[3px] bg-card px-3 py-2 transition-all hover:border-primary/30 hover:bg-primary/[0.03]", borderLeft[subTone])}>
       <Avatar className="h-7 w-7 shrink-0">
         {task.assignee?.avatar_url ? (
           <AvatarImage src={task.assignee.avatar_url} />

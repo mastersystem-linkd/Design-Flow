@@ -450,9 +450,9 @@ export function ConceptsView() {
   return (
     <div className="space-y-5">
       {/* -- Header -- */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
             <Lightbulb className="h-5 w-5 text-primary" />
           </div>
           <div>
@@ -543,130 +543,85 @@ export function ConceptsView() {
            inbox overrides both anyway. ── */}
       <div
         className={cn(
-          "flex flex-wrap items-center gap-3",
+          "space-y-2",
           inboxMode && "pointer-events-none opacity-40"
         )}
       >
-        {/* Status dropdown — modern styled native select, count rendered
-            as right-aligned suffix on each option so users see the
-            distribution while choosing. */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Status
-          </span>
-          <div className="relative">
-            <select
-              value={tab}
-              onChange={(e) => setTab(e.target.value as Tab)}
-              className="h-9 cursor-pointer appearance-none rounded-lg border border-border bg-card pl-3 pr-8 text-sm font-medium text-foreground shadow-card-soft transition-colors hover:border-[var(--border-hover)] focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="all">All · {concepts.length}</option>
-              {CONCEPT_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {CONCEPT_STATUS_LABELS[s]} · {counts[s]}
-                </option>
-              ))}
-              <option value="completed">Completed · {counts.completed}</option>
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-          </div>
-        </div>
-
-        {/* Work-stage chips — only meaningful for the approved bucket.
-            Render inline on the same row as the status dropdown, separated
-            by a divider so the two filter scopes stay visually distinct.
-            Hidden when there are no approved AND no rejected concepts —
-            otherwise the row would only show "0" chips. */}
-        {(tab === "all" || tab === "approved") &&
-          Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
-          <>
-            <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
-            {/* Stage chips scroll horizontally on phones instead of
-                wrapping to a second / third row — keeps the filter band
-                a single visual layer on small screens. */}
-            <div className="no-scrollbar touch-scroll-x -mx-3 flex max-w-full items-center gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:flex-wrap sm:px-0">
-              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Stage
-              </span>
-              <FilterChip
-                label="All"
-                count={Object.values(workCounts).reduce((a, b) => a + b, 0)}
-                active={workTab === "all"}
-                onClick={() => setWorkTab("all")}
-                hint="Every approved concept, across all work stages."
-              />
-              {WORK_TAB_ORDER.map((w) => (
-                <FilterChip
-                  key={w}
-                  label={
-                    w === "rejected"
-                      ? "Rejected"
-                      : WORK_STATUS_LABELS[w]
-                  }
-                  count={workCounts[w]}
-                  active={workTab === w}
-                  onClick={() => setWorkTab(w)}
-                  dotColor={WORK_DOT_COLOR[w]}
-                  hint={WORK_TAB_HINT[w]}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Right side — designer dropdown + date filter + clear */}
-        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
-          {isAdmin && (
-            <>
+        {/* Row 1: Status dropdown + designer dropdown side by side */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Status
+            </span>
+            <div className="relative">
               <select
-                value={designerFilter}
-                onChange={(e) => setDesignerFilter(e.target.value)}
-                className="h-9 min-w-0 flex-shrink rounded-md border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                aria-label="Filter by designer"
+                value={tab}
+                onChange={(e) => setTab(e.target.value as Tab)}
+                className="h-8 cursor-pointer appearance-none rounded-lg border border-border bg-card pl-2.5 pr-7 text-xs font-medium text-foreground transition-colors hover:border-[var(--border-hover)] focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">All designers</option>
-                {designers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.full_name}
+                <option value="all">All · {concepts.length}</option>
+                {CONCEPT_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {CONCEPT_STATUS_LABELS[s]} · {counts[s]}
                   </option>
                 ))}
+                <option value="completed">Completed · {counts.completed}</option>
               </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+            </div>
+          </div>
 
-              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1">
-                <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={dateRange.from ?? ""}
-                  onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
-                  className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
-                  aria-label="Filter from date"
-                  title="From date"
-                />
-                <span className="text-[10px] text-muted-foreground">to</span>
-                <input
-                  type="date"
-                  value={dateRange.to ?? ""}
-                  onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
-                  className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
-                  aria-label="Filter to date"
-                  title="To date"
-                />
-                {(dateRange.from || dateRange.to) && (
-                  <button
-                    type="button"
-                    onClick={() => setDateRange({ from: null, to: null })}
-                    className="ml-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    title="Clear date filter"
-                    aria-label="Clear date filter"
-                  >
-                    <span className="text-xs leading-none">&times;</span>
-                  </button>
-                )}
-              </div>
-            </>
+          {isAdmin && (
+            <select
+              value={designerFilter}
+              onChange={(e) => setDesignerFilter(e.target.value)}
+              className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none sm:w-[160px]"
+              aria-label="Filter by designer"
+            >
+              <option value="">All designers</option>
+              {designers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.full_name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {isAdmin && (
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1.5 py-0.5">
+              <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <input
+                type="date"
+                value={dateRange.from ?? ""}
+                onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
+                className="h-6 w-[100px] min-w-0 rounded border-0 bg-transparent px-0.5 text-[11px] text-foreground outline-none focus:ring-0"
+                aria-label="Filter from date"
+                title="From date"
+              />
+              <span className="text-[10px] text-muted-foreground">to</span>
+              <input
+                type="date"
+                value={dateRange.to ?? ""}
+                onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
+                className="h-6 w-[100px] min-w-0 rounded border-0 bg-transparent px-0.5 text-[11px] text-foreground outline-none focus:ring-0"
+                aria-label="Filter to date"
+                title="To date"
+              />
+              {(dateRange.from || dateRange.to) && (
+                <button
+                  type="button"
+                  onClick={() => setDateRange({ from: null, to: null })}
+                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  title="Clear date filter"
+                  aria-label="Clear date filter"
+                >
+                  <span className="text-xs leading-none">&times;</span>
+                </button>
+              )}
+            </div>
           )}
 
           {!inboxMode && (tab !== "all" || workTab !== "all" || designerFilter || dateRange.from || dateRange.to) && (
@@ -679,14 +634,45 @@ export function ConceptsView() {
                 setDateRange({ from: null, to: null });
               }}
               title="Reset all filters"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-2 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
             >
-              <FilterX className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Clear filters</span>
-              <span className="sm:hidden">Clear</span>
+              <FilterX className="h-3 w-3" />
+              <span className="hidden sm:inline">Clear</span>
             </button>
           )}
         </div>
+
+        {/* Row 2: Work-stage chips — scrollable on mobile */}
+        {(tab === "all" || tab === "approved") &&
+          Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
+          <div className="no-scrollbar touch-scroll-x -mx-1 flex items-center gap-1.5 overflow-x-auto px-1">
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Stage
+            </span>
+            <FilterChip
+              label="All"
+              count={Object.values(workCounts).reduce((a, b) => a + b, 0)}
+              active={workTab === "all"}
+              onClick={() => setWorkTab("all")}
+              hint="Every approved concept, across all work stages."
+            />
+            {WORK_TAB_ORDER.map((w) => (
+              <FilterChip
+                key={w}
+                label={
+                  w === "rejected"
+                    ? "Rejected"
+                    : WORK_STATUS_LABELS[w]
+                }
+                count={workCounts[w]}
+                active={workTab === w}
+                onClick={() => setWorkTab(w)}
+                dotColor={WORK_DOT_COLOR[w]}
+                hint={WORK_TAB_HINT[w]}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* -- Error -- */}
@@ -968,7 +954,7 @@ export function ConceptsView() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ConceptRowActionsMenu
-                        canEdit={isOwner(c)}
+                        canEdit={isOwner(c) || isAdmin}
                         canDelete={isAdmin}
                         onView={() => setSelected(c)}
                         onEdit={() => setSelected(c)}
@@ -989,7 +975,14 @@ export function ConceptsView() {
             <li
               key={c.id}
               onClick={() => setSelected(c)}
-              className="rounded-xl border border-border bg-card p-3 cursor-pointer transition-colors hover:bg-card/80 active:bg-card/60"
+              className={cn(
+                "rounded-xl border border-border border-l-[3px] bg-card p-3.5 shadow-sm cursor-pointer transition-colors hover:bg-card/80 active:scale-[0.99]",
+                c.md_status === "approved" ? "border-l-success"
+                  : c.md_status === "pending" ? "border-l-warning"
+                  : c.md_status === "revision_requested" ? "border-l-destructive"
+                  : c.md_status === "rejected" ? "border-l-destructive"
+                  : "border-l-muted-foreground/40"
+              )}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="line-clamp-1 flex-1 text-sm font-medium text-foreground">

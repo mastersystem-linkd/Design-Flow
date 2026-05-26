@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   Trophy,
@@ -11,6 +12,10 @@ import {
   Target,
   ArrowUpRight,
   Search,
+  MoreVertical,
+  Eye,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import {
   Card,
@@ -24,6 +29,8 @@ import {
   SkeletonCard,
   EmptyState,
   Input,
+  ConfirmDialog,
+  toast,
 } from "@/components/ui";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -37,6 +44,7 @@ import {
 } from "@/hooks/useTaskAnalytics";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
+import { supabase } from "@/lib/supabase";
 import { isAdmin as isAdminCheck } from "@/lib/permissions";
 import { scorecardDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
@@ -149,6 +157,8 @@ export function ScorecardsView() {
 
   const [period, setPeriod] = useState<Period>("month");
   const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const openScorecard = (id: string) => navigate(scorecardDetailPath(id));
 
@@ -279,24 +289,24 @@ export function ScorecardsView() {
            right-aligned on the same row. Hero strip below carries the
            team-level KPIs and a subtle textile dot overlay so the page
            reads in the visual language of digital fabric printing. ── */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="flex items-center gap-3 shrink-0">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/10">
             <Trophy className="h-5 w-5 text-warning" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
               Designer Scorecards
             </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
+            <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
               {conceptAnalytics.periodLabel} · composite of Concept + Task performance
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {/* Search */}
-          <div className="relative w-[220px]">
+          <div className="relative w-full sm:w-[220px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
@@ -311,7 +321,7 @@ export function ScorecardsView() {
             <button
               type="button"
               onClick={() => openScorecard(teamSummary.topPerformer!.id)}
-              className="group flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-warning/[0.06] px-2.5 text-xs transition-colors hover:bg-warning/[0.12]"
+              className="group hidden h-9 items-center gap-2 rounded-lg border border-warning/30 bg-warning/[0.06] px-2.5 text-xs transition-colors hover:bg-warning/[0.12] sm:flex"
               title={`${teamSummary.topPerformer.name} · ${teamSummary.topPerformer.compositeScore}/100`}
             >
               <Trophy className="h-3.5 w-3.5 shrink-0 text-warning" />
@@ -419,7 +429,7 @@ export function ScorecardsView() {
 
       {/* ── Grid of scorecards ── */}
       {isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -431,17 +441,47 @@ export function ScorecardsView() {
           description={search ? "Try a different search." : "No designers in the system yet."}
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {filteredRows.map((row, i) => (
             <DesignerScorecardCard
               key={row.id}
               row={row}
               rank={i + 1}
+              isAdmin={isAdmin}
               onOpen={() => openScorecard(row.id)}
+              onDelete={() => setDeleteTarget({ id: row.id, name: row.name })}
             />
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Remove designer?"
+        description={
+          deleteTarget
+            ? `"${deleteTarget.name}" will be deactivated and hidden from the team. This can be reversed from the Team page.`
+            : ""
+        }
+        confirmLabel={deleting ? "Removing…" : "Remove designer"}
+        variant="danger"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          setDeleting(true);
+          const { error } = await supabase
+            .from("profiles")
+            .update({ is_active: false })
+            .eq("id", deleteTarget.id);
+          setDeleting(false);
+          if (error) {
+            toast.error(error.message);
+            return;
+          }
+          toast.success(`${deleteTarget.name} removed`);
+          setDeleteTarget(null);
+        }}
+      />
     </div>
   );
 }
@@ -469,11 +509,15 @@ interface CardRow {
 function DesignerScorecardCard({
   row,
   rank,
+  isAdmin,
   onOpen,
+  onDelete,
 }: {
   row: CardRow;
   rank: number;
+  isAdmin: boolean;
   onOpen: () => void;
+  onDelete: () => void;
 }) {
   const verdict = verdictFor(row.compositeScore, row.hasActivity);
   const scoreColor =
@@ -495,9 +539,18 @@ function DesignerScorecardCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        "group flex flex-col gap-3 rounded-xl border bg-card p-4 text-left transition-all",
+        "group flex flex-col gap-3 rounded-xl border border-l-[3px] bg-card p-4 text-left transition-all",
         "hover:-translate-y-0.5 hover:shadow-md",
-        verdict.cardRing
+        verdict.cardRing,
+        !row.hasActivity
+          ? "border-l-muted-foreground/40"
+          : row.compositeScore >= 80
+          ? "border-l-success"
+          : row.compositeScore >= 60
+          ? "border-l-primary"
+          : row.compositeScore >= 40
+          ? "border-l-warning"
+          : "border-l-destructive"
       )}
     >
       {/* Top row: avatar + name + rank */}
@@ -521,7 +574,7 @@ function DesignerScorecardCard({
             </div>
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+        <DesignerCardMenu isAdmin={isAdmin} onView={onOpen} onDelete={onDelete} />
       </div>
 
       {/* Big composite score */}
@@ -553,10 +606,10 @@ function DesignerScorecardCard({
       </div>
 
       {/* Score progress bar */}
-      <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+      <div className="h-2 overflow-hidden rounded bg-secondary">
         <div
           className={cn(
-            "h-full rounded-full transition-[width]",
+            "h-full rounded transition-[width]",
             row.compositeScore >= 80
               ? "bg-success"
               : row.compositeScore >= 60
@@ -638,8 +691,16 @@ function MiniBlock({
       : score >= 50
       ? "text-warning"
       : "text-muted-foreground";
+  const borderAccent =
+    score >= 80
+      ? "border-l-success"
+      : score >= 60
+      ? "border-l-primary"
+      : score >= 40
+      ? "border-l-warning"
+      : "border-l-destructive";
   return (
-    <div className="rounded-lg border border-border bg-secondary/30 p-2">
+    <div className={cn("rounded-lg border border-l-[3px] border-border bg-secondary/30 p-2", borderAccent)}>
       <div className="flex items-baseline justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
@@ -653,6 +714,74 @@ function MiniBlock({
           {l}
         </p>
       ))}
+    </div>
+  );
+}
+
+function DesignerCardMenu({
+  isAdmin,
+  onView,
+  onDelete,
+}: {
+  isAdmin: boolean;
+  onView: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function close(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        aria-label="Card actions"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open && createPortal(
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="absolute z-50 min-w-[140px] rounded-lg border border-border bg-card py-1 shadow-xl"
+            style={{
+              top: (ref.current?.getBoundingClientRect().bottom ?? 0) + 4,
+              left: (ref.current?.getBoundingClientRect().left ?? 0) - 100,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => { onView(); setOpen(false); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <Eye className="h-3.5 w-3.5" /> View
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => { onDelete(); setOpen(false); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove
+              </button>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
