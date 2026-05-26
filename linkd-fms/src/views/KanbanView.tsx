@@ -22,6 +22,7 @@ import {
   Keyboard,
   Layers,
   Calendar,
+  FilterX,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -778,12 +779,43 @@ export function KanbanView() {
         }
         onNewBrief={() => setNewBriefOpen(true)}
         onOpenShortcuts={() => setShortcutsHelpOpen(true)}
+        statusTabsSlot={
+          hasAny ? (
+            <StatusTabs
+              value={statusTab}
+              onChange={(s) => {
+                setKittingView(false);
+                setStatusTab(s);
+                setSearchParams(
+                  (prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.delete("tab");
+                    return next;
+                  },
+                  { replace: true }
+                );
+              }}
+              counts={DASHBOARD_STATUSES.reduce(
+                (acc, s) => ({ ...acc, [s]: grouped[s]?.length ?? 0 }),
+                {} as Record<TaskStatus, number>
+              )}
+              kittingActive={kittingView}
+              onKittingClick={() => {
+                setKittingView(true);
+                setSearchParams(
+                  (prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set("tab", "kitting");
+                    return next;
+                  },
+                  { replace: true }
+                );
+              }}
+            />
+          ) : undefined
+        }
       />
 
-      {/* Deep-link filter chips. Shown only when arriving from a dashboard
-          KPI/badge click — gives the user a visible "this list is filtered"
-          signal + a one-click clear. Without this, an overdue/date-range
-          filter silently shrinks the table and looks like missing data. */}
       {(overdueOnly || dateRange.from || dateRange.to) && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
           <span className="font-medium text-primary">Filtered:</span>
@@ -834,41 +866,6 @@ export function KanbanView() {
         />
       ) : (
         <>
-          <StatusTabs
-            value={statusTab}
-            onChange={(s) => {
-              // Picking a task status implicitly leaves the Kitting sub-folder.
-              setKittingView(false);
-              setStatusTab(s);
-              // Drop the ?tab=kitting param if it was set.
-              setSearchParams(
-                (prev) => {
-                  const next = new URLSearchParams(prev);
-                  next.delete("tab");
-                  return next;
-                },
-                { replace: true }
-              );
-            }}
-            counts={DASHBOARD_STATUSES.reduce(
-              (acc, s) => ({ ...acc, [s]: grouped[s]?.length ?? 0 }),
-              {} as Record<TaskStatus, number>
-            )}
-            kittingActive={kittingView}
-            onKittingClick={() => {
-              setKittingView(true);
-              // Persist into the URL so /kitting/:id can navigate back to
-              // this same tab via /dashboard?tab=kitting.
-              setSearchParams(
-                (prev) => {
-                  const next = new URLSearchParams(prev);
-                  next.set("tab", "kitting");
-                  return next;
-                },
-                { replace: true }
-              );
-            }}
-          />
           {kittingView ? (
             <CompletedKittingPanel
               includeIncomplete
@@ -1032,6 +1029,7 @@ interface TopBarProps {
   onExport?: () => void;
   onNewBrief: () => void;
   onOpenShortcuts: () => void;
+  statusTabsSlot?: React.ReactNode;
 }
 
 function TopBar({
@@ -1054,119 +1052,137 @@ function TopBar({
   onExport,
   onNewBrief,
   onOpenShortcuts,
+  statusTabsSlot,
 }: TopBarProps) {
   const canCreate = canCreateBriefs(role);
 
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-1">
-        <div className="md:max-w-sm md:flex-1">
-          <SearchInput
-            ref={searchInputRef}
-            value={search}
-            onChange={setSearch}
-            placeholder="Search task ID, concept, client, or designer…"
+    <div className="no-scrollbar touch-scroll-x -mx-3 flex items-center gap-1.5 overflow-x-auto border-b border-border px-3 pb-2 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+      {statusTabsSlot && (
+        <>
+          {statusTabsSlot}
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+        </>
+      )}
+      <FilterTabs
+        value={filter}
+        onChange={setFilter}
+        urgentCount={urgentCount}
+      />
+
+      <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+
+      {isAdmin ? (
+        <select
+          value={designerFilter}
+          onChange={(e) => setDesignerFilter(e.target.value)}
+          className="h-7 shrink-0 rounded-md border border-border bg-card px-2 text-[11px] focus:outline-none focus:ring-2 focus:ring-ring sm:w-[140px]"
+          aria-label="Filter by designer"
+        >
+          <option value="">All designers</option>
+          {designers.map((d) => (
+            <option key={d.id} value={d.id}>{d.full_name}</option>
+          ))}
+        </select>
+      ) : (
+        <StatCluster stats={myStats} />
+      )}
+
+      {isAdmin && (
+        <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-1.5">
+          <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <input
+            type="date"
+            value={dateRange.from ?? ""}
+            onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
+            className="h-6 w-[90px] min-w-0 border-0 bg-transparent px-0.5 text-[10px] text-foreground outline-none focus:ring-0"
+            aria-label="From date"
           />
+          <span className="text-[9px] text-muted-foreground">–</span>
+          <input
+            type="date"
+            value={dateRange.to ?? ""}
+            onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
+            className="h-6 w-[90px] min-w-0 border-0 bg-transparent px-0.5 text-[10px] text-foreground outline-none focus:ring-0"
+            aria-label="To date"
+          />
+          {(dateRange.from || dateRange.to) && (
+            <button
+              type="button"
+              onClick={() => setDateRange({ from: null, to: null })}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              title="Clear dates"
+            >
+              <span className="text-xs leading-none">&times;</span>
+            </button>
+          )}
         </div>
-        <FilterTabs
-          value={filter}
-          onChange={setFilter}
-          urgentCount={urgentCount}
+      )}
+
+      <div className="shrink-0 sm:min-w-[140px] md:min-w-[180px]">
+        <SearchInput
+          ref={searchInputRef}
+          value={search}
+          onChange={setSearch}
+          placeholder="Search…"
+          className="h-7 text-[11px]"
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {/* 1. All designers / Stats */}
-        {isAdmin ? (
-          <select
-            value={designerFilter}
-            onChange={(e) => setDesignerFilter(e.target.value)}
-            className="h-9 min-w-0 flex-shrink rounded-md border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="Filter by designer"
-          >
-            <option value="">All designers</option>
-            {designers.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.full_name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <StatCluster stats={myStats} />
-        )}
-        {/* 2. Date filter — stacks vertically on small screens */}
-        {isAdmin && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1">
-            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateRange.from ?? ""}
-              onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
-              className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
-              aria-label="Filter from date"
-              title="From date"
-            />
-            <span className="text-[10px] text-muted-foreground">to</span>
-            <input
-              type="date"
-              value={dateRange.to ?? ""}
-              onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
-              className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
-              aria-label="Filter to date"
-              title="To date"
-            />
-            {(dateRange.from || dateRange.to) && (
-              <button
-                type="button"
-                onClick={() => setDateRange({ from: null, to: null })}
-                className="ml-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                title="Clear date filter"
-                aria-label="Clear date filter"
-              >
-                <span className="text-xs leading-none">&times;</span>
-              </button>
-            )}
-          </div>
-        )}
-        {/* 3. Keyboard shortcuts — hidden on mobile (no physical keyboard) */}
+      <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
           onClick={onOpenShortcuts}
-          className="hidden sm:flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="hidden sm:flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           title="Keyboard shortcuts (?)"
           aria-label="Open keyboard shortcuts"
         >
-          <Keyboard className="h-3.5 w-3.5" />
+          <Keyboard className="h-3 w-3" />
         </button>
-        {/* 4. Refresh */}
         <button
           type="button"
           onClick={onRefresh}
           disabled={isRefreshing}
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
           title="Refresh"
         >
-          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+          <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
         </button>
-        {/* 5. Export */}
         {onExport && (
           <button
             type="button"
             onClick={onExport}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             title="Export CSV"
           >
-            <Download className="h-3.5 w-3.5" />
+            <Download className="h-3 w-3" />
           </button>
         )}
-        {/* 6. New brief */}
         {canCreate && (
-          <Button size="sm" className="gap-2" onClick={onNewBrief}>
-            <Plus className="h-4 w-4" />
+          <Button size="sm" className="h-7 gap-1 px-2 text-[11px]" onClick={onNewBrief}>
+            <Plus className="h-3 w-3" />
             <span className="hidden sm:inline">New brief</span>
           </Button>
         )}
       </div>
+
+      {(search || (isAdmin && (designerFilter || dateRange.from || dateRange.to))) && (
+        <button
+          type="button"
+          onClick={() => {
+            setSearch("");
+            if (isAdmin) {
+              setDesignerFilter("");
+              setDateRange({ from: null, to: null });
+            }
+          }}
+          title="Clear all filters"
+          className="shrink-0 inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-[11px] font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+        >
+          <FilterX className="h-3 w-3" />
+          Clear
+        </button>
+      )}
     </div>
   );
 }
@@ -1351,7 +1367,7 @@ function FilterTabs({
     { id: "urgent", label: "Urgent Only" },
   ];
   return (
-    <div className="no-scrollbar touch-scroll-x -mx-3 inline-flex max-w-full gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:flex-wrap sm:px-0">
+    <>
       {TABS.map((t) => {
         const active = value === t.id;
         return (
@@ -1360,7 +1376,7 @@ function FilterTabs({
             type="button"
             onClick={() => onChange(t.id)}
             className={cn(
-              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
               active
                 ? "border-primary bg-primary text-white"
                 : "border-border bg-card text-foreground hover:border-primary/40"
@@ -1380,7 +1396,7 @@ function FilterTabs({
           </button>
         );
       })}
-    </div>
+    </>
   );
 }
 
@@ -1398,23 +1414,12 @@ function StatusTabs({
   value: TaskStatus;
   onChange: (s: TaskStatus) => void;
   counts: Record<TaskStatus, number>;
-  /** When the user is viewing the Full Kitting sub-folder, all task tabs
-   *  render inactive. Click handler swaps the board body back to the task
-   *  table for whichever task status they pick. */
   kittingActive?: boolean;
-  /** Activates the Full Kitting sub-folder (CompletedKittingPanel). */
   onKittingClick?: () => void;
 }) {
   return (
-    <div
-      role="tablist"
-      aria-label="Task status"
-      // Scroll instead of wrap on phones so Pool/In Progress/Done/Full
-      // Knitting stay on a single row.
-      className="no-scrollbar touch-scroll-x -mx-3 flex gap-1.5 overflow-x-auto border-b border-border px-3 pb-0 sm:mx-0 sm:flex-wrap sm:px-0"
-    >
+    <>
       {DASHBOARD_STATUSES.map((s) => {
-        // Task tabs go inactive when the Full Kitting sub-folder is open.
         const active = !kittingActive && s === value;
         const count = counts[s] ?? 0;
         return (
@@ -1425,10 +1430,10 @@ function StatusTabs({
             aria-selected={active}
             onClick={() => onChange(s)}
             className={cn(
-              "relative -mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-md border border-b-0 px-3.5 py-2 text-sm font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
               active
-                ? "border-border bg-card text-foreground"
-                : "border-transparent bg-transparent text-muted-foreground hover:text-foreground"
+                ? "border-primary/60 bg-primary/10 text-primary"
+                : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
             )}
           >
             <span
@@ -1446,21 +1451,10 @@ function StatusTabs({
             >
               {count}
             </span>
-            {active && (
-              <span
-                className={cn(
-                  "absolute inset-x-0 -top-px h-[2px]",
-                  COLUMN_ACCENT[s]
-                )}
-                aria-hidden
-              />
-            )}
           </button>
         );
       })}
 
-      {/* Full Kitting sub-folder — sits next to the task tabs but swaps the
-          board body to the CompletedKittingPanel when active. */}
       {onKittingClick && (
         <button
           type="button"
@@ -1468,23 +1462,17 @@ function StatusTabs({
           aria-selected={!!kittingActive}
           onClick={onKittingClick}
           className={cn(
-            "relative inline-flex items-center gap-2 rounded-t-md border border-b-0 px-3.5 py-2 text-sm font-medium transition-colors -mb-px",
+            "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
             kittingActive
-              ? "border-border bg-card text-foreground"
-              : "border-transparent bg-transparent text-muted-foreground hover:text-foreground"
+              ? "border-primary/60 bg-primary/10 text-primary"
+              : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
           )}
         >
           <Layers className="h-3.5 w-3.5" aria-hidden />
           Full Knitting
-          {kittingActive && (
-            <span
-              className="absolute inset-x-0 -top-px h-[2px] bg-primary"
-              aria-hidden
-            />
-          )}
         </button>
       )}
-    </div>
+    </>
   );
 }
 

@@ -11,7 +11,7 @@ import {
   FileVideo,
   File as FileIcon,
   Calendar,
-  X,
+  FilterX,
   Filter as FilterIcon,
 } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
@@ -40,11 +40,12 @@ import { TABLE_HEAD, TABLE_TH } from "@/lib/tableStyles";
 // Constants
 // ============================================================================
 
-type BucketFilter = "all" | BucketName;
+type BucketFilter = "all" | BucketName | "concepts";
 
 const BUCKET_FILTERS: { value: BucketFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "design-files", label: "Design" },
+  { value: "concepts", label: "Concepts" },
   { value: "sample-files", label: "Samples" },
   { value: "task-files", label: "Tasks" },
 ];
@@ -54,6 +55,18 @@ const BUCKET_BADGE_CLASS: Record<BucketName, string> = {
   "sample-files": "bg-success/10 text-success ring-success/20",
   "task-files": "bg-warning/10 text-warning ring-warning/20",
 };
+
+function bucketBadgeLabel(file: StorageFile): string {
+  if (file.bucket === "sample-files" && file.path.includes("/concepts/"))
+    return "Concept";
+  return BUCKET_LABELS[file.bucket].split(" ")[0];
+}
+
+function bucketBadgeClass(file: StorageFile): string {
+  if (file.bucket === "sample-files" && file.path.includes("/concepts/"))
+    return "bg-violet-500/10 text-violet-400 ring-violet-500/20";
+  return BUCKET_BADGE_CLASS[file.bucket];
+}
 
 // Coarse file-type buckets the filter dropdown exposes. Each maps to a
 // predicate over (extension, mimetype) so we can match either signal.
@@ -199,7 +212,15 @@ export function FilesView() {
   //   bucket → type → uploader → date range → text search
   const filtered = useMemo(() => {
     let result = files;
-    if (bucket !== "all") result = result.filter((f) => f.bucket === bucket);
+    if (bucket === "concepts")
+      result = result.filter(
+        (f) => f.bucket === "sample-files" && f.path.includes("/concepts/")
+      );
+    else if (bucket === "sample-files")
+      result = result.filter(
+        (f) => f.bucket === "sample-files" && !f.path.includes("/concepts/")
+      );
+    else if (bucket !== "all") result = result.filter((f) => f.bucket === bucket);
     if (typeFilter !== "all")
       result = result.filter((f) => matchesType(f, typeFilter));
     if (uploaderFilter !== "all")
@@ -227,10 +248,16 @@ export function FilesView() {
     const counts: Record<BucketFilter, number> = {
       all: files.length,
       "design-files": 0,
+      concepts: 0,
       "sample-files": 0,
       "task-files": 0,
     };
-    for (const f of files) counts[f.bucket]++;
+    for (const f of files) {
+      if (f.bucket === "sample-files" && f.path.includes("/concepts/"))
+        counts.concepts++;
+      else if (f.bucket === "sample-files") counts["sample-files"]++;
+      else counts[f.bucket]++;
+    }
     return counts;
   }, [files]);
 
@@ -460,9 +487,9 @@ export function FilesView() {
             <button
               type="button"
               onClick={clearFilters}
-              className="ml-auto inline-flex shrink-0 items-center gap-1 self-center rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 self-center rounded-md border border-border bg-card px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
             >
-              <X className="h-3 w-3" />
+              <FilterX className="h-3 w-3" />
               Clear filters
             </button>
           )}
@@ -680,10 +707,10 @@ function FileCard({
           <span
             className={cn(
               "inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-semibold ring-1 ring-inset",
-              BUCKET_BADGE_CLASS[file.bucket]
+              bucketBadgeClass(file)
             )}
           >
-            {BUCKET_LABELS[file.bucket].split(" ")[0]}
+            {bucketBadgeLabel(file)}
           </span>
         </div>
         {/* Compact uploader strip — single line so the grid card stays short. */}
@@ -772,10 +799,10 @@ function FileTable({
                   <span
                     className={cn(
                       "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
-                      BUCKET_BADGE_CLASS[f.bucket]
+                      bucketBadgeClass(f)
                     )}
                   >
-                    {BUCKET_LABELS[f.bucket].split(" ")[0]}
+                    {bucketBadgeLabel(f)}
                   </span>
                 </td>
                 <td className="px-3 py-3">

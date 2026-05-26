@@ -22,6 +22,7 @@ import {
   Pencil,
   Trash2,
   ClipboardList,
+  FilterX,
 } from "lucide-react";
 import {
   BarChart,
@@ -381,6 +382,23 @@ export function ProductionView() {
 
         {tab === "samples" && (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            {/* Clear-filters — shown only when search or status is non-default.
+                Resets both and bumps pagination back to page 1. */}
+            {(customerSearch || statusFilter !== "all") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomerSearch("");
+                  setStatusFilter("all");
+                  samplePg.resetPage();
+                }}
+                title="Clear all filters"
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border bg-card px-2 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
+              >
+                <FilterX className="h-3 w-3" />
+                <span className="hidden sm:inline">Clear</span>
+              </button>
+            )}
             <div className="w-full sm:w-[260px]">
               <SearchInput
                 value={customerSearch}

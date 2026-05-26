@@ -448,175 +448,137 @@ export function ConceptsView() {
 
 
   return (
-    <div className="space-y-5">
-      {/* -- Header -- */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-            <Lightbulb className="h-5 w-5 text-primary" />
+    <div className="space-y-4">
+      {/* -- Unified header: title · filters · actions — one compact strip -- */}
+      <div className="flex flex-col gap-2">
+        {/* Top line: title left, action buttons right */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Lightbulb className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold leading-tight text-foreground">Concepts</h1>
+              <p className="text-[10px] text-muted-foreground">
+                {concepts.length} total · {pendingCount} awaiting review
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-semibold text-foreground">Concepts</h1>
-            <p className="text-xs text-muted-foreground">
-              {concepts.length} total · {pendingCount} awaiting review
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (needsApprovalCount > 0 || inboxMode) && (
-            <button
-              type="button"
-              onClick={() => setInboxMode((v) => !v)}
-              aria-pressed={inboxMode}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all",
-                inboxMode
-                  ? "border-primary bg-primary text-white shadow-sm"
-                  : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-              )}
-            >
-              <AlertCircle className="h-3 w-3" />
-              <span className="hidden sm:inline">{inboxMode ? "Inbox" : "Approval"}</span>
-              <span
+          <div className="flex items-center gap-1.5">
+            {isAdmin && (needsApprovalCount > 0 || inboxMode) && (
+              <button
+                type="button"
+                onClick={() => setInboxMode((v) => !v)}
+                aria-pressed={inboxMode}
                 className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none",
-                  inboxMode ? "bg-white/25 text-white" : "bg-primary text-white"
+                  "inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-all",
+                  inboxMode
+                    ? "border-primary bg-primary text-white shadow-sm"
+                    : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
                 )}
               >
-                {needsApprovalCount}
-              </span>
-            </button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refetch()}
-            disabled={isLoading}
-            className="gap-1.5"
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
-            />
-            <span className="hidden sm:inline">Refresh</span>
-          </Button>
-          {canExport && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setExportOpen(true)}
-              className="gap-1.5"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Export</span>
+                <AlertCircle className="h-3 w-3" />
+                <span className="hidden sm:inline">{inboxMode ? "Inbox" : "Approval"}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none",
+                    inboxMode ? "bg-white/25 text-white" : "bg-primary text-white"
+                  )}
+                >
+                  {needsApprovalCount}
+                </span>
+              </button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isLoading} className="gap-1 px-2">
+              <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
-          )}
-          <Button
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setSubmitOpen(true)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Submit Concept</span>
-          </Button>
+            {canExport && (
+              <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} className="gap-1 px-2">
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+            )}
+            <Button size="sm" className="gap-1 px-2.5" onClick={() => setSubmitOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Submit Concept</span>
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {/* Role-specific dashboards (KPI cards + Concept Progress bars) moved
-          to the Concept Dashboard (Dashboards -> Concepts tab). Concepts page
-          now stays focused on the list / workflow table. */}
-
-      {/* Inbox mode info banner */}
-      {inboxMode && (
-        <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-muted-foreground">
-          Showing only concepts pending your review. Status &amp; Stage filters are paused.
-          <button type="button" onClick={() => setInboxMode(false)} className="ml-2 font-medium text-primary hover:underline">
-            Exit inbox
-          </button>
-        </p>
-      )}
-
-      {/* ── Filter row — md_status dropdown + work-stage chips on one line.
-           The dropdown handles the primary "what status" question; the
-           chips refine the post-approval lifecycle and are shown only when
-           "All" or "Approved" is selected (the chips are meaningless for
-           pending/rejected/revision). Hidden in Inbox mode since the
-           inbox overrides both anyway. ── */}
-      <div
-        className={cn(
-          "space-y-2",
-          inboxMode && "pointer-events-none opacity-40"
+        {/* Inbox banner */}
+        {inboxMode && (
+          <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] text-muted-foreground">
+            Showing only concepts pending your review. Filters paused.
+            <button type="button" onClick={() => setInboxMode(false)} className="ml-2 font-medium text-primary hover:underline">
+              Exit inbox
+            </button>
+          </p>
         )}
-      >
-        {/* Row 1: Status dropdown + designer dropdown side by side */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Status
-            </span>
-            <div className="relative">
-              <select
-                value={tab}
-                onChange={(e) => setTab(e.target.value as Tab)}
-                className="h-8 cursor-pointer appearance-none rounded-lg border border-border bg-card pl-2.5 pr-7 text-xs font-medium text-foreground transition-colors hover:border-[var(--border-hover)] focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="all">All · {concepts.length}</option>
-                {CONCEPT_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {CONCEPT_STATUS_LABELS[s]} · {counts[s]}
-                  </option>
-                ))}
-                <option value="completed">Completed · {counts.completed}</option>
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-            </div>
+
+        {/* Single filter strip: status · designer · dates · stage chips · clear */}
+        <div
+          className={cn(
+            "no-scrollbar touch-scroll-x -mx-3 flex items-center gap-1.5 overflow-x-auto border-b border-border px-3 pb-2 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0",
+            inboxMode && "pointer-events-none opacity-40"
+          )}
+        >
+          {/* Status dropdown */}
+          <div className="relative shrink-0">
+            <select
+              value={tab}
+              onChange={(e) => setTab(e.target.value as Tab)}
+              className="h-7 cursor-pointer appearance-none rounded-md border border-border bg-card pl-2 pr-6 text-[11px] font-medium text-foreground transition-colors hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">All · {concepts.length}</option>
+              {CONCEPT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {CONCEPT_STATUS_LABELS[s]} · {counts[s]}
+                </option>
+              ))}
+              <option value="completed">Completed · {counts.completed}</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
           </div>
 
           {isAdmin && (
             <select
               value={designerFilter}
               onChange={(e) => setDesignerFilter(e.target.value)}
-              className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none sm:w-[160px]"
+              className="h-7 shrink-0 rounded-md border border-border bg-card px-2 text-[11px] focus:outline-none focus:ring-2 focus:ring-ring sm:w-[140px]"
               aria-label="Filter by designer"
             >
               <option value="">All designers</option>
               {designers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.full_name}
-                </option>
+                <option key={d.id} value={d.id}>{d.full_name}</option>
               ))}
             </select>
           )}
 
           {isAdmin && (
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1.5 py-0.5">
+            <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-card px-1.5">
               <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
               <input
                 type="date"
                 value={dateRange.from ?? ""}
                 onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
-                className="h-6 w-[100px] min-w-0 rounded border-0 bg-transparent px-0.5 text-[11px] text-foreground outline-none focus:ring-0"
-                aria-label="Filter from date"
-                title="From date"
+                className="h-6 w-[90px] min-w-0 border-0 bg-transparent px-0.5 text-[10px] text-foreground outline-none focus:ring-0"
+                aria-label="From date"
               />
-              <span className="text-[10px] text-muted-foreground">to</span>
+              <span className="text-[9px] text-muted-foreground">–</span>
               <input
                 type="date"
                 value={dateRange.to ?? ""}
                 onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
-                className="h-6 w-[100px] min-w-0 rounded border-0 bg-transparent px-0.5 text-[11px] text-foreground outline-none focus:ring-0"
-                aria-label="Filter to date"
-                title="To date"
+                className="h-6 w-[90px] min-w-0 border-0 bg-transparent px-0.5 text-[10px] text-foreground outline-none focus:ring-0"
+                aria-label="To date"
               />
               {(dateRange.from || dateRange.to) && (
                 <button
                   type="button"
                   onClick={() => setDateRange({ from: null, to: null })}
-                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  title="Clear date filter"
-                  aria-label="Clear date filter"
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="Clear dates"
                 >
                   <span className="text-xs leading-none">&times;</span>
                 </button>
@@ -624,6 +586,38 @@ export function ConceptsView() {
             </div>
           )}
 
+          {/* Divider before stage chips */}
+          {(tab === "all" || tab === "approved") &&
+            Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
+            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+          )}
+
+          {/* Stage chips inline */}
+          {(tab === "all" || tab === "approved") &&
+            Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
+            <>
+              <FilterChip
+                label="All"
+                count={Object.values(workCounts).reduce((a, b) => a + b, 0)}
+                active={workTab === "all"}
+                onClick={() => setWorkTab("all")}
+                hint="Every approved concept, across all work stages."
+              />
+              {WORK_TAB_ORDER.map((w) => (
+                <FilterChip
+                  key={w}
+                  label={w === "rejected" ? "Rejected" : WORK_STATUS_LABELS[w]}
+                  count={workCounts[w]}
+                  active={workTab === w}
+                  onClick={() => setWorkTab(w)}
+                  dotColor={WORK_DOT_COLOR[w]}
+                  hint={WORK_TAB_HINT[w]}
+                />
+              ))}
+            </>
+          )}
+
+          {/* Clear all filters — end of strip */}
           {!inboxMode && (tab !== "all" || workTab !== "all" || designerFilter || dateRange.from || dateRange.to) && (
             <button
               type="button"
@@ -634,45 +628,13 @@ export function ConceptsView() {
                 setDateRange({ from: null, to: null });
               }}
               title="Reset all filters"
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-2 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
+              className="shrink-0 sm:ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-[11px] font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
             >
               <FilterX className="h-3 w-3" />
-              <span className="hidden sm:inline">Clear</span>
+              Clear
             </button>
           )}
         </div>
-
-        {/* Row 2: Work-stage chips — scrollable on mobile */}
-        {(tab === "all" || tab === "approved") &&
-          Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
-          <div className="no-scrollbar touch-scroll-x -mx-1 flex items-center gap-1.5 overflow-x-auto px-1">
-            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Stage
-            </span>
-            <FilterChip
-              label="All"
-              count={Object.values(workCounts).reduce((a, b) => a + b, 0)}
-              active={workTab === "all"}
-              onClick={() => setWorkTab("all")}
-              hint="Every approved concept, across all work stages."
-            />
-            {WORK_TAB_ORDER.map((w) => (
-              <FilterChip
-                key={w}
-                label={
-                  w === "rejected"
-                    ? "Rejected"
-                    : WORK_STATUS_LABELS[w]
-                }
-                count={workCounts[w]}
-                active={workTab === w}
-                onClick={() => setWorkTab(w)}
-                dotColor={WORK_DOT_COLOR[w]}
-                hint={WORK_TAB_HINT[w]}
-              />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* -- Error -- */}

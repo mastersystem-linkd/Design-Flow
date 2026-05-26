@@ -752,9 +752,9 @@ function PipelineWidget({
                 <span className="w-[72px] shrink-0 truncate text-left text-xs font-medium text-foreground sm:w-[90px]">
                   {label}
                 </span>
-                <div className="flex-1 overflow-hidden rounded bg-secondary/60">
+                <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
                   <div
-                    className={cn("h-2.5 rounded", barColor)}
+                    className={cn("h-5 rounded-md", barColor)}
                     style={{
                       width: mounted ? `${barPct}%` : "0%",
                       transition: "width 600ms cubic-bezier(0.4,0,0.2,1)",
@@ -1064,17 +1064,28 @@ function TaskLeaderboard({
                       {d.completed > 0 ? `${d.avgDays}d` : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
-                          <div className={cn("h-full rounded-full", scoreColor)} style={{ width: `${d.score}%` }} />
+                      {onDesignerClick ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onDesignerClick(d.id); }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold tabular-nums text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow"
+                        >
+                          {d.score}/100
+                          <ChevronRight className="h-3 w-3" />
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+                            <div className={cn("h-full rounded-full", scoreColor)} style={{ width: `${d.score}%` }} />
+                          </div>
+                          <span className={cn(
+                            "rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums",
+                            d.score >= 90 ? "bg-success/10 text-success" : d.score >= 75 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"
+                          )}>
+                            {d.score}
+                          </span>
                         </div>
-                        <span className={cn(
-                          "rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums",
-                          d.score >= 90 ? "bg-success/10 text-success" : d.score >= 75 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"
-                        )}>
-                          {d.score}
-                        </span>
-                      </div>
+                      )}
                     </td>
                   </tr>
                 );
