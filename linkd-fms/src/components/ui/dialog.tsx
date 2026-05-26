@@ -24,14 +24,29 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+interface DialogContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
+  /** When the dialog UI doesn't carry a visible title (e.g. a detail
+   *  drawer that uses a custom header), pass an `srTitle` so the
+   *  accessibility tree still has one. Renders an `sr-only`
+   *  `DialogTitle` that screen readers announce but sighted users
+   *  never see. */
+  srTitle?: string;
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  DialogContentProps
+>(({ className, children, srTitle, ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      // Radix requires either a `<DialogDescription>` child OR an explicit
+      // opt-out via `aria-describedby={undefined}`. Most dialogs have a
+      // header but no description, so we default to the opt-out. Callers
+      // can still pass their own `aria-describedby` to override.
+      aria-describedby={undefined}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 border border-border bg-card shadow-lg duration-200 sm:rounded-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
@@ -41,6 +56,11 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
     >
+      {srTitle && (
+        <DialogPrimitive.Title className="sr-only">
+          {srTitle}
+        </DialogPrimitive.Title>
+      )}
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
         <X className="h-4 w-4" />

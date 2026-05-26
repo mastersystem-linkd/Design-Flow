@@ -34,6 +34,7 @@ import {
 } from "@/components/ui";
 import { ROLE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { TABLE_HEAD, TABLE_TH } from "@/lib/tableStyles";
 
 // ============================================================================
 // Constants
@@ -291,7 +292,7 @@ export function FilesView() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* ── Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -725,29 +726,15 @@ function FileTable({
   return (
     <div className="overflow-x-auto rounded-xl border border-border shadow-sm">
       <table className="w-full border-collapse text-[13px]">
-        <thead>
-          <tr className="bg-secondary/40">
-            <th className="border-b border-border px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Name
-            </th>
-            <th className="border-b border-border px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Type
-            </th>
-            <th className="border-b border-border px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Size
-            </th>
-            <th className="border-b border-border px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Bucket
-            </th>
-            <th className="border-b border-border px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Uploaded by
-            </th>
-            <th className="border-b border-border px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Uploaded
-            </th>
-            <th className="border-b border-border px-3 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Actions
-            </th>
+        <thead className={TABLE_HEAD}>
+          <tr>
+            <th className={TABLE_TH}>Name</th>
+            <th className={TABLE_TH}>Type</th>
+            <th className={TABLE_TH}>Size</th>
+            <th className={TABLE_TH}>Bucket</th>
+            <th className={TABLE_TH}>Uploaded by</th>
+            <th className={TABLE_TH}>Uploaded</th>
+            <th className={cn(TABLE_TH, "text-right")}>Actions</th>
           </tr>
         </thead>
         <tbody className="bg-card">

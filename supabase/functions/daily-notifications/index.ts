@@ -31,9 +31,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 type Kind =
   | "daily_review"
   | "overdue_summary"
-  | "overdue_tasks"
+  | "overdue_task"            // one per task — replaces the rolled-up "overdue_tasks"
   | "concept_target"
-  | "concept_overdue";
+  | "concept_overdue"
+  | "concept_stale_review";
 
 interface PendingInsert {
   user_id: string;
@@ -92,14 +93,56 @@ export default async function handler(_req: Request): Promise<Response> {
   }
 
   // Build dedup Set: `${user_id}|${kind}` — derived from the row's title.
+  // The keys we INSERT include the concept/task id (we have it in code),
+  // but the rows we READ BACK only have the title. We use stable Maps
+  // from title → id so title-based dedup catches re-runs within the
+  // same day. Single fetch each covers every concept / task that could
+  // appear in the per-id loops below.
   const sentKeys = new Set<string>();
+  const conceptIdByStaleTitle = new Map<string, string>();
+  const conceptIdByOverdueTitle = new Map<string, string>();
+  const taskIdByOverdueTitle = new Map<string, string>();
+
+  const [{ data: allRelevantConcepts }, { data: allRelevantTasks }] =
+    await Promise.all([
+      supabase
+        .from("concepts")
+        .select("id, title, md_status, designer_actual_date")
+        .or("md_status.eq.pending,md_status.eq.approved"),
+      supabase
+        .from("tasks")
+        .select("id, task_code")
+        .not("status", "eq", "done"),
+    ]);
+
+  for (const c of allRelevantConcepts ?? []) {
+    const t = c.title || "Untitled";
+    conceptIdByStaleTitle.set(`Concept Awaiting Review: ${t}`, c.id);
+    conceptIdByOverdueTitle.set(`Concept Overdue: ${t}`, c.id);
+  }
+  for (const t of allRelevantTasks ?? []) {
+    taskIdByOverdueTitle.set(`Overdue Task: ${t.task_code}`, t.id);
+  }
+
   for (const n of todaysNotifications ?? []) {
     const k = kindFromTitle(n.title);
-    if (k) sentKeys.add(`${n.user_id}|${k}`);
-    // For per-concept overdue rows, also store the title-suffixed key so a
-    // designer with 3 overdue concepts can't get the same one twice today.
+    if (k && k !== "overdue_task") sentKeys.add(`${n.user_id}|${k}`);
+    // Per-task overdue rows — dedup by (user × task id × day).
+    if (n.title.startsWith("Overdue Task: ")) {
+      const tid = taskIdByOverdueTitle.get(n.title);
+      if (tid) sentKeys.add(`${n.user_id}|overdue_task|${tid}`);
+    }
+    // Per-concept rows — dedup by (user × kind × concept id × day).
     if (n.title.startsWith("Concept Overdue: ")) {
+      const cid = conceptIdByOverdueTitle.get(n.title);
+      if (cid) sentKeys.add(`${n.user_id}|concept_overdue|${cid}`);
+      // Legacy title-suffixed key — kept so older rows that pre-date the
+      // id-based scheme still dedup correctly.
       sentKeys.add(`${n.user_id}|concept_overdue|${n.title}`);
+    }
+    if (n.title.startsWith("Concept Awaiting Review: ")) {
+      const cid = conceptIdByStaleTitle.get(n.title);
+      if (cid) sentKeys.add(`${n.user_id}|concept_stale_review|${cid}`);
     }
   }
 
@@ -174,61 +217,117 @@ export default async function handler(_req: Request): Promise<Response> {
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // ADMIN + COORDINATOR · Team-wide overdue summary
+  // ADMIN + COORDINATOR · Per-concept reminder when an MD review has
+  // sat untouched for more than 48 hours. The "Daily Review" tile above
+  // gives a roll-up — this loop gives a named, clickable nudge per
+  // concept so admins can't lose individual cases in the count.
+  //
+  // Repeats daily until the concept is approved/rejected/revised
+  // (dedup key includes the concept id + a daily timestamp prefix).
+  // ══════════════════════════════════════════════════════════════════
+  const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
+  const { data: staleReviews } = await supabase
+    .from("concepts")
+    .select("id, title, created_at, submitted_by")
+    .eq("md_status", "pending")
+    .lt("created_at", cutoff48h)
+    .order("created_at", { ascending: true });
+
+  if (staleReviews && staleReviews.length > 0) {
+    // Batch-fetch submitter names so the message reads "Krupesh's
+    // concept …" instead of just the title.
+    const submitterIds = Array.from(
+      new Set(staleReviews.map((c) => c.submitted_by).filter(Boolean))
+    );
+    const submitterName = new Map<string, string>();
+    if (submitterIds.length > 0) {
+      const { data: subs } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", submitterIds);
+      for (const s of subs ?? []) submitterName.set(s.id, s.full_name);
+    }
+
+    for (const concept of staleReviews) {
+      const hoursOld = Math.floor(
+        (now.getTime() - new Date(concept.created_at).getTime()) / 3_600_000
+      );
+      const conceptTitle = concept.title || "Untitled";
+      const designer = concept.submitted_by
+        ? submitterName.get(concept.submitted_by) ?? "a designer"
+        : "a designer";
+      const titlePrefix = `Concept Awaiting Review: ${conceptTitle}`;
+
+      for (const admin of admins) {
+        queue({
+          user_id: admin.id,
+          title: titlePrefix,
+          message: `${designer}'s concept "${conceptTitle}" has been waiting ${hoursOld}h for your review.`,
+          type: hoursOld >= 96 ? "urgent" : "warning",
+          link: "/concepts",
+          dedupKey: `${admin.id}|concept_stale_review|${concept.id}`,
+        });
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // PER OVERDUE TASK · One notification per task per day, sent to the
+  // assignee (designer or design coordinator — whoever holds it).
+  //
+  // This intentionally replaces the previous "rolled-up summary per
+  // designer" behaviour, which silently hid which tasks were overdue
+  // and felt repetitive when the same summary line appeared on screen
+  // every day. With one notification per task, the user can mark
+  // individual ones off as they tackle them, and the dedup key keys
+  // on the task id so the same task never fires twice in one day.
   // ══════════════════════════════════════════════════════════════════
   const { data: overdueTasks } = await supabase
     .from("tasks")
-    .select("id, task_code, assigned_to")
+    .select("id, task_code, concept, assigned_to, planned_deadline")
     .not("status", "eq", "done")
     .not("planned_deadline", "is", null)
     .lt("planned_deadline", todayISO);
 
   if (overdueTasks && overdueTasks.length > 0) {
-    const uniqueDesigners = new Set(
+    for (const task of overdueTasks) {
+      if (!task.assigned_to) continue; // unassigned — no one to notify
+      const daysLate = Math.floor(
+        (now.getTime() - new Date(task.planned_deadline!).getTime()) /
+          86_400_000
+      );
+      const conceptHint = task.concept ? ` (${task.concept})` : "";
+      queue({
+        user_id: task.assigned_to,
+        title: `Overdue Task: ${task.task_code}`,
+        message: `Task ${task.task_code}${conceptHint} is ${daysLate} day${
+          daysLate !== 1 ? "s" : ""
+        } past its planned deadline.`,
+        type: "urgent",
+        link: "/dashboard",
+        dedupKey: `${task.assigned_to}|overdue_task|${task.id}`,
+      });
+    }
+
+    // Admins + coordinators still get a single daily roll-up so they
+    // can see team-wide load without scrolling through every task.
+    const uniqueAssignees = new Set(
       overdueTasks.map((t) => t.assigned_to).filter(Boolean)
     );
-
     for (const admin of admins) {
       queue({
         user_id: admin.id,
         title: "Overdue Summary",
         message: `${overdueTasks.length} task${
           overdueTasks.length > 1 ? "s" : ""
-        } overdue across ${uniqueDesigners.size} designer${
-          uniqueDesigners.size !== 1 ? "s" : ""
+        } overdue across ${uniqueAssignees.size} assignee${
+          uniqueAssignees.size !== 1 ? "s" : ""
         }`,
         type: "urgent",
         link: "/dashboard",
         dedupKey: `${admin.id}|overdue_summary`,
       });
     }
-  }
-
-  // ══════════════════════════════════════════════════════════════════
-  // EACH DESIGNER · Their own overdue tasks
-  // ══════════════════════════════════════════════════════════════════
-  for (const designer of designers) {
-    const myOverdue =
-      overdueTasks?.filter((t) => t.assigned_to === designer.id) ?? [];
-    if (myOverdue.length === 0) continue;
-
-    const codes = myOverdue
-      .slice(0, 3)
-      .map((t) => t.task_code)
-      .join(", ");
-    const extra =
-      myOverdue.length > 3 ? ` and ${myOverdue.length - 3} more` : "";
-
-    queue({
-      user_id: designer.id,
-      title: "Overdue Tasks",
-      message: `You have ${myOverdue.length} overdue task${
-        myOverdue.length > 1 ? "s" : ""
-      }: ${codes}${extra}`,
-      type: "urgent",
-      link: "/dashboard",
-      dedupKey: `${designer.id}|overdue_tasks`,
-    });
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -317,7 +416,7 @@ export default async function handler(_req: Request): Promise<Response> {
           } past the completion deadline.`,
           type: "urgent",
           link: "/concepts",
-          dedupKey: `${designer.id}|concept_overdue|${title}`,
+          dedupKey: `${designer.id}|concept_overdue|${concept.id}`,
         });
       }
     })
@@ -367,13 +466,14 @@ export default async function handler(_req: Request): Promise<Response> {
 function kindFromTitle(title: string): Kind | null {
   if (title === "Daily Review") return "daily_review";
   if (title === "Overdue Summary") return "overdue_summary";
-  if (title === "Overdue Tasks") return "overdue_tasks";
+  if (title.startsWith("Overdue Task: ")) return "overdue_task";
   if (
     title === "Concept Target Reminder" ||
     title === "Concept Target — Critical"
   )
     return "concept_target";
   if (title.startsWith("Concept Overdue: ")) return "concept_overdue";
+  if (title.startsWith("Concept Awaiting Review: ")) return "concept_stale_review";
   return null;
 }
 

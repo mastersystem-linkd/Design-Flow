@@ -8,6 +8,9 @@ import {
   Info,
   AlertTriangle,
   Shield,
+  Settings,
+  Palette,
+  Paintbrush,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/database";
@@ -24,6 +27,7 @@ import { ClientManagementTab } from "@/components/system/ClientManagementTab";
 import { DesignerCodesTab } from "@/components/system/DesignerCodesTab";
 import { StorageTab } from "@/components/system/StorageTab";
 import { AppInfoTab } from "@/components/system/AppInfoTab";
+import { AppearanceTab } from "@/components/system/AppearanceTab";
 import { DangerZoneTab } from "@/components/system/DangerZoneTab";
 
 // ============================================================================
@@ -43,6 +47,7 @@ import { DangerZoneTab } from "@/components/system/DangerZoneTab";
 
 type TabId =
   | "app-info"
+  | "appearance"
   | "concepts"
   | "fabrics"
   | "clients"
@@ -54,9 +59,9 @@ interface TabSpec {
   id: TabId;
   label: string;
   icon: typeof Info;
-  /** Returns true when the user is allowed to see this tab. */
+  desc: string;
+  group: "general" | "data" | "system";
   canAccess: (role: UserRole) => boolean;
-  /** When true, the tab uses destructive coloring in the nav. */
   destructive?: boolean;
 }
 
@@ -65,48 +70,74 @@ const TABS: TabSpec[] = [
     id: "app-info",
     label: "App Info",
     icon: Info,
-    canAccess: () => true, // anyone on the page; the page itself is gated
+    desc: "System overview & environment",
+    group: "general",
+    canAccess: () => true,
   },
-  // Lookup tables — concept categories and fabrics, each with their own
-  // search + filter rather than stacked in one tab.
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: Paintbrush,
+    desc: "Theme & display preferences",
+    group: "general",
+    canAccess: () => true,
+  },
   {
     id: "concepts",
     label: "Concept Categories",
     icon: Lightbulb,
+    desc: "Design style lookup data",
+    group: "data",
     canAccess: (role) => role === "admin",
   },
   {
     id: "fabrics",
     label: "Fabrics",
     icon: Layers,
+    desc: "Fabric type lookup data",
+    group: "data",
     canAccess: (role) => role === "admin",
   },
   {
     id: "clients",
     label: "Clients",
     icon: Building2,
+    desc: "Party names & dedup merge",
+    group: "data",
     canAccess: (role) => role === "admin" || role === "design_coordinator",
   },
   {
     id: "designer-codes",
     label: "Designer Codes",
     icon: Tag,
+    desc: "Unique code letters for designers",
+    group: "data",
     canAccess: (role) => role === "admin",
   },
   {
     id: "storage",
     label: "Storage",
     icon: HardDrive,
+    desc: "Bucket usage & file monitoring",
+    group: "system",
     canAccess: (role) => role === "admin",
   },
   {
     id: "danger",
     label: "Danger Zone",
     icon: AlertTriangle,
+    desc: "Permanent data deletion",
+    group: "system",
     canAccess: (role) => role === "admin",
     destructive: true,
   },
 ];
+
+const GROUP_LABELS: Record<TabSpec["group"], string> = {
+  general: "General",
+  data: "Data Management",
+  system: "System",
+};
 
 export function SystemView() {
   const { profile } = useAuth();
@@ -134,27 +165,51 @@ export function SystemView() {
   const active =
     visibleTabs.find((t) => t.id === activeId) ?? visibleTabs[0];
 
+  const groups = (["general", "data", "system"] as const).map((g) => ({
+    key: g,
+    label: GROUP_LABELS[g],
+    tabs: visibleTabs.filter((t) => t.group === g),
+  })).filter((g) => g.tabs.length > 0);
+
   return (
     <div className="space-y-4">
-      {/* Page header */}
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Shield className="h-5 w-5 text-primary" />
+      {/* ── Settings Banner — consistent with Design Studio style ── */}
+      <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
+        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
+        <svg
+          className="absolute right-0 top-0 h-full w-40 opacity-[0.03]"
+          viewBox="0 0 160 80"
+          aria-hidden="true"
+        >
+          {Array.from({ length: 20 }).map((_, i) => (
+            <line key={`h${i}`} x1="0" y1={i * 4} x2="160" y2={i * 4} stroke="currentColor" strokeWidth="1" />
+          ))}
+          {Array.from({ length: 40 }).map((_, i) => (
+            <line key={`v${i}`} x1={i * 4} y1="0" x2={i * 4} y2="80" stroke="currentColor" strokeWidth="0.5" />
+          ))}
+        </svg>
+        <div className="relative flex items-center justify-between gap-4 px-5 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <Settings className="h-[18px] w-[18px] text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Settings &amp; Admin</p>
+              <p className="text-[11px] text-muted-foreground">
+                Manage data, system configuration &amp; maintenance
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              Settings &amp; Admin
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Manage lookup data, clients, designer codes, storage, and system
-              maintenance.
-            </p>
+          <div className="hidden items-center gap-1 sm:flex" title="Design studio">
+            <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm" />
+            <span className="h-2.5 w-2.5 rounded-full bg-success shadow-sm" />
+            <span className="h-2.5 w-2.5 rounded-full bg-warning shadow-sm" />
+            <span className="h-2.5 w-2.5 rounded-full bg-destructive shadow-sm" />
           </div>
         </div>
-      </header>
+      </div>
 
-      {/* Layout: vertical tab rail on desktop, horizontal pills on mobile */}
+      {/* Layout */}
       <div className="flex flex-col gap-4 md:flex-row md:items-start">
         {/* MOBILE — horizontal scrollable pill bar */}
         <nav
@@ -171,12 +226,15 @@ export function SystemView() {
           ))}
         </nav>
 
-        {/* DESKTOP — vertical tab rail */}
-        <aside className="hidden w-56 shrink-0 md:block">
-          <Card>
-            <CardContent className="p-1.5">
+        {/* DESKTOP — grouped vertical nav */}
+        <aside className="hidden w-52 shrink-0 space-y-5 md:block">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {g.label}
+              </p>
               <ul className="space-y-0.5">
-                {visibleTabs.map((t) => (
+                {g.tabs.map((t) => (
                   <li key={t.id}>
                     <DesktopTabButton
                       spec={t}
@@ -186,8 +244,8 @@ export function SystemView() {
                   </li>
                 ))}
               </ul>
-            </CardContent>
-          </Card>
+            </div>
+          ))}
         </aside>
 
         {/* CONTENT */}
@@ -213,6 +271,8 @@ function renderTab(id: TabId, role: UserRole) {
   switch (id) {
     case "app-info":
       return <AppInfoTab />;
+    case "appearance":
+      return <AppearanceTab />;
     case "concepts":
       return adminOnly(<ConceptCategoriesTab />);
     case "fabrics":
@@ -267,17 +327,17 @@ function DesktopTabButton({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md border-l-2 px-3 py-2 text-left text-sm font-medium transition-colors",
+        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all",
         active
           ? spec.destructive
-            ? "border-destructive bg-destructive/5 text-destructive"
-            : "border-primary bg-primary/10 text-primary"
-          : "border-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+            ? "bg-destructive/10 text-destructive"
+            : "bg-primary/10 text-primary"
+          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
         spec.destructive && !active && "text-destructive/70 hover:text-destructive"
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate">{spec.label}</span>
+      <span className="truncate text-[13px] font-medium">{spec.label}</span>
     </button>
   );
 }

@@ -112,25 +112,50 @@
   }
 
   .dark {
-    /* ── Tailwind semantic tokens — dark ─────────────────────── */
+    /* ── Tailwind semantic tokens — dark ─────────────────────────
+       Calibration notes (changed from the original palette):
+
+       • --card lifted from `21 27 43` → `26 32 51`. The old value sat
+         too close to `--background` (11 15 25); cards visually
+         dissolved into the canvas. The new value still reads as a
+         dark surface but holds its edge against the page.
+
+       • --secondary lifted from `26 32 53` → `36 44 71`. Gives the
+         second elevation tier (search inputs, tab pills, hover states)
+         a clear lift above `--card`.
+
+       • --muted-foreground lifted from `148 163 184` (slate-400) →
+         `170 184 207` (slate-300-ish). The old value crashed against
+         dark cards for any text smaller than 14px — labels, sub-lines,
+         table secondary columns were genuinely hard to read.
+
+       • --border lifted from `39 46 67` → `52 62 92`. Dividers were
+         barely visible against the new card surface; this restores
+         the architectural read.
+
+       • --input darkened from `14 18 32` → `12 16 27`. Slight extra
+         depression vs. the new card so form fields read as sunken.
+
+       Primary/success/warning/destructive intentionally unchanged —
+       semantic accent colours stay consistent across themes. */
     --background: 11 15 25;           /* deep navy canvas */
     --foreground: 241 245 249;
-    --card: 21 27 43;                 /* surface */
+    --card: 26 32 51;                 /* surface */
     --card-foreground: 241 245 249;
-    --popover: 21 27 43;
+    --popover: 26 32 51;
     --popover-foreground: 241 245 249;
     --primary: 129 140 248;           /* indigo-400 */
     --primary-foreground: 255 255 255;
-    --secondary: 26 32 53;            /* surface-alt */
+    --secondary: 36 44 71;            /* surface-alt */
     --secondary-foreground: 241 245 249;
     --accent: 129 140 248;
     --accent-foreground: 255 255 255;
     --muted: 100 116 139;             /* slate-500 — chip backgrounds */
-    --muted-foreground: 148 163 184;  /* slate-400 — body copy */
+    --muted-foreground: 170 184 207;  /* slate-300-ish — body copy */
     --destructive: 248 113 113;       /* red-400 */
     --destructive-foreground: 255 255 255;
-    --border: 39 46 67;               /* indigo-tinted divider */
-    --input: 14 18 32;                /* sunken */
+    --border: 52 62 92;               /* indigo-tinted divider */
+    --input: 12 16 27;                /* sunken */
     --ring: 129 140 248;
     --success: 52 211 153;            /* emerald-400 */
     --warning: 251 191 36;            /* amber-400 */
@@ -138,36 +163,46 @@
     --sidebar: 8 12 22;
     --dashboard: 11 15 25;
 
-    /* ── Spec design tokens — dark ───────────────────────────── */
+    /* ── Spec design tokens — dark ─────────────────────────────
+       Kept in sync with the Tailwind tokens above: any component
+       reading the hex tokens (`--bg-surface`, `--text-secondary`, …)
+       now matches what Tailwind utilities resolve to. */
     --bg-canvas: #0B0F19;
-    --bg-surface: #151B2B;
-    --bg-surface-alt: #1A2035;
-    --bg-surface-hover: #1E2540;
-    --bg-surface-sunken: #0E1220;
+    --bg-surface: #1A2033;        /* matches --card */
+    --bg-surface-alt: #242C47;    /* matches --secondary */
+    --bg-surface-hover: #2A3354;
+    --bg-surface-sunken: #0C101B;
     --bg-sidebar: #080C16;
     --bg-topnav: rgba(11, 15, 25, 0.78);
 
     --brand-primary: #818CF8;
     --brand-primary-hover: #6366F1;
-    --brand-primary-subtle: rgba(129, 140, 248, 0.08);
-    --brand-primary-muted: rgba(129, 140, 248, 0.12);
-    /* Gradient stays same in both modes — it's the visual anchor */
+    --brand-primary-subtle: rgba(129, 140, 248, 0.12);  /* +50% so faint
+                                                          tints actually
+                                                          register */
+    --brand-primary-muted: rgba(129, 140, 248, 0.18);
 
     --text-primary: #F1F5F9;
-    --text-secondary: #94A3B8;
-    --text-tertiary: #64748B;
+    --text-secondary: #AAB8CF;    /* matches --muted-foreground */
+    --text-tertiary: #7A8AA6;     /* one step dimmer than secondary */
     --text-link: #A5B4FC;
 
-    --border-default: rgba(255, 255, 255, 0.06);
-    --border-hover: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(255, 255, 255, 0.12);
+    --border-default: rgba(255, 255, 255, 0.08);   /* was 0.06 — hairlines
+                                                     were invisible on
+                                                     the new card colour */
+    --border-hover: rgba(255, 255, 255, 0.14);
+    --border-strong: rgba(255, 255, 255, 0.18);
 
-    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-    --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.5);
-    --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+    /* Stronger card shadows in dark — without them, elevated surfaces
+       look pasted onto the canvas with no depth cue. */
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-card-hover: 0 6px 16px rgba(0, 0, 0, 0.55);
+    --shadow-dropdown: 0 12px 32px rgba(0, 0, 0, 0.65);
+    --shadow-overlay: 0 20px 56px rgba(0, 0, 0, 0.75);
 
-    --dot-color: rgba(129, 140, 248, 0.05);
+    /* Brighter dot pattern (canvas + textile overlays) so the print-
+       weave aesthetic shows on dark cards instead of disappearing. */
+    --dot-color: rgba(129, 140, 248, 0.08);
 
     --chart-bar-primary: rgba(129, 140, 248, 0.7);
     --chart-bar-secondary: rgba(129, 140, 248, 0.2);
@@ -233,6 +268,25 @@
   select option {
     background-color: rgb(var(--card));
     color: rgb(var(--foreground));
+  }
+
+  /* ── Mobile utilities ──────────────────────────────────────────── */
+
+  /* Used on horizontal pill/tab strips that overflow — keeps the
+     element scrollable but hides the scrollbar UI on every platform. */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Honour the bottom safe area on notch phones (PWA / iOS Safari)
+     while still guaranteeing a sane minimum gap. */
+  .safe-bottom {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  /* Smoother horizontal scroll on touch devices. */
+  .touch-scroll-x {
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Theme-switch smoothing on major surfaces so toggling light↔dark

@@ -132,7 +132,10 @@ export function TaskDetailDrawer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] w-[95vw] max-w-[560px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
+      <DialogContent
+        className="flex max-h-[90vh] w-[95vw] max-w-[560px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl"
+        srTitle={task?.task_code ? `Task ${task.task_code}` : "Task details"}
+      >
         {isLoading || !task ? (
           <DrawerSkeleton error={error} />
         ) : (
@@ -1565,7 +1568,7 @@ function QtyTracker({
           </LoadingButton>
         </div>
 
-        {willComplete && !hasFiles && (
+        {willComplete && !hasFiles && isConceptTrackTask(task) && (
           <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
@@ -1580,7 +1583,7 @@ function QtyTracker({
         variant="warning"
         title="Mark as fully kitted?"
         description={
-          hasFiles
+          hasFiles || !isConceptTrackTask(task)
             ? "All meters will be marked completed and the task moves to Full Knitting for review."
             : "All meters will be marked completed. Make sure you've uploaded the design file before submitting for review."
         }
@@ -2100,9 +2103,10 @@ function ActionFooter({
 
   function attemptSubmit() {
     setSubmitWarning(null);
-    if (!qtyComplete || !hasFiles) {
+    const needsFiles = isConceptTrackTask(task) && !hasFiles;
+    if (!qtyComplete || needsFiles) {
       setSubmitWarning(
-        !qtyComplete && !hasFiles
+        !qtyComplete && needsFiles
           ? "Complete all designs and upload files before submitting."
           : !qtyComplete
             ? "Update the quantity completed to total before submitting."

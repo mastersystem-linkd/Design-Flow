@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Lightbulb,
   CheckCircle2,
-  Clock,
   RotateCcw,
   AlertTriangle,
   FileText,
@@ -13,16 +12,17 @@ import {
   Pause,
   Sparkles,
   Calendar,
+  Palette,
+  Layers,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAnalytics, type Period } from "@/hooks/useAnalytics";
 import { useConcepts } from "@/hooks/useConcepts";
 import { KpiCard } from "@/components/analytics/KpiCard";
+import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { VolumeChart } from "@/components/analytics/VolumeChart";
 import { PipelineHealth } from "@/components/analytics/PipelineHealth";
 import { DesignerLeaderboard } from "@/components/analytics/DesignerLeaderboard";
-import { ConceptTurnaround } from "@/components/analytics/ConceptTurnaround";
-import { ConceptFunnel } from "@/components/analytics/ConceptFunnel";
 import { MdReviewPanel } from "@/components/analytics/MdReviewPanel";
 import { DesignerConceptMatrix } from "@/components/analytics/DesignerConceptMatrix";
 import { TeamTargetHero } from "@/components/analytics/TeamTargetHero";
@@ -55,12 +55,29 @@ const PERIODS: { value: Period; label: string }[] = [
  * `embedded={true}` from that parent so the giant icon + H1 + sub-label
  * header is skipped — the parent's tab strip already names the section.
  */
-export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {}) {
+export interface AnalyticsViewControls {
+  period: Period;
+  setPeriod: (p: Period) => void;
+  periodLabel: string;
+  onExport: (() => void) | null;
+}
+
+export function AnalyticsView({
+  embedded = false,
+  externalPeriod,
+  onControlsReady,
+}: {
+  embedded?: boolean;
+  externalPeriod?: Period;
+  onControlsReady?: (c: AnalyticsViewControls) => void;
+} = {}) {
   const { profile } = useAuth();
   const role: UserRole = profile?.role ?? "designer";
   const isDesigner = role === "designer";
 
-  const [period, setPeriod] = useState<Period>("month");
+  const [internalPeriod, setInternalPeriod] = useState<Period>("month");
+  const period = externalPeriod ?? internalPeriod;
+  const setPeriod = (p: Period) => setInternalPeriod(p);
   const a = useAnalytics(period);
   const { concepts } = useConcepts();
   const navigate = useNavigate();
@@ -84,6 +101,18 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
       cols as unknown as CsvColumn<Record<string, unknown>>[]
     );
   }
+
+  useEffect(() => {
+    if (onControlsReady) {
+      onControlsReady({
+        period,
+        setPeriod,
+        periodLabel: a.periodLabel,
+        onExport: canExport && a.designerStats.length > 0 ? handleExportReport : null,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, a.periodLabel, canExport, a.designerStats.length]);
 
   if (a.error) {
     return (
@@ -126,44 +155,7 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
           When `embedded`, the parent (TaskDashboardView) already shows a
           tab strip naming this section, so we drop the giant icon + h1
           and just render the controls + sub-label inline. */}
-      {embedded ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            {isDesigner ? "Your concepts · " : ""}
-            {a.periodLabel}
-          </p>
-          <div className="flex items-center gap-2">
-            {canExport && a.designerStats.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportReport}
-                className="gap-1.5"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Export</span>
-              </Button>
-            )}
-            <div className="inline-flex rounded-lg bg-secondary p-1">
-              {PERIODS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => setPeriod(p.value)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                    period === p.value
-                      ? "bg-primary text-white"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
+      {embedded ? null : (
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -297,9 +289,80 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
       ) : (
         /* ── ADMIN / COORDINATOR VIEW ── */
         <>
-          {/* KPI cards — 5 tiles, collapses to 2-col on tablet / 1-col on mobile */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {/* ── Design Studio Banner — textile-inspired accent ── */}
+          <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
+            <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
+            <svg
+              className="absolute right-0 top-0 h-full w-40 opacity-[0.03]"
+              viewBox="0 0 160 80"
+              aria-hidden="true"
+            >
+              {Array.from({ length: 20 }).map((_, i) => (
+                <line
+                  key={`h${i}`}
+                  x1="0"
+                  y1={i * 4}
+                  x2="160"
+                  y2={i * 4}
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
+              ))}
+              {Array.from({ length: 40 }).map((_, i) => (
+                <line
+                  key={`v${i}`}
+                  x1={i * 4}
+                  y1="0"
+                  x2={i * 4}
+                  y2="80"
+                  stroke="currentColor"
+                  strokeWidth="0.5"
+                />
+              ))}
+            </svg>
+            <div className="relative flex items-center justify-between gap-4 px-5 py-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                  <Palette className="h-[18px] w-[18px] text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Design Studio</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Digital print concept pipeline · {a.periodLabel}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="hidden items-center gap-1 sm:flex" title="Print color palette">
+                  <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-success shadow-sm" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-warning shadow-sm" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-destructive shadow-sm" />
+                </div>
+                {a.kpis.pendingReview > 0 && (
+                  <Badge
+                    className={cn(
+                      "cursor-pointer border transition-colors",
+                      a.kpis.pendingReview > 2
+                        ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
+                        : "bg-warning/10 text-warning border-warning/20"
+                    )}
+                    onClick={() => navigate(`${ROUTES.concepts}?tab=pending`)}
+                  >
+                    {a.kpis.pendingReview} awaiting review
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* KPI cards — wrapped in the shared TextileHeroWrapper so the
+              Concept Dashboard reads as part of the same visual system
+              as Task / Sampling / Salvedge / Scorecards. */}
+          <TextileHeroWrapper className="p-0 sm:p-0">
+            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:divide-y-0 lg:grid-cols-4">
             <KpiCard
+              flat
               icon={<FileText className="h-4 w-4 text-primary" />}
               label="Concepts Submitted"
               value={a.kpis.totalSubmitted.current}
@@ -311,6 +374,7 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
               sub={`by ${a.designerStats.filter(d => d.submitted > 0).length} designer${a.designerStats.filter(d => d.submitted > 0).length !== 1 ? "s" : ""}`}
             />
             <KpiCard
+              flat
               icon={<CheckCircle2 className="h-4 w-4 text-success" />}
               label="Approved"
               value={a.kpis.totalApproved.current}
@@ -319,9 +383,13 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
               to={`${ROUTES.concepts}?tab=approved`}
               animateValue
               sparklineData={a.sparklines.approved}
-              sub={`${a.kpis.totalApproved.current + (a.statusDistribution.find(s => s.status === "rejected")?.count ?? 0)} reviewed`}
+              valueColor={
+                a.kpis.approvalRate.current > 80 ? "text-success" : a.kpis.approvalRate.current < 50 ? "text-destructive" : undefined
+              }
+              sub={`${a.kpis.approvalRate.current}% rate · ${a.kpis.totalApproved.current + (a.statusDistribution.find(s => s.status === "rejected")?.count ?? 0)} reviewed`}
             />
             <KpiCard
+              flat
               icon={<PackageCheck className="h-4 w-4 text-success" />}
               label="Completed"
               value={a.kpis.totalCompleted.current}
@@ -341,19 +409,7 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
               }
             />
             <KpiCard
-              icon={<Clock className="h-4 w-4 text-primary" />}
-              label="Approval Rate"
-              value={`${a.kpis.approvalRate.current}%`}
-              metric={a.kpis.approvalRate}
-              tintClass="bg-primary/10"
-              sparklineData={a.sparklines.approvalRate}
-              valueColor={
-                a.kpis.approvalRate.current > 80 ? "text-success" : a.kpis.approvalRate.current < 50 ? "text-destructive" : "text-warning"
-              }
-              to={`${ROUTES.concepts}?tab=approved`}
-              sub={`${a.kpis.totalApproved.current}/${a.kpis.totalSubmitted.current} approved`}
-            />
-            <KpiCard
+              flat
               icon={<RotateCcw className="h-4 w-4 text-warning" />}
               label="Avg Review Time"
               value={a.kpis.avgApprovalHours.current > 0 ? `${a.kpis.avgApprovalHours.current}h` : "—"}
@@ -369,74 +425,38 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
               to={`${ROUTES.concepts}?tab=pending`}
               sub="Target: < 24 hours"
             />
-          </div>
+            </div>
+          </TextileHeroWrapper>
 
-          {/* Status badges — each deep-links into the matching ConceptsView tab */}
-          <div className="flex flex-wrap gap-2">
-            <Badge
-              className={cn(
-                "cursor-pointer border transition-colors hover:opacity-80",
-                a.kpis.pendingReview > 2
-                  ? "bg-destructive/10 text-destructive border-destructive/20"
-                  : "bg-warning/10 text-warning border-warning/20",
-                a.kpis.pendingReview > 0 && "animate-pulse"
-              )}
-              onClick={() => window.location.href = `${ROUTES.concepts}?tab=pending`}
-            >
-              {a.kpis.pendingReview} pending review
-            </Badge>
-            <Badge
-              className="cursor-pointer bg-primary/10 text-primary border border-primary/20 hover:opacity-80"
-              onClick={() => window.location.href = `${ROUTES.concepts}?tab=revision_requested`}
-            >
-              {a.kpis.revisionRequested} in revision
-            </Badge>
-            <Badge
-              className="cursor-pointer bg-success/10 text-success border border-success/20 hover:opacity-80"
-              onClick={() => window.location.href = `${ROUTES.concepts}?tab=approved`}
-            >
-              {a.funnel.approved} approved
-            </Badge>
-            <Badge
-              className="cursor-pointer bg-secondary text-muted-foreground border border-border hover:opacity-80"
-              onClick={() => window.location.href = `${ROUTES.concepts}?tab=approved`}
-            >
-              {a.funnel.finalization} awaiting finalization
-            </Badge>
-          </div>
-
-          {/* ── Concept Work Pipeline — post-approval lifecycle health ──
-               Six pipeline counters + four quality KPIs. Sourced from the
-               work-status block on useAnalytics, which reads the columns
-               added in migration 0026 (work_status, hold_count,
-               revision_count, total_hold_duration). */}
+          {/* ── Print Production Pipeline — post-approval lifecycle ── */}
           <Card>
             <CardContent className="p-4">
               <header className="mb-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Sparkles className="h-4 w-4" />
+                    <Layers className="h-4 w-4" />
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-foreground">
-                      Concept Work Pipeline
+                      Print Production Pipeline
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      Post-approval lifecycle — what's moving, what's stuck.
+                      Post-approval lifecycle — what's moving, what's stuck
                     </p>
                   </div>
                 </div>
-                <Badge className="bg-primary/10 text-primary border border-primary/20">
-                  {a.workStatus.inFlight} in flight
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {a.conversionRates.reviewedToApproved > 0 && (
+                    <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
+                      {a.conversionRates.reviewedToApproved}% approval rate
+                    </span>
+                  )}
+                  <Badge className="bg-primary/10 text-primary border border-primary/20">
+                    {a.workStatus.inFlight} in flight
+                  </Badge>
+                </div>
               </header>
 
-              {/* Pipeline buckets — 4 across, deep-link into ConceptsView.
-                   "Ready" was removed (work auto-starts on MD approval per
-                   migration 0029) and "Changes Needed" was collapsed into
-                   "In Progress" (migration 0030). "Rejected" added so
-                   admins see terminal MD-rejections alongside the work
-                   pipeline. */}
               <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
                 <WorkPill
                   icon={<PlayCircle className="h-3.5 w-3.5" />}
@@ -475,9 +495,30 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
                 />
               </div>
 
-              {/* Quality KPIs — first-pass rate, avg cycles, avg working
-                   days (hold-aware), hold frequency. Hidden when there's no
-                   completed data yet so we don't show four "—" boxes. */}
+              {/* Concept flow summary — inline funnel replacing separate ConceptFunnel */}
+              {a.funnel.submitted > 0 && (
+                <div className="mt-3 flex items-center gap-1.5 overflow-x-auto rounded-lg border border-border bg-secondary/20 px-3 py-2 text-[10px] font-medium">
+                  <span className="whitespace-nowrap text-foreground">{a.funnel.submitted}</span>
+                  <span className="text-muted-foreground">submitted</span>
+                  <span className="text-muted-foreground/60">→</span>
+                  <span className="whitespace-nowrap text-primary">{a.funnel.approved}</span>
+                  <span className="text-muted-foreground">approved</span>
+                  <span className="text-muted-foreground/60">→</span>
+                  <span className="whitespace-nowrap text-warning">{a.funnel.finalization}</span>
+                  <span className="text-muted-foreground">finalizing</span>
+                  <span className="text-muted-foreground/60">→</span>
+                  <span className="whitespace-nowrap text-success">{a.funnel.completed}</span>
+                  <span className="text-muted-foreground">completed</span>
+                  {a.funnel.rejected > 0 && (
+                    <>
+                      <span className="mx-1 text-border">|</span>
+                      <span className="whitespace-nowrap text-destructive">{a.funnel.rejected} rejected</span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Quality KPIs */}
               {(a.workStatus.firstPassRate !== null ||
                 a.workStatus.avgRevisionRounds !== null ||
                 a.workStatus.avgDesignDays !== null ||
@@ -613,23 +654,13 @@ export function AnalyticsView({ embedded = false }: { embedded?: boolean } = {})
             <PipelineHealth data={a.statusDistribution} />
           </div>
 
-          {/* Concept Pipeline Funnel */}
-          <ConceptFunnel
-            funnel={a.funnel}
-            conversionRates={a.conversionRates}
-            oldestPendingDays={a.mdReview.oldestPendingDays}
-          />
-
           {/* MD Review Performance — admin only */}
           {isAdminCheck(role) && (
             <MdReviewPanel stats={a.mdReview} />
           )}
 
-          {/* Leaderboard */}
+          {/* Designer Leaderboard */}
           <DesignerLeaderboard data={a.designerStats} concepts={concepts} />
-
-          {/* Approval speed */}
-          <ConceptTurnaround data={a.approvalSpeed} />
         </>
       )}
     </div>

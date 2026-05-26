@@ -40,6 +40,9 @@ import { useDesignerCodes } from "@/hooks/useDesignerCodes";
 import { isAdmin as isAdminCheck } from "@/lib/permissions";
 import { scorecardDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import { KpiCard } from "@/components/analytics/KpiCard";
+import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
+import { AlertBanner } from "@/components/analytics/AlertBanner";
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: "week", label: "Week" },
@@ -271,10 +274,13 @@ export function ScorecardsView() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
+    <div className="space-y-4">
+      {/* ── Header — title left; search + leader summary + period filters
+           right-aligned on the same row. Hero strip below carries the
+           team-level KPIs and a subtle textile dot overlay so the page
+           reads in the visual language of digital fabric printing. ── */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
             <Trophy className="h-5 w-5 text-warning" />
           </div>
@@ -287,96 +293,129 @@ export function ScorecardsView() {
             </p>
           </div>
         </div>
-        <div className="inline-flex rounded-lg bg-secondary p-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => setPeriod(p.value)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                period === p.value
-                  ? "bg-primary text-white"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* ── Team summary banner ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryStat
-          icon={<UsersIcon className="h-4 w-4 text-primary" />}
-          label="Designers"
-          value={teamSummary.total}
-          tint="primary"
-        />
-        <SummaryStat
-          icon={<Target className="h-4 w-4 text-success" />}
-          label="Avg Composite"
-          value={`${teamSummary.avgScore}`}
-          sub="/100"
-          tint={
-            teamSummary.avgScore >= 70
-              ? "success"
-              : teamSummary.avgScore >= 50
-              ? "warning"
-              : "destructive"
-          }
-        />
-        <SummaryStat
-          icon={<CheckCircle2 className="h-4 w-4 text-success" />}
-          label="On Track"
-          value={teamSummary.onTrack}
-          sub={`of ${rows.filter((r) => r.hasActivity).length} active`}
-          tint="success"
-        />
-        <SummaryStat
-          icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
-          label="Needs Support"
-          value={teamSummary.needsSupport}
-          tint={teamSummary.needsSupport > 0 ? "destructive" : "muted"}
-        />
-      </div>
-
-      {/* ── Top performer call-out ── */}
-      {teamSummary.topPerformer && teamSummary.topPerformer.compositeScore > 0 && (
-        <div className="flex items-center gap-3 rounded-xl border border-warning/30 bg-warning/[0.06] px-4 py-3">
-          <Trophy className="h-5 w-5 shrink-0 text-warning" />
-          <div className="flex-1">
-            <p className="text-sm text-foreground">
-              <b>{teamSummary.topPerformer.name}</b> leads the period with a
-              composite score of{" "}
-              <b className="text-success">
-                {teamSummary.topPerformer.compositeScore}/100
-              </b>
-            </p>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* Search */}
+          <div className="relative w-[220px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search designer or code…"
+              className="h-9 pl-8 text-sm"
+            />
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => openScorecard(teamSummary.topPerformer!.id)}
-            className="gap-1"
-          >
-            View scorecard
-            <ArrowUpRight className="h-3 w-3" />
-          </Button>
-        </div>
-      )}
 
-      {/* ── Search ── */}
-      <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search designer or code…"
-          className="pl-8"
-        />
+          {/* Leader summary — compact inline form of the old banner */}
+          {teamSummary.topPerformer && teamSummary.topPerformer.compositeScore > 0 && (
+            <button
+              type="button"
+              onClick={() => openScorecard(teamSummary.topPerformer!.id)}
+              className="group flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-warning/[0.06] px-2.5 text-xs transition-colors hover:bg-warning/[0.12]"
+              title={`${teamSummary.topPerformer.name} · ${teamSummary.topPerformer.compositeScore}/100`}
+            >
+              <Trophy className="h-3.5 w-3.5 shrink-0 text-warning" />
+              <span className="max-w-[140px] truncate font-medium text-foreground">
+                {teamSummary.topPerformer.name}
+              </span>
+              <span className="font-bold tabular-nums text-success">
+                {teamSummary.topPerformer.compositeScore}
+              </span>
+              <ArrowUpRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+            </button>
+          )}
+
+          {/* Period filter */}
+          <div className="inline-flex rounded-lg bg-secondary p-1">
+            {PERIODS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setPeriod(p.value)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  period === p.value
+                    ? "bg-primary text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* ── Team KPI strip — wrapped in the shared TextileHeroWrapper so
+           the inline duplicate frame is gone. Same KpiCard primitive
+           used on every other dashboard. ── */}
+      <TextileHeroWrapper className="p-0 sm:p-0">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:divide-y-0 lg:grid-cols-4">
+          <KpiCard
+            flat
+            icon={<UsersIcon className="h-4 w-4 text-primary" />}
+            label="Designers"
+            value={teamSummary.total}
+            tintClass="bg-primary/10"
+          />
+          <KpiCard
+            flat
+            icon={<Target className="h-4 w-4 text-success" />}
+            label="Avg Composite"
+            value={`${teamSummary.avgScore}/100`}
+            tintClass="bg-success/10"
+            valueColor={
+              teamSummary.avgScore >= 70
+                ? "text-success"
+                : teamSummary.avgScore >= 50
+                  ? "text-warning"
+                  : "text-destructive"
+            }
+            sub="team average score"
+          />
+          <KpiCard
+            flat
+            icon={<CheckCircle2 className="h-4 w-4 text-success" />}
+            label="On Track"
+            value={teamSummary.onTrack}
+            tintClass="bg-success/10"
+            valueColor="text-success"
+            sub={`of ${rows.filter((r) => r.hasActivity).length} active`}
+          />
+          <KpiCard
+            flat
+            icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
+            label="Needs Support"
+            value={teamSummary.needsSupport}
+            tintClass={
+              teamSummary.needsSupport > 0
+                ? "bg-destructive/10"
+                : "bg-secondary"
+            }
+            valueColor={
+              teamSummary.needsSupport > 0
+                ? "text-destructive"
+                : "text-muted-foreground"
+            }
+            sub={
+              teamSummary.needsSupport > 0
+                ? "score below 50"
+                : "all designers above threshold"
+            }
+          />
+        </div>
+      </TextileHeroWrapper>
+
+      {/* Needs-support alert — surfaces designers below the threshold so
+          managers don't have to scroll the grid to find them. */}
+      {teamSummary.needsSupport > 0 ? (
+        <AlertBanner
+          variant="danger"
+          title="Needs Support"
+          count={teamSummary.needsSupport}
+          description="Designers with a composite score below 50 — open their card to see strengths and watchouts."
+        />
+      ) : null}
 
       {/* ── Grid of scorecards ── */}
       {isLoading ? (
@@ -411,46 +450,6 @@ export function ScorecardsView() {
 // Sub-components
 // ============================================================================
 
-function SummaryStat({
-  icon,
-  label,
-  value,
-  sub,
-  tint,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  sub?: string;
-  tint: "primary" | "success" | "warning" | "destructive" | "muted";
-}) {
-  const tintBg: Record<typeof tint, string> = {
-    primary: "border-primary/20",
-    success: "border-success/25",
-    warning: "border-warning/25",
-    destructive: "border-destructive/25",
-    muted: "border-border",
-  };
-  const valueColor: Record<typeof tint, string> = {
-    primary: "text-foreground",
-    success: "text-success",
-    warning: "text-warning",
-    destructive: "text-destructive",
-    muted: "text-muted-foreground",
-  };
-  return (
-    <div className={cn("rounded-xl border bg-card p-3", tintBg[tint])}>
-      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <p className={cn("mt-1 text-2xl font-bold tabular-nums", valueColor[tint])}>
-        {value}
-        {sub && <span className="ml-1 text-xs font-normal text-muted-foreground">{sub}</span>}
-      </p>
-    </div>
-  );
-}
 
 interface CardRow {
   id: string;

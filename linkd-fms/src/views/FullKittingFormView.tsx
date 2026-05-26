@@ -140,14 +140,15 @@ export default function FullKittingFormView() {
     setState({ kind: "loading" });
 
     void (async () => {
-      // Pull the joined task + client in one round-trip — we use task_code as
-      // the UID display and client.party_name as the party-name pre-fill.
+      // Two-step fetch (avoids PostgREST embed quirks under RLS).
+      // 1. Pull the FK row.
+      // 2. Pull the parent task OR sample — whichever the row links to —
+      //    for UID + party-name pre-fill.
       const { data, error } = await supabase
         .from("full_kitting_details")
         .select(
-          `id, task_id, image_url, party_name, data_entry_status, priority,
-           form_date, form_payload,
-           tasks:task_id ( task_code, clients:client_id ( party_name ) )`
+          `id, task_id, sample_id, image_url, party_name, data_entry_status,
+           priority, form_date, form_payload`
         )
         .eq("id", recordId)
         .maybeSingle();
@@ -162,14 +163,32 @@ export default function FullKittingFormView() {
         return;
       }
 
-      // The Supabase response nests the join — flatten into the KittingRow
-      // shape so consumers don't have to know about the join structure.
-      // PostgREST returns the join as an object when the FK is single-row
-      // (which it is here, task_id is a single FK).
-      const joinedTask =
-        (data as unknown as {
-          tasks?: { task_code?: string | null; clients?: { party_name?: string | null } | null } | null;
-        }).tasks ?? null;
+      let parentCode: string | null = null;
+      let parentParty: string | null = null;
+      const sampleId = (data as { sample_id?: string | null }).sample_id ?? null;
+      if (data.task_id) {
+        const { data: t } = await supabase
+          .from("tasks")
+          .select("task_code, clients:client_id ( party_name )")
+          .eq("id", data.task_id)
+          .maybeSingle();
+        if (t) {
+          parentCode = t.task_code;
+          const c = (t as unknown as { clients?: { party_name?: string | null } | null }).clients;
+          parentParty = c?.party_name ?? null;
+        }
+      } else if (sampleId) {
+        const { data: s } = await supabase
+          .from("samples")
+          .select("uid, party_name")
+          .eq("id", sampleId)
+          .maybeSingle();
+        if (s) {
+          parentCode = s.uid;
+          parentParty = s.party_name;
+        }
+      }
+
       const row: KittingRow = {
         id: data.id,
         task_id: data.task_id,
@@ -179,8 +198,8 @@ export default function FullKittingFormView() {
         priority: data.priority as KittingRow["priority"],
         form_date: data.form_date,
         form_payload: data.form_payload as Record<string, unknown> | null,
-        task_code: joinedTask?.task_code ?? null,
-        client_party_name: joinedTask?.clients?.party_name ?? null,
+        task_code: parentCode,
+        client_party_name: parentParty,
       };
       setState({ kind: "ready", row });
     })();

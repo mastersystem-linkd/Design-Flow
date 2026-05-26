@@ -31,6 +31,7 @@ import { LoadingButton } from "@/components/ui/LoadingButton";
 import { toast } from "@/components/ui/Toaster";
 import { cn, formatDate } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { TABLE_HEAD, TABLE_TH } from "@/lib/tableStyles";
 import {
   Avatar,
   AvatarFallback,
@@ -190,7 +191,7 @@ export function TeamView() {
   const isLoading = profilesLoading || codesLoading;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-3">
           <p className="text-sm text-muted-foreground">
@@ -239,13 +240,13 @@ export function TeamView() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <caption className="sr-only">Team members and roles</caption>
-                <thead className="border-y border-border bg-secondary/60 text-left text-[11px] font-bold uppercase tracking-wider text-foreground">
+                <thead className={TABLE_HEAD}>
                   <tr>
-                    <th className="px-4 py-2 font-medium">Name</th>
-                    <th className="px-4 py-2 font-medium">Role</th>
-                    <th className="px-4 py-2 font-medium">Designer codes</th>
-                    <th className="px-4 py-2 font-medium">Joined</th>
-                    {canManage && <th className="px-4 py-2 font-medium text-right">Actions</th>}
+                    <th className={TABLE_TH}>Name</th>
+                    <th className={TABLE_TH}>Role</th>
+                    <th className={TABLE_TH}>Designer codes</th>
+                    <th className={TABLE_TH}>Joined</th>
+                    {canManage && <th className={cn(TABLE_TH, "text-right")}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -494,14 +495,16 @@ export function TeamView() {
 // AddUserDialog — admin / coordinator creates a new team member
 // ============================================================================
 //
-// Uses supabase.auth.signUp from the client (no service-role key in the
-// browser). The DB trigger `handle_new_user` auto-creates the profile row
-// with role='designer'; a follow-up UPDATE flips it to the chosen role +
-// fills in full_name.
+// Calls the `admin-create-user` Edge Function which uses the service-role
+// key to:
+//   1) Verify the caller is admin/coordinator
+//   2) Create the auth user with `email_confirm: true` so they can sign
+//      in immediately (no verification email round-trip)
+//   3) Upsert the profile row with the chosen role + name
 //
-// If Supabase project has email-confirmation enabled the new user will need
-// to confirm before signing in — surface that in the success toast so the
-// admin knows the credentials work but the user hasn't activated yet.
+// Critically, this does NOT use `supabase.auth.signUp`, which would have
+// swapped the admin's session for the new user's. The admin stays logged
+// in throughout.
 
 function AddUserDialog({
   open,
@@ -541,38 +544,53 @@ function AddUserDialog({
 
     setSubmitting(true);
     try {
-      // 1) Create the auth user. The handle_new_user trigger inserts a
-      //    profile row with role='designer' + full_name from metadata.
-      const { data, error: signUpErr } = await supabase.auth.signUp({
-        email: mail,
-        password,
-        options: {
-          data: { full_name: name },
+      const { data, error: invokeErr } = await supabase.functions.invoke<{
+        id: string;
+        email: string;
+        full_name: string;
+        role: UserRole;
+        error?: string;
+      }>("admin-create-user", {
+        body: {
+          email: mail,
+          password,
+          full_name: name,
+          role,
         },
       });
-      if (signUpErr) {
-        setError(signUpErr.message);
+
+      // Edge Function returns 4xx/5xx with `{ error: string }` in the body.
+      // `supabase.functions.invoke` surfaces both transport errors (invokeErr)
+      // and server-side errors (data.error), so handle both.
+      if (invokeErr) {
+        // Pull the JSON body if present — Supabase wraps non-2xx responses.
+        const fnErr = invokeErr as unknown as {
+          message?: string;
+          context?: { body?: string };
+        };
+        let serverMsg: string | null = null;
+        if (fnErr.context?.body) {
+          try {
+            serverMsg = (JSON.parse(fnErr.context.body) as { error?: string })
+              .error ?? null;
+          } catch {
+            /* not JSON */
+          }
+        }
+        setError(serverMsg ?? fnErr.message ?? "Failed to create user");
         return;
       }
-      const newUserId = data.user?.id;
-      if (!newUserId) {
+      if (data?.error) {
+        setError(data.error);
+        return;
+      }
+      if (!data?.id) {
         setError("Couldn't create user — no id returned");
         return;
       }
 
-      // 2) Overwrite the trigger's defaults with the chosen role + name.
-      //    RLS allows admin/coordinator to update any profile.
-      const { error: updErr } = await supabase
-        .from("profiles")
-        .update({ role, full_name: name })
-        .eq("id", newUserId);
-      if (updErr) {
-        setError(`User created but couldn't set role: ${updErr.message}`);
-        return;
-      }
-
       toast.success(
-        `${name} added as ${ROLE_LABELS[role]}. They can sign in with the email + password you set.`
+        `${name} added as ${ROLE_LABELS[role]}. They can sign in immediately with the email + password you set.`
       );
       reset();
       onOpenChange(false);

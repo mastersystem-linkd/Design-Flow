@@ -191,7 +191,7 @@ export function Sidebar({
           <img
             src="/logo.png"
             alt="LinkD"
-            className="block h-auto w-[120px] max-w-full"
+            className="block h-auto w-[100px] max-w-full"
             draggable={false}
           />
           {/* Subtitle — 12px bold full-white, single line. Trimmed 1pt

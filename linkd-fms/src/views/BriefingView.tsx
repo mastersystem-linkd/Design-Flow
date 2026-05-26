@@ -99,6 +99,7 @@ export function NewBriefDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-2xl max-h-[90vh] overflow-y-auto p-0"
+        srTitle="New Brief"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
@@ -321,6 +322,12 @@ function BriefingForm({
       e.qty = "Quantity must be at least 1.";
     }
     if (!plannedDeadline) e.planned_deadline = "Deadline is required.";
+    // If the coordinator toggled "Requires Full Knitting" on, they must
+    // upload the reference image — otherwise no DEO row gets created and
+    // the brief won't show up in the Full Knitting screen.
+    if (requiresFullKitting && !fullKittingPath) {
+      e.full_kitting_image = "Upload the Full Knitting reference image.";
+    }
     return e;
   }
 
@@ -539,10 +546,17 @@ function BriefingForm({
       // Knitting Queue. Visible warning if it fails so the coordinator knows
       // to retry via the row's ⋮ → "Full Knitting" action menu.
       if (requiresFullKitting && fullKittingPath && user) {
+        // Seed party_name + form_date so the FK row identifies itself in
+        // the Full Knitting screen before the DEO opens it; both get
+        // overwritten when the DEO submits the 12-section form.
+        const briefPartyName =
+          clients.find((c) => c.id === clientId)?.party_name ?? null;
         const { data: kitRecord, error: kitErr } = await initiateKitting({
           taskId: data.id,
           submittedBy: user.id,
           imageUrl: fullKittingPath,
+          partyName: briefPartyName,
+          formDate: todayISO(),
         });
         if (kitErr || !kitRecord) {
           // Brief was created, but DEO queue entry wasn't — warn instead of
@@ -1085,7 +1099,15 @@ function BriefingForm({
             size="lg"
             loading={submitting}
             loadingText="Creating…"
-            disabled={submitting}
+            disabled={
+              submitting ||
+              // Block submit while the Full Knitting image is still
+              // uploading — otherwise fullKittingPath is null when the
+              // handler runs and initiateKitting() never gets called,
+              // so the FK row never lands in the database.
+              uploadingFullKitting ||
+              (requiresFullKitting && !fullKittingPath)
+            }
           >
             Create brief
           </LoadingButton>

@@ -3,8 +3,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
-  ArrowUp,
-  ArrowDown,
   Download,
   MessageSquare,
   Send as SendIcon,
@@ -83,6 +81,8 @@ import { isAdmin as isAdminCheck } from "@/lib/permissions";
 import { ROLE_LABELS } from "@/lib/constants";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import { KpiCard } from "@/components/analytics/KpiCard";
+import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import type { TaskWithRelations } from "@/types/database";
 
 // ============================================================================
@@ -770,76 +770,99 @@ export function ScorecardDetailView() {
         </div>
       </Card>
 
-      {/* ── KPI ROW (5 cards) ── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <KpiTile
-          icon={<CalendarIcon className="h-3.5 w-3.5" />}
-          label="TOTAL SCHEDULED"
-          value={String(totals.scheduled)}
-        />
-        <KpiTile
-          icon={<CheckCircle className="h-3.5 w-3.5" />}
-          label="COMPLETED"
-          value={String(totals.completed)}
-          trend={
-            totals.completed > 0
-              ? { sign: "up", text: `+${totals.completed}` }
-              : { sign: "flat", text: "0" }
-          }
-          tone="success"
-        />
-        <KpiTile
-          icon={<Clock className="h-3.5 w-3.5" />}
-          label="ON-TIME %"
-          value={totals.completed === 0 ? "—" : `${totals.onTimePct}%`}
-          trend={
-            totals.onTimePct > 0
-              ? { sign: "up", text: `+${totals.onTimePct}%` }
-              : totals.completed === 0
-              ? undefined
-              : { sign: "flat", text: "0%" }
-          }
-          tone={
-            totals.completed === 0
-              ? "muted"
-              : totals.onTimePct >= 85
-              ? "success"
-              : totals.onTimePct >= 70
-              ? "warning"
-              : "destructive"
-          }
-        />
-        <KpiTile
-          icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          label="AVG DELAY"
-          value={`${totals.avgDelay}d`}
-          trend={
-            totals.avgDelay === 0 && totals.completed > 0
-              ? { sign: "flat", text: "NO CHANGE" }
-              : undefined
-          }
-          tone={
-            totals.completed === 0
-              ? "muted"
-              : totals.avgDelay <= 1
-              ? "success"
-              : totals.avgDelay <= 3
-              ? "warning"
-              : "destructive"
-          }
-        />
-        <KpiTile
-          icon={<Flame className="h-3.5 w-3.5" />}
-          label="BEST STREAK"
-          value={String(bestStreak.best)}
-          trend={
-            bestStreak.current > 0
-              ? { sign: "flat", text: `CUR ${bestStreak.current}` }
-              : undefined
-          }
-          tone={bestStreak.best > 0 ? "primary" : "muted"}
-        />
-      </div>
+      {/* ── KPI strip — same KpiCard tile used on every other dashboard
+           (Concept, Task, Sampling, Scorecards list), wrapped in the
+           shared TextileHeroWrapper. */}
+      <TextileHeroWrapper className="p-0 sm:p-0">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-5">
+          <KpiCard
+            flat
+            icon={<CalendarIcon className="h-4 w-4 text-primary" />}
+            label="Total Scheduled"
+            value={totals.scheduled}
+            tintClass="bg-primary/10"
+            sub="tasks + concepts in range"
+          />
+          <KpiCard
+            flat
+            icon={<CheckCircle className="h-4 w-4 text-success" />}
+            label="Completed"
+            value={totals.completed}
+            tintClass="bg-success/10"
+            valueColor="text-success"
+            sub={totals.completed > 0 ? "delivered this period" : "nothing closed yet"}
+          />
+          <KpiCard
+            flat
+            icon={<Clock className="h-4 w-4 text-primary" />}
+            label="On-Time %"
+            value={totals.completed === 0 ? "—" : `${totals.onTimePct}%`}
+            tintClass={
+              totals.completed === 0
+                ? "bg-secondary"
+                : totals.onTimePct >= 85
+                  ? "bg-success/10"
+                  : totals.onTimePct >= 70
+                    ? "bg-warning/10"
+                    : "bg-destructive/10"
+            }
+            valueColor={
+              totals.completed === 0
+                ? "text-muted-foreground"
+                : totals.onTimePct >= 85
+                  ? "text-success"
+                  : totals.onTimePct >= 70
+                    ? "text-warning"
+                    : "text-destructive"
+            }
+            sub={
+              totals.completed === 0
+                ? "no completions yet"
+                : totals.onTimePct >= 85
+                  ? "on target"
+                  : "watch closely"
+            }
+          />
+          <KpiCard
+            flat
+            icon={<AlertTriangle className="h-4 w-4 text-warning" />}
+            label="Avg Delay"
+            value={`${totals.avgDelay}d`}
+            tintClass={
+              totals.completed === 0
+                ? "bg-secondary"
+                : totals.avgDelay <= 1
+                  ? "bg-success/10"
+                  : totals.avgDelay <= 3
+                    ? "bg-warning/10"
+                    : "bg-destructive/10"
+            }
+            valueColor={
+              totals.completed === 0
+                ? "text-muted-foreground"
+                : totals.avgDelay <= 1
+                  ? "text-success"
+                  : totals.avgDelay <= 3
+                    ? "text-warning"
+                    : "text-destructive"
+            }
+            sub={totals.completed === 0 ? "no completions" : "avg vs. plan"}
+          />
+          <KpiCard
+            flat
+            icon={<Flame className="h-4 w-4 text-primary" />}
+            label="Best Streak"
+            value={bestStreak.best}
+            tintClass={bestStreak.best > 0 ? "bg-primary/10" : "bg-secondary"}
+            valueColor={bestStreak.best > 0 ? "text-primary" : "text-muted-foreground"}
+            sub={
+              bestStreak.current > 0
+                ? `Current: ${bestStreak.current}`
+                : "no active streak"
+            }
+          />
+        </div>
+      </TextileHeroWrapper>
 
       {/* ── ROW: Concept + Task performance (detailed score cards) ── */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -1253,25 +1276,29 @@ export function ScorecardDetailView() {
         </Card>
 
         {/* Composition donut */}
-        <Card className="border border-border">
-          <div className="p-4">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Composition
             </p>
-            <h3 className="mb-3 text-sm font-semibold text-foreground">
+            <h3 className="text-sm font-semibold text-foreground">
               On-time · Late · Pending
             </h3>
-            <CompositionDonut
-              onTime={totals.onTime}
-              late={totals.delayed}
-              pending={totals.pending}
-            />
+            <div className="flex flex-1 items-center">
+              <div className="w-full">
+                <CompositionDonut
+                  onTime={totals.onTime}
+                  late={totals.delayed}
+                  pending={totals.pending}
+                />
+              </div>
+            </div>
           </div>
         </Card>
 
         {/* Weekly throughput sparkline */}
-        <Card className="border border-border">
-          <div className="p-4">
+        <Card className="h-full border border-border">
+          <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <TrendingUp className="h-3 w-3" />
               <span>Throughput</span>
@@ -1279,7 +1306,11 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Weekly · last 12 weeks
             </h3>
-            <ThroughputSparkline data={throughputWeekly} />
+            <div className="flex flex-1 items-center">
+              <div className="w-full">
+                <ThroughputSparkline data={throughputWeekly} />
+              </div>
+            </div>
           </div>
         </Card>
       </div>
@@ -1368,8 +1399,10 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Pipeline funnel
             </h3>
-            <div className="flex-1">
-              <ConceptFunnelChart data={conceptFunnel} />
+            <div className="flex flex-1 items-center">
+              <div className="w-full">
+                <ConceptFunnelChart data={conceptFunnel} />
+              </div>
             </div>
           </div>
         </Card>
@@ -1621,74 +1654,6 @@ function ComponentBar({
         {pts}
       </span>
     </div>
-  );
-}
-
-// ============================================================================
-// KPI Tile (5-card row)
-// ============================================================================
-
-function KpiTile({
-  icon,
-  label,
-  value,
-  trend,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  trend?: { sign: "up" | "down" | "flat"; text: string };
-  tone?: "success" | "warning" | "destructive" | "primary" | "muted";
-}) {
-  const valueClass =
-    tone === "success"
-      ? "text-success"
-      : tone === "warning"
-      ? "text-warning"
-      : tone === "destructive"
-      ? "text-destructive"
-      : tone === "primary"
-      ? "text-primary"
-      : tone === "muted"
-      ? "text-muted-foreground"
-      : "text-foreground";
-  const trendIcon =
-    trend?.sign === "up" ? (
-      <ArrowUp className="h-3 w-3" />
-    ) : trend?.sign === "down" ? (
-      <ArrowDown className="h-3 w-3" />
-    ) : null;
-  const trendColor =
-    trend?.sign === "up"
-      ? "text-success"
-      : trend?.sign === "down"
-      ? "text-destructive"
-      : "text-muted-foreground";
-
-  return (
-    <Card className="border border-border">
-      <div className="p-3">
-        <div className="flex items-center justify-between text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {icon}
-          <span>{label}</span>
-        </div>
-        <p className={cn("mt-2 text-2xl font-bold tabular-nums leading-none", valueClass)}>
-          {value}
-        </p>
-        {trend && (
-          <p
-            className={cn(
-              "mt-2 inline-flex items-center gap-0.5 text-[10px] font-semibold",
-              trendColor
-            )}
-          >
-            {trendIcon}
-            {trend.text}
-          </p>
-        )}
-      </div>
-    </Card>
   );
 }
 
@@ -2074,7 +2039,7 @@ function MomentumChart({
 
   return (
     <div className="h-[220px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
         <AreaChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
           <CartesianGrid
             strokeDasharray="3 3"
@@ -2183,7 +2148,7 @@ function CompositionDonut({
   return (
     <div className="flex h-full flex-col items-center gap-4">
       {/* Bigger centered donut */}
-      <div className="relative h-[140px] w-[140px] shrink-0">
+      <div className="relative h-[170px] w-[170px] shrink-0">
         <svg viewBox="0 0 100 100" className="-rotate-90 h-full w-full" aria-hidden>
           <circle
             cx="50"
@@ -3180,7 +3145,7 @@ function ThroughputSparkline({
 
   return (
     <div className="mt-3">
-      <div className="flex items-end gap-1" style={{ height: 80 }}>
+      <div className="flex items-end gap-1" style={{ height: 120 }}>
         {data.map((d) => {
           const h = d.total > 0 ? (d.total / max) * 100 : 0;
           const taskH = d.total > 0 ? (d.tasks / d.total) * 100 : 0;

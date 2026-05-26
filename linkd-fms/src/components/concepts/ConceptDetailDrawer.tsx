@@ -245,7 +245,7 @@ export function ConceptDetailDrawer({
   if (!concept) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-3xl" />
+        <DialogContent className="sm:max-w-3xl" srTitle="Concept details" />
       </Dialog>
     );
   }

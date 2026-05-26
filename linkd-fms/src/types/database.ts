@@ -733,7 +733,8 @@ export type Database = {
           created_at: string;
           updated_at: string;
           sr_no: number | null;
-          uid: string | null;
+          /** Auto-generated SMP-YYYY-NNNN code; never null after 0032 runs. */
+          uid: string;
           party_name: string;
           quality: string | null;
           total_fabrics_received: number | null;
@@ -919,7 +920,12 @@ export type Database = {
       full_kitting_details: {
         Row: {
           id: string;
-          task_id: string;
+          /** Set when this FK row was opened from a brief. Mutually
+           *  exclusive with sample_id (DB CHECK enforces XOR). */
+          task_id: string | null;
+          /** Set when this FK row was opened from the Sampling screen.
+           *  Mutually exclusive with task_id. */
+          sample_id: string | null;
           submitted_by: string;
           fabric_details: string | null;
           colors: string | null;
@@ -956,7 +962,8 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          task_id: string;
+          task_id?: string | null;
+          sample_id?: string | null;
           submitted_by: string;
           fabric_details?: string | null;
           colors?: string | null;
@@ -988,7 +995,8 @@ export type Database = {
         };
         Update: {
           id?: string;
-          task_id?: string;
+          task_id?: string | null;
+          sample_id?: string | null;
           submitted_by?: string;
           fabric_details?: string | null;
           colors?: string | null;
@@ -1044,6 +1052,7 @@ export type Database = {
         Row: {
           id: string;
           task_id: string | null;
+          sample_id: string | null;
           image_url: string | null;
           party_name: string | null;
           priority:

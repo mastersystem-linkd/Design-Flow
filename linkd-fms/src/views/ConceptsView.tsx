@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import ReactDOM from "react-dom";
 import {
@@ -20,6 +20,7 @@ import {
   Sparkles,
   AlertCircle,
   FilterX,
+  Calendar,
 } from "lucide-react";
 import { differenceInDays, format, parseISO } from "date-fns";
 import { useConcepts } from "@/hooks/useConcepts";
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui";
 import { type CsvColumn } from "@/lib/exportCSV";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { useProfiles } from "@/hooks/useProfiles";
 import { usePagination } from "@/hooks/usePagination";
 import { SubmitConceptDialog } from "@/components/concepts/SubmitConceptDialog";
 import { ConceptDetailDrawer } from "@/components/concepts/ConceptDetailDrawer";
@@ -236,6 +238,9 @@ export function ConceptsView() {
   const isAdmin = role === "admin" || role === "design_coordinator";
   const isDesigner = role === "designer";
   const userId = profile?.id;
+  const { profiles: designers } = useProfiles({ roles: ["designer"] });
+  const [designerFilter, setDesignerFilter] = useState<string>("");
+  const [dateRange, setDateRange] = useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
   // URL deep-linking: dashboard KPI cards link to `/concepts?tab=approved` etc.
   // Read once for the initial state, then re-sync on URL change so card clicks
@@ -316,7 +321,7 @@ export function ConceptsView() {
     },
   ];
 
-  // â”€â”€ Counts â”€â”€
+  // -- Counts --
   // `approved` here is "approved but NOT yet completed". Fully completed
   // concepts get their own bucket so the two tabs never double-count.
   const counts = useMemo(() => {
@@ -377,11 +382,15 @@ export function ConceptsView() {
   const allVisible = useMemo(() => {
     // Inbox mode short-circuits everything — admin sees only their queue.
     if (inboxMode) {
-      return concepts.filter(
+      let pool = concepts.filter(
         (c) =>
           c.md_status === "pending" ||
           (c.md_status === "approved" && c.work_status === "in_revision")
       );
+      if (designerFilter) {
+        pool = pool.filter((c) => c.designer_id === designerFilter);
+      }
+      return pool;
     }
     // First narrow by md_status tab.
     let pool = concepts;
@@ -390,11 +399,7 @@ export function ConceptsView() {
     } else if (tab !== "all") {
       pool = concepts.filter((c) => c.md_status === tab && !isCompleted(c));
     }
-    // Then narrow further by Stage chip. Most chips filter by work_status
-    // and only apply under Status: All/Approved. `rejected` is a hybrid
-    // that filters by md_status — it works under Status: All so the user
-    // can jump straight to rejected concepts without re-picking the
-    // Status dropdown.
+    // Then narrow further by Stage chip.
     if (workTab === "rejected" && tab === "all") {
       pool = pool.filter((c) => c.md_status === "rejected");
     } else {
@@ -406,8 +411,23 @@ export function ConceptsView() {
         pool = pool.filter((c) => c.work_status === workTab);
       }
     }
+    // Designer filter
+    if (designerFilter) {
+      pool = pool.filter((c) => c.designer_id === designerFilter);
+    }
+    // Date range filter
+    if (dateRange.from || dateRange.to) {
+      const from = dateRange.from ? new Date(dateRange.from).getTime() : -Infinity;
+      const to = dateRange.to ? new Date(dateRange.to + "T23:59:59.999").getTime() : Infinity;
+      pool = pool.filter((c) => {
+        const anchor = c.start_date ?? c.created_at;
+        if (!anchor) return false;
+        const ts = new Date(anchor).getTime();
+        return ts >= from && ts <= to;
+      });
+    }
     return pool;
-  }, [concepts, tab, workTab, inboxMode]);
+  }, [concepts, tab, workTab, inboxMode, designerFilter, dateRange]);
 
   const conceptPg = usePagination(allVisible.length, 25);
 
@@ -429,7 +449,7 @@ export function ConceptsView() {
 
   return (
     <div className="space-y-5">
-      {/* â”€â”€ Header â”€â”€ */}
+      {/* -- Header -- */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -442,7 +462,31 @@ export function ConceptsView() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (needsApprovalCount > 0 || inboxMode) && (
+            <button
+              type="button"
+              onClick={() => setInboxMode((v) => !v)}
+              aria-pressed={inboxMode}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all",
+                inboxMode
+                  ? "border-primary bg-primary text-white shadow-sm"
+                  : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+              )}
+            >
+              <AlertCircle className="h-3 w-3" />
+              <span className="hidden sm:inline">{inboxMode ? "Inbox" : "Approval"}</span>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none",
+                  inboxMode ? "bg-white/25 text-white" : "bg-primary text-white"
+                )}
+              >
+                {needsApprovalCount}
+              </span>
+            </button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -453,7 +497,7 @@ export function ConceptsView() {
             <RefreshCw
               className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
             />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           {canExport && (
             <Button
@@ -472,64 +516,23 @@ export function ConceptsView() {
             onClick={() => setSubmitOpen(true)}
           >
             <Plus className="h-3.5 w-3.5" />
-            Submit Concept
+            <span className="hidden sm:inline">Submit Concept</span>
           </Button>
         </div>
       </div>
 
       {/* Role-specific dashboards (KPI cards + Concept Progress bars) moved
-          to the Concept Dashboard (Dashboards â†’ Concepts tab). Concepts page
+          to the Concept Dashboard (Dashboards -> Concepts tab). Concepts page
           now stays focused on the list / workflow table. */}
 
-      {/* ── Admin inbox quick-filter — surfaces the two queues that need
-           MD action (initial review + final design review) as one chip.
-           Admin/coordinator only since designers don't have approval
-           power. Auto-hides when there's nothing in the queue so it
-           doesn't read as broken. ── */}
-      {isAdmin && (needsApprovalCount > 0 || inboxMode) && (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setInboxMode((v) => !v)}
-            aria-pressed={inboxMode}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-all",
-              inboxMode
-                ? "border-primary bg-primary text-white shadow-card-soft"
-                : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-            )}
-          >
-            <span
-              className={cn(
-                "flex h-5 w-5 items-center justify-center rounded-md",
-                inboxMode ? "bg-white/20" : "bg-primary/15"
-              )}
-            >
-              <AlertCircle className="h-3 w-3" />
-            </span>
-            <span>Needs your approval</span>
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums",
-                inboxMode ? "bg-white/25 text-white" : "bg-primary text-white"
-              )}
-            >
-              {needsApprovalCount}
-            </span>
-            {inboxMode && (
-              <span className="text-[10px] font-normal opacity-80">
-                · click to exit
-              </span>
-            )}
+      {/* Inbox mode info banner */}
+      {inboxMode && (
+        <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] text-muted-foreground">
+          Showing only concepts pending your review. Status &amp; Stage filters are paused.
+          <button type="button" onClick={() => setInboxMode(false)} className="ml-2 font-medium text-primary hover:underline">
+            Exit inbox
           </button>
-          {inboxMode && (
-            <p className="text-[11px] text-muted-foreground">
-              Showing only concepts pending your review (initial) or your
-              final verdict (designer marked done). Status &amp; Stage
-              filters are paused.
-            </p>
-          )}
-        </div>
+        </p>
       )}
 
       {/* ── Filter row — md_status dropdown + work-stage chips on one line.
@@ -581,8 +584,11 @@ export function ConceptsView() {
           Object.values(workCounts).reduce((a, b) => a + b, 0) > 0 && (
           <>
             <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {/* Stage chips scroll horizontally on phones instead of
+                wrapping to a second / third row — keeps the filter band
+                a single visual layer on small screens. */}
+            <div className="no-scrollbar touch-scroll-x -mx-3 flex max-w-full items-center gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:flex-wrap sm:px-0">
+              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Stage
               </span>
               <FilterChip
@@ -611,35 +617,86 @@ export function ConceptsView() {
           </>
         )}
 
-        {/* Clear-all filters — appears only when at least one filter is
-             engaged (Status != all OR Stage != all). Hidden when Inbox
-             mode is on because (a) the Inbox chip has its own "click to
-             exit" affordance and (b) the filter row dims while Inbox is
-             active, so this button would be unclickable anyway. */}
-        {!inboxMode && (tab !== "all" || workTab !== "all") && (
-          <button
-            type="button"
-            onClick={() => {
-              setTab("all");
-              setWorkTab("all");
-            }}
-            title="Reset Status and Stage filters"
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
-          >
-            <FilterX className="h-3.5 w-3.5" />
-            Clear filters
-          </button>
-        )}
+        {/* Right side — designer dropdown + date filter + clear */}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+          {isAdmin && (
+            <>
+              <select
+                value={designerFilter}
+                onChange={(e) => setDesignerFilter(e.target.value)}
+                className="h-9 min-w-0 flex-shrink rounded-md border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="Filter by designer"
+              >
+                <option value="">All designers</option>
+                {designers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1">
+                <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <input
+                  type="date"
+                  value={dateRange.from ?? ""}
+                  onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
+                  className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
+                  aria-label="Filter from date"
+                  title="From date"
+                />
+                <span className="text-[10px] text-muted-foreground">to</span>
+                <input
+                  type="date"
+                  value={dateRange.to ?? ""}
+                  onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
+                  className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
+                  aria-label="Filter to date"
+                  title="To date"
+                />
+                {(dateRange.from || dateRange.to) && (
+                  <button
+                    type="button"
+                    onClick={() => setDateRange({ from: null, to: null })}
+                    className="ml-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    title="Clear date filter"
+                    aria-label="Clear date filter"
+                  >
+                    <span className="text-xs leading-none">&times;</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+          {!inboxMode && (tab !== "all" || workTab !== "all" || designerFilter || dateRange.from || dateRange.to) && (
+            <button
+              type="button"
+              onClick={() => {
+                setTab("all");
+                setWorkTab("all");
+                setDesignerFilter("");
+                setDateRange({ from: null, to: null });
+              }}
+              title="Reset all filters"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive active:scale-[0.97]"
+            >
+              <FilterX className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Clear filters</span>
+              <span className="sm:hidden">Clear</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* â”€â”€ Error â”€â”€ */}
+      {/* -- Error -- */}
       {error && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
 
-      {/* â”€â”€ Pipeline Table â”€â”€ */}
+      {/* -- Pipeline Table -- */}
       {isLoading && concepts.length === 0 ? (
         <LoadingSkeleton />
       ) : visible.length === 0 ? (
@@ -674,7 +731,7 @@ export function ConceptsView() {
           <table className="w-full min-w-[2600px] border-collapse text-[13px]">
             <caption className="sr-only">Design concepts with approval workflow</caption>
             <thead>
-              {/* â”€â”€ Row 1: Merged category headers â”€â”€ */}
+              {/* -- Row 1: Merged category headers -- */}
               <tr>
                 <th
                   rowSpan={2}
@@ -766,7 +823,7 @@ export function ConceptsView() {
                       {String(conceptPg.from + idx + 1).padStart(2, "0")}
                     </td>
 
-                    {/* â”€â”€ Concept Creation â”€â”€ */}
+                    {/* -- Concept Creation -- */}
                     {/* ── Stage 1 · Concept Submitted ── */}
                     <Cell>{fmtDate(c.start_date ?? c.created_at)}</Cell>
                     <td className="px-3 py-3">
@@ -960,7 +1017,7 @@ export function ConceptsView() {
         </>
       )}
 
-      {/* â”€â”€ Pagination â”€â”€ */}
+      {/* -- Pagination -- */}
       {allVisible.length > 0 && (
         <Pagination
           page={conceptPg.page}
@@ -974,7 +1031,7 @@ export function ConceptsView() {
         />
       )}
 
-      {/* â”€â”€ Dialogs / Drawers â”€â”€ */}
+      {/* -- Dialogs / Drawers -- */}
       <SubmitConceptDialog
         open={submitOpen}
         onOpenChange={setSubmitOpen}
@@ -1263,7 +1320,7 @@ function FilterChip({
       onClick={onClick}
       title={hint}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
         active
           ? "bg-primary text-white"
           : "text-muted-foreground hover:bg-secondary hover:text-foreground"

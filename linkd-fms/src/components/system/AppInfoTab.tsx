@@ -4,9 +4,12 @@ import {
   Database,
   GitBranch,
   Code2,
-  Info,
   Monitor,
   Globe,
+  CheckCircle2,
+  Server,
+  Cpu,
+  Shield,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfiles } from "@/hooks/useProfiles";
@@ -17,21 +20,13 @@ import {
   CardContent,
   Skeleton,
 } from "@/components/ui";
-
-// ============================================================================
-// AppInfoTab — system + environment overview
-// ============================================================================
-//
-// Read-only summary page. Useful for the admin to confirm "what's running"
-// at a glance without leaving the app, and to drop into a support ticket
-// (Supabase URL is masked so it can be copy/pasted from a screenshot
-// without leaking the full ref).
+import { cn } from "@/lib/utils";
 
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL ??
   "https://jyfwyfpwbbgfpsntubfy.supabase.co";
 
-const LATEST_MIGRATION = "0019"; // bump this when migrations advance
+const LATEST_MIGRATION = "0019";
 
 interface RowCounts {
   tasks: number;
@@ -43,9 +38,8 @@ interface RowCounts {
 export function AppInfoTab() {
   const { profiles, isLoading: profilesLoading } = useProfiles();
   const { totalCount: clientCount } = useClients();
-  const { theme, resolvedTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
-  // Three head-count queries in parallel — much cheaper than fetching rows.
   const [counts, setCounts] = useState<RowCounts>({
     tasks: 0,
     concepts: 0,
@@ -73,191 +67,231 @@ export function AppInfoTab() {
     };
   }, []);
 
-  // Group profiles by role for the Users tile breakdown.
   const userBreakdown = (() => {
-    const out = { admin: 0, design_coordinator: 0, designer: 0 };
+    const out = { admin: 0, design_coordinator: 0, designer: 0, deo: 0 };
     for (const p of profiles ?? []) {
       if (p.role in out) out[p.role as keyof typeof out]++;
     }
     return out;
   })();
 
-  // Environment fingerprint — collected once on mount. Window dimensions
-  // could update on resize but that's noisy to subscribe to; the snapshot
-  // is good enough for support.
+  const totalUsers = profiles?.length ?? 0;
+  const totalRecords = counts.tasks + counts.concepts + counts.samples + clientCount;
+
   const env = (() => {
-    if (typeof window === "undefined") {
-      return {
-        screen: "—",
-        userAgent: "—",
-        timezone: "—",
-      };
-    }
+    if (typeof window === "undefined") return { screen: "—", userAgent: "—", timezone: "—" };
     return {
       screen: `${window.innerWidth} × ${window.innerHeight}`,
       userAgent: navigator.userAgent.slice(0, 80),
-      timezone:
-        Intl.DateTimeFormat().resolvedOptions().timeZone ?? "—",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "—",
     };
   })();
 
+  const recordBreakdown = [
+    { label: "Tasks", value: counts.tasks, color: "bg-primary" },
+    { label: "Concepts", value: counts.concepts, color: "bg-success" },
+    { label: "Samples", value: counts.samples, color: "bg-warning" },
+    { label: "Clients", value: clientCount, color: "bg-destructive" },
+  ];
+
+  const roleBreakdown = [
+    { label: "Admins", value: userBreakdown.admin, color: "bg-primary" },
+    { label: "Coordinators", value: userBreakdown.design_coordinator, color: "bg-success" },
+    { label: "Designers", value: userBreakdown.designer, color: "bg-warning" },
+    { label: "DEO", value: userBreakdown.deo, color: "bg-destructive" },
+  ];
+
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex items-center gap-2">
-            <Info className="h-4 w-4 text-primary" />
-            <h3 className="text-base font-semibold text-foreground">App Info</h3>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Build, database, and environment snapshot. Useful for support
-            tickets and confirming what's deployed.
-          </p>
-        </CardContent>
+    <div className="space-y-4">
+      {/* ── System Status Banner ── */}
+      <Card className="overflow-hidden">
+        <div className="relative bg-gradient-to-r from-success/10 via-card to-card">
+          <CardContent className="flex items-center justify-between gap-4 py-3.5">
+            <div className="flex items-center gap-3">
+              <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-success/15">
+                <CheckCircle2 className="h-[18px] w-[18px] text-success" />
+                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-success animate-pulse" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">All Systems Operational</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Database connected · {totalUsers} active users · PostgreSQL 15
+                </p>
+              </div>
+            </div>
+            <div className="hidden items-center gap-2 sm:flex">
+              <span className="rounded-full bg-card border border-border px-3 py-1 text-[11px] font-medium text-foreground">
+                Design Flow v1.0.0
+              </span>
+            </div>
+          </CardContent>
+        </div>
       </Card>
 
-      {/* Stats grid — 4 cards in a 2×2 (desktop) / 1-col (mobile). */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <InfoTile
-          icon={<Users className="h-5 w-5 text-primary" />}
+      {/* ── Quick Stats Row ── */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <QuickStat
+          icon={<Users className="h-4 w-4" />}
+          label="Total Users"
+          value={profilesLoading ? "—" : String(totalUsers)}
           tone="primary"
-          label="Users"
-          value={
-            profilesLoading
-              ? "—"
-              : (profiles?.length ?? 0).toLocaleString()
-          }
-          sub={
-            <span>
-              {userBreakdown.admin} admins · {userBreakdown.design_coordinator}{" "}
-              coordinators · {userBreakdown.designer} designers
-            </span>
-          }
         />
-        <InfoTile
-          icon={<Database className="h-5 w-5 text-success" />}
+        <QuickStat
+          icon={<Database className="h-4 w-4" />}
+          label="Total Records"
+          value={counts.loading ? "—" : totalRecords.toLocaleString()}
           tone="success"
-          label="Total records"
-          value={
-            counts.loading
-              ? "—"
-              : (counts.tasks + counts.concepts + counts.samples + clientCount).toLocaleString()
-          }
-          sub={
-            counts.loading ? (
-              <Skeleton className="h-3 w-32" />
-            ) : (
-              <span>
-                Tasks: {counts.tasks.toLocaleString()} · Concepts:{" "}
-                {counts.concepts.toLocaleString()} · Samples:{" "}
-                {counts.samples.toLocaleString()} · Clients:{" "}
-                {clientCount.toLocaleString()}
-              </span>
-            )
-          }
         />
-        <InfoTile
-          icon={<GitBranch className="h-5 w-5 text-warning" />}
+        <QuickStat
+          icon={<GitBranch className="h-4 w-4" />}
+          label="Migration"
+          value={LATEST_MIGRATION}
           tone="warning"
-          label="Last migration"
-          value={`Migration ${LATEST_MIGRATION}`}
-          sub={<span>Database version: PostgreSQL 15</span>}
         />
-        <InfoTile
-          icon={<Code2 className="h-5 w-5 text-primary" />}
+        <QuickStat
+          icon={<Code2 className="h-4 w-4" />}
+          label="Build"
+          value="v1.0.0"
           tone="primary"
-          label="App version"
-          value="Design Flow v1.0.0"
-          sub={
-            <span>
-              Vite 5 · React 18 · TypeScript · Tailwind ·{" "}
-              <span className="font-mono">jyfwyfpwbbgfpsntubfy</span>
-            </span>
-          }
         />
       </div>
 
-      {/* Environment key/value list — debug stuff. */}
+      {/* ── Team & Data Breakdown ── */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {/* Team Composition */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-primary" />
+              <p className="text-sm font-semibold text-foreground">Team Composition</p>
+            </div>
+            {profilesLoading ? (
+              <Skeleton className="h-20 w-full" />
+            ) : (
+              <div className="space-y-2.5">
+                {roleBreakdown.filter((r) => r.value > 0).map((r) => {
+                  const pct = totalUsers > 0 ? Math.round((r.value / totalUsers) * 100) : 0;
+                  return (
+                    <div key={r.label} className="flex items-center gap-3">
+                      <span className="w-24 shrink-0 text-[12px] font-medium text-foreground">{r.label}</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className={cn("h-full rounded-full transition-[width] duration-700", r.color)}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                        {r.value} ({pct}%)
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Database Records */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Server className="h-4 w-4 text-success" />
+                <p className="text-sm font-semibold text-foreground">Database Records</p>
+              </div>
+              <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                {counts.loading ? "…" : totalRecords.toLocaleString()} total
+              </span>
+            </div>
+            {counts.loading ? (
+              <Skeleton className="h-20 w-full" />
+            ) : (
+              <div className="space-y-2.5">
+                {recordBreakdown.map((r) => {
+                  const pct = totalRecords > 0 ? Math.max(1, Math.round((r.value / totalRecords) * 100)) : 0;
+                  return (
+                    <div key={r.label} className="flex items-center gap-3">
+                      <span className="w-24 shrink-0 text-[12px] font-medium text-foreground">{r.label}</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className={cn("h-full rounded-full transition-[width] duration-700", r.color)}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                        {r.value.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Tech Stack & Environment ── */}
       <Card>
-        <CardContent className="p-5">
+        <CardContent className="p-4">
           <div className="mb-3 flex items-center gap-2">
-            <Monitor className="h-4 w-4 text-muted-foreground" />
-            <h4 className="text-sm font-semibold text-foreground">Environment</h4>
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">Tech Stack & Environment</p>
           </div>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-            <KvRow
-              label="Supabase URL"
-              value={maskUrl(SUPABASE_URL)}
-              icon={<Globe className="h-3.5 w-3.5" />}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <EnvItem label="Framework" value="React 18" />
+            <EnvItem label="Bundler" value="Vite 5" />
+            <EnvItem label="Language" value="TypeScript" />
+            <EnvItem label="Styling" value="Tailwind CSS 3" />
+            <EnvItem label="Database" value="PostgreSQL 15" />
+            <EnvItem
+              label="Backend"
+              value={maskUrl(SUPABASE_URL).replace("https://", "")}
+              icon={<Globe className="h-3 w-3" />}
             />
-            <KvRow
-              label="Theme"
-              value={`${theme} (resolved: ${resolvedTheme})`}
-            />
-            <KvRow label="Timezone" value={env.timezone} />
-            <KvRow label="Screen" value={env.screen} />
-            <KvRow
+            <EnvItem label="Theme" value={resolvedTheme === "dark" ? "Dark" : "Light"} />
+            <EnvItem label="Timezone" value={env.timezone} />
+            <EnvItem label="Screen" value={env.screen} icon={<Monitor className="h-3 w-3" />} />
+            <EnvItem
               label="Browser"
-              value={env.userAgent}
-              className="sm:col-span-2"
+              value={env.userAgent.split(" ")[0]}
+              className="sm:col-span-2 lg:col-span-1"
             />
-          </dl>
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-// ----------------------------------------------------------------------------
-// InfoTile — icon + label + big value + sub line
-// ----------------------------------------------------------------------------
-
-function InfoTile({
+function QuickStat({
   icon,
   label,
   value,
-  sub,
   tone,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  sub: React.ReactNode;
   tone: "primary" | "success" | "warning";
 }) {
-  const tintBg: Record<typeof tone, string> = {
-    primary: "bg-primary/10",
-    success: "bg-success/10",
-    warning: "bg-warning/10",
-  };
+  const bg = { primary: "bg-primary/10", success: "bg-success/10", warning: "bg-warning/10" }[tone];
+  const fg = { primary: "text-primary", success: "text-success", warning: "text-warning" }[tone];
   return (
-    <Card className="border border-border">
-      <CardContent className="flex gap-3 p-4">
-        <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${tintBg[tone]}`}
-        >
+    <Card>
+      <CardContent className="flex items-center gap-3 py-3">
+        <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", bg, fg)}>
           {icon}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-          </p>
-          <p className="mt-0.5 text-xl font-bold leading-tight tabular-nums text-foreground">
-            {value}
-          </p>
-          <div className="mt-1 text-[11px] text-muted-foreground">{sub}</div>
+        <div>
+          <p className="text-lg font-bold tabular-nums leading-tight text-foreground">{value}</p>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-// ----------------------------------------------------------------------------
-// KvRow — uppercase label + monospace value
-// ----------------------------------------------------------------------------
-
-function KvRow({
+function EnvItem({
   label,
   value,
   icon,
@@ -269,24 +303,17 @@ function KvRow({
   className?: string;
 }) {
   return (
-    <div className={className}>
-      <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className={cn("rounded-lg border border-border bg-secondary/30 px-3 py-2", className)}>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-0.5 flex items-center gap-1 truncate text-[12px] font-medium text-foreground" title={value}>
         {icon}
-        {label}
-      </dt>
-      <dd className="mt-0.5 truncate font-mono text-xs text-foreground" title={value}>
         {value}
-      </dd>
+      </p>
     </div>
   );
 }
 
-// ----------------------------------------------------------------------------
-// Mask a Supabase URL for screenshot safety
-// ----------------------------------------------------------------------------
-
 function maskUrl(url: string): string {
-  // https://<ref>.supabase.co → https://jyfw…pbfy.supabase.co
   try {
     const u = new URL(url);
     const host = u.host;

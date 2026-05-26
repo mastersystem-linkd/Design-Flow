@@ -29,7 +29,7 @@ export function VolumeChart({ data, title }: { data: VolumePoint[]; title?: stri
           <p className="text-xs text-muted-foreground">Submitted vs Approved vs Rejected</p>
         </div>
         <div className="h-[280px]">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
             <BarChart data={data} barGap={2}>
               <CartesianGrid
                 strokeDasharray="3 3"

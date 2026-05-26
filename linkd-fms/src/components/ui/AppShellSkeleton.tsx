@@ -13,7 +13,7 @@ export function AppShellSkeleton() {
       <SkeletonSidebar />
       <div className="md:pl-[220px]">
         <SkeletonTopNav />
-        <main className="px-4 pb-10 pt-20 sm:px-6 md:px-8">
+        <main className="px-4 pb-8 pt-[68px] sm:px-6 md:px-8">
           <SkeletonContent />
         </main>
       </div>

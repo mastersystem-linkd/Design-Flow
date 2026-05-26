@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, Clock, Timer, PlusCircle, AlertTriangle,
   LayoutGrid, Trophy, ChevronUp, ChevronDown, ChevronRight,
-  Package, Flame, Zap, Building2, Lightbulb,
+  Package, Flame, Zap, Building2, Lightbulb, Activity,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AnalyticsView } from "@/views/AnalyticsView";
+import { AnalyticsView, type AnalyticsViewControls } from "@/views/AnalyticsView";
+import { Download, Calendar } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useClients } from "@/hooks/useClients";
@@ -20,9 +21,11 @@ import {
   type PriorityMix,
   type CycleTimeBucket,
   type TopClient,
+  type PipelineItem,
 } from "@/hooks/useTaskAnalytics";
 import { KpiCard } from "@/components/analytics/KpiCard";
-import { TaskHealthHero } from "@/components/analytics/TaskHealthHero";
+import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
+import { AlertBanner } from "@/components/analytics/AlertBanner";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
@@ -30,8 +33,10 @@ import {
   Card, CardContent, Badge, Button, SkeletonCard, SkeletonTable,
   Avatar, AvatarFallback, AvatarImage, getInitials, DeadlineCell,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-  SearchInput,
+  SearchInput, Sparkline,
 } from "@/components/ui";
+import { TrendingUp, TrendingDown } from "lucide-react";
+import type { KpiMetric } from "@/hooks/useAnalytics";
 import { STATUS_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
@@ -46,6 +51,15 @@ const PIPELINE_BAR_COLOR: Record<string, string> = {
   pool: "bg-muted",
   in_progress: "bg-primary",
   done: "bg-success",
+};
+
+// Matches the per-status accent on the left border of each Pipeline row —
+// mirrors the styling used by PipelineHealth (Concept Status) so the two
+// widgets feel like one component.
+const PIPELINE_BORDER: Record<string, string> = {
+  pool: "border-l-muted",
+  in_progress: "border-l-primary",
+  done: "border-l-success",
 };
 
 // Two faces of this page — Tasks (default) and Concepts (the former
@@ -85,6 +99,10 @@ export function TaskDashboardView() {
   const [scorecardDesignerId, setScorecardDesignerId] = useState<string | null>(null);
   const canOpenScorecard = role === "admin";
 
+  // Concept dashboard controls — pushed up from AnalyticsView so they
+  // render in the tab row alongside the tab pills.
+  const [conceptControls, setConceptControls] = useState<AnalyticsViewControls | null>(null);
+
   const myStats = isDesigner
     ? a.designerStats.find((d) => d.id === profile?.id) ?? null
     : null;
@@ -114,9 +132,26 @@ export function TaskDashboardView() {
     </div>
   );
 
-  // Tab strip rendered above both bodies. The right slot carries the active
-  // tab's period selector so the user sees their date scope at the same eye
-  // level as the tab they're standing on.
+  const conceptPeriodPills = conceptControls ? (
+    <div className="inline-flex shrink-0 rounded-lg bg-secondary p-1">
+      {PERIODS.map((p) => (
+        <button
+          key={p.value}
+          type="button"
+          onClick={() => conceptControls.setPeriod(p.value as Period)}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:py-1",
+            conceptControls.period === p.value
+              ? "bg-primary text-white"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   const tabsRow = (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border">
       <div className="-mb-px flex items-center gap-1 overflow-x-auto">
@@ -133,24 +168,40 @@ export function TaskDashboardView() {
           label="Concept Dashboard"
         />
       </div>
-      {/* Right slot — task tab uses the inline pills here; concept tab keeps
-          its own (Analytics owns that state) so it stays below the strip in
-          AnalyticsView's embedded layout. */}
-      {tab === "tasks" && <div className="pb-2">{taskPeriodPills}</div>}
+      <div className="flex items-center gap-2 pb-2">
+        {tab === "tasks" ? (
+          taskPeriodPills
+        ) : (
+          <>
+            {conceptControls?.periodLabel && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                {conceptControls.periodLabel}
+              </span>
+            )}
+            {conceptControls?.onExport && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={conceptControls.onExport}
+                className="gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+            )}
+            {conceptPeriodPills}
+          </>
+        )}
+      </div>
     </div>
   );
 
-  // ── Concept Dashboard tab ──
-  // Short-circuit BEFORE the task-data error / loading checks so the concept
-  // tab is reachable even when the task dataset has problems. AnalyticsView
-  // brings its own header + period filter + loading + error states, so we
-  // just mount it under our tab strip. Conditional mount (not display: none)
-  // means recharts initialises with real dimensions — no resize hacks needed.
   if (tab === "concepts") {
     return (
       <div className="space-y-4">
         {tabsRow}
-        <AnalyticsView embedded />
+        <AnalyticsView embedded onControlsReady={setConceptControls} />
       </div>
     );
   }
@@ -206,9 +257,10 @@ export function TaskDashboardView() {
   return (
     <div className="space-y-3 sm:space-y-4">
       {tabsRow}
-      {/* Inter-section spacing: tighter on mobile (space-y-4) since each
-           section already has its own internal padding; roomier on sm+. */}
-      <div className="space-y-4 sm:space-y-6">
+      {/* Inter-section spacing — was sm:space-y-6 which compounded with
+           the navbar gap to leave a visibly empty band above the fold.
+           space-y-3 / sm:space-y-4 matches every other dashboard. */}
+      <div className="space-y-3 sm:space-y-4">
 
       {/* Designer personal view */}
       {isDesigner && myStats ? (
@@ -318,73 +370,121 @@ export function TaskDashboardView() {
       ) : (
         /* Admin / Coordinator view */
         <>
-          {/* Hero: at-a-glance health. Risk-dock stats deep-link into a
-              filtered /dashboard so the MD can drill into the same cohort. */}
-          <TaskHealthHero
-            completed={a.kpis.totalCompleted}
-            onTimeRate={a.kpis.onTimeRate}
-            urgentCount={a.kpis.urgentCount}
-            overdueCount={a.kpis.overdueCount}
-            activePipeline={a.kpis.activePipeline}
-            totalDesigners={a.designerStats.length}
-            onActiveClick={() => navigate(dashLink({ status: "in_progress" }))}
-            onUrgentClick={() => navigate(dashLink({ filter: "urgent" }))}
-            onOverdueClick={() => navigate(dashLink({ overdue: "1" }))}
-          />
+          {/* Hero strip — merges the old TaskHealthHero block + the 4
+              KpiCards into one continuous row of 7 divided HeroKpiTiles.
+              The textile wrapper is shared with every other dashboard so
+              the visual language stays uniform. */}
+          <TextileHeroWrapper className="p-0 sm:p-0">
+            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-7">
+              <HeroKpiTile
+                icon={CheckCircle2}
+                label="Delivered"
+                tone="success"
+                value={a.kpis.totalCompleted.current}
+                trend={a.kpis.totalCompleted}
+                sparklineData={a.sparklines.completed}
+                onClick={() =>
+                  navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+                }
+              />
+              <HeroKpiTile
+                icon={Clock}
+                label="On-Time"
+                tone={
+                  a.kpis.onTimeRate.current > 85
+                    ? "success"
+                    : a.kpis.onTimeRate.current < 70
+                      ? "destructive"
+                      : "warning"
+                }
+                value={`${a.kpis.onTimeRate.current}%`}
+                trend={a.kpis.onTimeRate}
+                sparklineData={a.sparklines.onTime}
+                sub={
+                  a.kpis.lateCompletions.current > 0
+                    ? `${a.kpis.lateCompletions.current} late this period`
+                    : "No late completions"
+                }
+                onClick={() =>
+                  navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+                }
+              />
+              <HeroKpiTile
+                icon={Timer}
+                label="Avg Completion"
+                tone="primary"
+                value={`${a.kpis.avgCompletionDays.current}d`}
+                trend={a.kpis.avgCompletionDays}
+                invertTrend
+                sparklineData={a.sparklines.avgDelay}
+                sub={
+                  a.kpis.avgCycleDays.current > 0
+                    ? `Cycle: ${a.kpis.avgCycleDays.current}d`
+                    : undefined
+                }
+                onClick={() =>
+                  navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+                }
+              />
+              <HeroKpiTile
+                icon={PlusCircle}
+                label="Created"
+                tone="primary"
+                value={a.kpis.totalCreated.current}
+                trend={a.kpis.totalCreated}
+                sparklineData={a.sparklines.created}
+                onClick={() =>
+                  navigate(dashLink({ filter: "all", from: periodFrom, to: periodTo }))
+                }
+              />
+              <HeroKpiTile
+                icon={Activity}
+                label="Active"
+                tone="primary"
+                value={a.kpis.activePipeline}
+                sub={
+                  a.designerStats.length > 0
+                    ? `${(
+                        Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
+                        10
+                      ).toFixed(1)}/dev`
+                    : "in flight"
+                }
+                onClick={() => navigate(dashLink({ status: "in_progress" }))}
+              />
+              <HeroKpiTile
+                icon={Zap}
+                label="Urgent"
+                tone={a.kpis.urgentCount > 0 ? "destructive" : "muted"}
+                value={a.kpis.urgentCount}
+                pulse={a.kpis.urgentCount > 0}
+                sub={a.kpis.urgentCount > 0 ? "needs attention" : "all clear"}
+                onClick={() => navigate(dashLink({ filter: "urgent" }))}
+              />
+              <HeroKpiTile
+                icon={Flame}
+                label="Overdue"
+                tone={a.kpis.overdueCount > 0 ? "warning" : "muted"}
+                value={a.kpis.overdueCount}
+                pulse={a.kpis.overdueCount > 3}
+                sub={a.kpis.overdueCount > 0 ? "past deadline" : "on schedule"}
+                onClick={() => navigate(dashLink({ overdue: "1" }))}
+              />
+            </div>
+          </TextileHeroWrapper>
 
-          {/* KPIs — each card deep-links into /dashboard with the period
-              date-range baked into the URL so the destination shows the same
-              cohort the card counted. */}
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-            <KpiCard
-              icon={<CheckCircle2 className="h-4 w-4 text-success" />}
-              label="Tasks Completed"
-              value={a.kpis.totalCompleted.current}
-              metric={a.kpis.totalCompleted}
-              tintClass="bg-success/10"
-              animateValue
-              sparklineData={a.sparklines.completed}
-              to={dashLink({ status: "done", from: periodFrom, to: periodTo })}
-              sub={`${periodFrom} → ${periodTo}`}
+          {/* Alert banner — surfaces overdue tasks above the fold so the
+              MD doesn't have to scroll the dashboard to see the count. */}
+          {a.kpis.overdueCount > 0 && (
+            <AlertBanner
+              variant="danger"
+              title="Overdue Tasks"
+              count={a.kpis.overdueCount}
+              description="Tasks past their planned deadline — open the filtered list to triage."
+              actionLabel="View"
+              onAction={() => navigate(dashLink({ overdue: "1" }))}
             />
-            <KpiCard
-              icon={<Clock className="h-4 w-4 text-primary" />}
-              label="On-Time Delivery"
-              value={`${a.kpis.onTimeRate.current}%`}
-              metric={a.kpis.onTimeRate}
-              tintClass="bg-primary/10"
-              valueColor={a.kpis.onTimeRate.current > 85 ? "text-success" : a.kpis.onTimeRate.current < 70 ? "text-destructive" : "text-warning"}
-              sparklineData={a.sparklines.onTime}
-              to={dashLink({ status: "done", from: periodFrom, to: periodTo })}
-              sub={`${a.kpis.lateCompletions.current} late this period`}
-            />
-            <KpiCard
-              icon={<Timer className="h-4 w-4 text-primary" />}
-              label="Avg Completion"
-              value={`${a.kpis.avgCompletionDays.current}d`}
-              metric={a.kpis.avgCompletionDays}
-              tintClass="bg-primary/10"
-              invertTrend
-              to={dashLink({ status: "done", from: periodFrom, to: periodTo })}
-              sparklineData={a.sparklines.avgDelay}
-              sub={
-                a.kpis.avgCycleDays.current > 0
-                  ? `Cycle: ${a.kpis.avgCycleDays.current}d`
-                  : undefined
-              }
-            />
-            <KpiCard
-              icon={<PlusCircle className="h-4 w-4 text-primary" />}
-              label="Tasks Created"
-              value={a.kpis.totalCreated.current}
-              metric={a.kpis.totalCreated}
-              tintClass="bg-primary/10"
-              animateValue
-              sparklineData={a.sparklines.created}
-              to={dashLink({ filter: "all", from: periodFrom, to: periodTo })}
-              sub={`${periodFrom} → ${periodTo}`}
-            />
-          </div>
+          )}
 
           {/* Charts */}
           <div className="grid gap-3 lg:grid-cols-3">
@@ -398,7 +498,7 @@ export function TaskDashboardView() {
                   <p className="text-xs text-muted-foreground">Created vs Completed</p>
                 </div>
                 <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                     <BarChart data={a.volumeData} barGap={4}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
                       <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -413,35 +513,12 @@ export function TaskDashboardView() {
               </CardContent>
             </Card>
 
-            {/* Pipeline health — flex column so the bar list centers
-                vertically when the sibling VolumeChart stretches this card
-                taller than its natural content height. */}
-            <Card className="h-full">
-              <CardContent className="flex h-full flex-col py-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-foreground">Pipeline</h3>
-                  <Badge variant="secondary" className="text-[10px]">{a.pipeline.reduce((s, p) => s + p.count, 0)} total</Badge>
-                </div>
-                <div className="flex flex-1 flex-col justify-center space-y-2 py-3">
-                  {a.pipeline.map((item) => {
-                    const maxCount = Math.max(1, ...a.pipeline.map((p) => p.count));
-                    const pct = Math.max(8, (item.count / maxCount) * 100);
-                    const label = STATUS_LABELS[item.status as keyof typeof STATUS_LABELS] ?? item.status;
-                    const barColor = PIPELINE_BAR_COLOR[item.status] ?? "bg-muted";
-                    return (
-                      <button key={item.status} type="button" onClick={() => navigate(dashLink({ status: item.status }))}
-                        className="group flex w-full items-center gap-3 rounded-md px-1 py-0.5 text-left transition-all hover:ring-2 hover:ring-primary/30">
-                        <span className="w-[80px] shrink-0 text-xs text-foreground">{label}</span>
-                        <div className="flex-1">
-                          <div className={cn("h-7 rounded-md transition-[width] duration-[600ms] ease-[cubic-bezier(0.4,0,0.2,1)]", barColor)} style={{ width: `${pct}%`, minWidth: 24 }} />
-                        </div>
-                        <span className="w-8 text-right text-sm font-semibold tabular-nums text-foreground">{item.count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Pipeline — same row pattern as Concept Status
+                (PipelineHealth): per-status border accent on the left, a
+                long horizontal track with a filled coloured bar, count +
+                percentage on the right. Each row deep-links to the
+                filtered All Tasks view. */}
+            <PipelineWidget pipeline={a.pipeline} navigate={navigate} dashLink={dashLink} />
           </div>
 
           {/* Workload + At-risk */}
@@ -482,6 +559,224 @@ export function TaskDashboardView() {
       />
       </div>
     </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// HeroKpiTile — one cell inside the dashboard's unified hero strip.
+// Replaces the old TaskHealthHero block + 4-card KpiCard row, packing
+// throughput, on-time, completion velocity, creation volume, active WIP,
+// urgent and overdue into seven compact divided cells.
+// ----------------------------------------------------------------------------
+
+type HeroTone = "primary" | "success" | "warning" | "destructive" | "muted";
+
+function HeroKpiTile({
+  icon: Icon,
+  label,
+  value,
+  trend,
+  sub,
+  sparklineData,
+  tone,
+  pulse,
+  invertTrend,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number;
+  trend?: KpiMetric;
+  sub?: string;
+  sparklineData?: number[];
+  tone: HeroTone;
+  pulse?: boolean;
+  /** When true, a downward trend is positive (e.g. average delay). */
+  invertTrend?: boolean;
+  onClick?: () => void;
+}) {
+  const toneText: Record<HeroTone, string> = {
+    primary: "text-primary",
+    success: "text-success",
+    warning: "text-warning",
+    destructive: "text-destructive",
+    muted: "text-foreground",
+  };
+  const toneIconBg: Record<HeroTone, string> = {
+    primary: "bg-primary/10 text-primary",
+    success: "bg-success/10 text-success",
+    warning: "bg-warning/10 text-warning",
+    destructive: "bg-destructive/10 text-destructive",
+    muted: "bg-secondary text-muted-foreground",
+  };
+
+  // Trend pill colours follow the metric's direction (not the tile tone)
+  // so "Avg Completion: 5d down 20%" reads as green even though the tile
+  // itself is primary blue.
+  let trendNode: React.ReactNode = null;
+  if (trend) {
+    const t = trend.trend;
+    if (t === 999) {
+      trendNode = (
+        <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
+          NEW
+        </span>
+      );
+    } else if (t !== 0) {
+      const positive = invertTrend ? t < 0 : t > 0;
+      const arrow = t > 0 ? TrendingUp : TrendingDown;
+      const TrendIcon = arrow;
+      const cls = positive ? "text-success" : "text-destructive";
+      trendNode = (
+        <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums", cls)}>
+          <TrendIcon className="h-2.5 w-2.5" />
+          {Math.min(Math.abs(t), 200)}%
+        </span>
+      );
+    }
+  }
+
+  const sparkColor =
+    tone === "success"
+      ? "rgb(var(--success))"
+      : tone === "destructive"
+        ? "rgb(var(--destructive))"
+        : tone === "warning"
+          ? "rgb(var(--warning))"
+          : "rgb(var(--primary))";
+
+  const content = (
+    <div className="flex h-full flex-col justify-center gap-0.5 px-3 py-2.5 text-left sm:px-4 sm:py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div
+          className={cn(
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+            toneIconBg[tone],
+            pulse && "animate-pulse"
+          )}
+        >
+          <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+        </div>
+        {trendNode}
+      </div>
+      <p
+        className={cn(
+          "text-lg font-bold leading-none tabular-nums sm:text-xl",
+          toneText[tone]
+        )}
+      >
+        {value}
+      </p>
+      <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">{label}</p>
+      {sub && (
+        <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/60 sm:block">
+          {sub}
+        </p>
+      )}
+      {sparklineData && sparklineData.length > 1 && (
+        <div className="-mb-0.5 mt-auto hidden h-5 sm:block">
+          <Sparkline data={sparklineData} color={sparkColor} />
+        </div>
+      )}
+    </div>
+  );
+
+  if (!onClick) return content;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative h-full text-left transition-colors hover:bg-secondary/40"
+    >
+      {content}
+    </button>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// PipelineWidget — three-row task pipeline (Pool / In Progress / Done).
+// Visually mirrors the PipelineHealth (Concept Status) widget so the Task
+// and Concept dashboards share one row style: left border accent per
+// status, long horizontal bar with filled portion, count + percentage on
+// the right. Each row deep-links to the filtered All Tasks view.
+// ----------------------------------------------------------------------------
+
+function PipelineWidget({
+  pipeline,
+  navigate,
+  dashLink,
+}: {
+  pipeline: PipelineItem[];
+  navigate: ReturnType<typeof useNavigate>;
+  dashLink: (params: Record<string, string>) => string;
+}) {
+  const maxCount = Math.max(1, ...pipeline.map((d) => d.count));
+  const total = pipeline.reduce((s, d) => s + d.count, 0);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 50);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <Card className="h-full">
+      <CardContent className="flex h-full flex-col py-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">Pipeline</h3>
+          <Badge variant="secondary" className="text-[10px]">
+            {total} total
+          </Badge>
+        </div>
+
+        <div className="flex flex-1 flex-col justify-center space-y-2 py-3">
+          {pipeline.map((item, i) => {
+            const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
+            const barPct = Math.max(item.count > 0 ? 8 : 4, (item.count / maxCount) * 100);
+            const label =
+              STATUS_LABELS[item.status as keyof typeof STATUS_LABELS] ?? item.status;
+            const barColor = PIPELINE_BAR_COLOR[item.status] ?? "bg-muted";
+            const borderColor = PIPELINE_BORDER[item.status] ?? "border-l-muted";
+
+            return (
+              <button
+                key={item.status}
+                type="button"
+                onClick={() => navigate(dashLink({ status: item.status }))}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-lg border-l-[3px] px-2 py-1.5 transition-all",
+                  "cursor-pointer hover:bg-secondary/40 hover:ring-1 hover:ring-primary/20",
+                  borderColor
+                )}
+              >
+                <span className="w-[90px] shrink-0 text-left text-xs font-medium text-foreground">
+                  {label}
+                </span>
+                <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
+                  <div
+                    className={cn("h-7 rounded-md", barColor)}
+                    style={{
+                      width: mounted ? `${barPct}%` : "0%",
+                      transition: "width 600ms cubic-bezier(0.4,0,0.2,1)",
+                      transitionDelay: `${i * 80}ms`,
+                      minWidth: 4,
+                    }}
+                  />
+                </div>
+                <div className="flex w-16 shrink-0 items-center justify-end gap-1">
+                  <span className="text-sm font-semibold tabular-nums text-foreground">
+                    {item.count}
+                  </span>
+                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                    ({pct}%)
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

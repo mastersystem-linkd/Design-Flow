@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Download,
   ExternalLink,
+  ImageOff,
   Search,
 } from "lucide-react";
 import {
@@ -22,6 +23,16 @@ import { kittingDetailPath } from "@/lib/routes";
 import { formatDate, cn } from "@/lib/utils";
 import { priorityFromEnum } from "@/lib/kitting";
 import { exportToCSV, type CsvColumn } from "@/lib/exportCSV";
+import {
+  TABLE_HEAD,
+  TABLE_TH,
+  TABLE_TH_STICKY_RIGHT,
+  TABLE_ROW_CLICKABLE,
+  TABLE_TD,
+  TABLE_TD_STICKY_RIGHT,
+} from "@/lib/tableStyles";
+
+const FK_BUCKET = "sample-files";
 
 // ============================================================================
 // CompletedKittingPanel — read-only archive of submitted kitting forms.
@@ -29,9 +40,16 @@ import { exportToCSV, type CsvColumn } from "@/lib/exportCSV";
 // fetches its own data + provides search + CSV export + open-form link.
 // ============================================================================
 
+type KittingStatus =
+  | "pending_image"
+  | "pending_deo"
+  | "in_progress"
+  | "completed";
+
 interface CompletedRow {
   id: string;
   task_id: string | null;
+  sample_id: string | null;
   party_name: string | null;
   priority:
     | "very_urgent"
@@ -46,7 +64,24 @@ interface CompletedRow {
   task_code: string | null;
   completer_name: string | null;
   form_payload: Record<string, unknown> | null;
+  /** Only populated when `includeIncomplete` is on. */
+  image_url: string | null;
+  data_entry_status: KittingStatus;
 }
+
+const STATUS_PILL: Record<KittingStatus, string> = {
+  pending_image: "bg-destructive/10 text-destructive border-destructive/30",
+  pending_deo: "bg-destructive/10 text-destructive border-destructive/30",
+  in_progress: "bg-warning/10 text-warning border-warning/30",
+  completed: "bg-success/10 text-success border-success/30",
+};
+
+const STATUS_LABEL: Record<KittingStatus, string> = {
+  pending_image: "Pending",
+  pending_deo: "Pending",
+  in_progress: "In Progress",
+  completed: "Completed",
+};
 
 const PRIORITY_PILL: Record<
   NonNullable<CompletedRow["priority"]>,
@@ -64,47 +99,128 @@ interface CompletedKittingPanelProps {
    *  finishes). Useful for parents that want to show the count in a tab
    *  badge without duplicating the data fetch. */
   onCountChange?: (count: number) => void;
+  /** When true, render all FK rows (pending_deo + in_progress + completed)
+   *  with extra Status + Image columns. When false (default) the panel
+   *  behaves as the legacy "Completed" archive. */
+  includeIncomplete?: boolean;
+  /** Which source the FK rows came from. "task" (default) shows rows
+   *  initiated from a brief; "sample" shows rows initiated from the
+   *  Sampling screen; "all" shows both (used by the DEO completed archive
+   *  so they see every form they finished regardless of source). Drives
+   *  the WHERE filter on the query and which parent tables get batched. */
+  linkType?: "task" | "sample" | "all";
+  /** When provided, the panel hides its own search bar and uses this value
+   *  for filtering instead (parent owns the search input). */
+  externalSearch?: string;
+  /** Expose the panel's export handler so the parent can place the button
+   *  elsewhere (e.g. in a shared top bar). */
+  onExportRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export function CompletedKittingPanel({
   onCountChange,
+  includeIncomplete = false,
+  linkType = "task",
+  externalSearch,
+  onExportRef,
 }: CompletedKittingPanelProps = {}) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<CompletedRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [internalSearch, setInternalSearch] = useState("");
+  const hasExternalSearch = externalSearch !== undefined;
+  const search = hasExternalSearch ? externalSearch : internalSearch;
 
   async function load() {
-    // Embed `tasks:task_id` works because there's a real FK from
-    // full_kitting_details.task_id → tasks.id. We DON'T embed the completer
-    // join because the completed_by FK targets auth.users (not profiles),
-    // and PostgREST can't traverse to profiles.full_name from there.
-    // Instead we collect the completed_by ids and batch-fetch their names
-    // in a separate query — one extra round-trip but no schema changes.
-    const { data, error: err } = await supabase
-      .from("full_kitting_details")
-      .select(
-        `id, task_id, party_name, priority, form_date, completed_at,
-         completed_by, form_payload,
-         tasks:task_id ( task_code )`
-      )
-      .eq("data_entry_status", "completed")
-      .order("completed_at", { ascending: false })
-      .limit(500);
-    if (err) {
-      setError(err.message);
+    // Two-step fetch instead of an embed:
+    //   1. Pull full_kitting_details rows (no joins).
+    //   2. Batch-fetch the task_codes and completer names separately.
+    // PostgREST embeds with 1-to-1 relationships can silently filter rows
+    // under RLS — fetching parent rows first guarantees every FK row shows
+    // up regardless of join behaviour.
+    //
+    // includeIncomplete=true drops the status filter so pending rows show.
+    // linkType="sample" reads rows initiated from a sample; default "task"
+    // reads rows initiated from a brief.
+    // sample_id column may not exist yet (migration pending). Try with it
+    // first; if the DB returns a column-not-found error, retry without it
+    // so the panel never crashes on older schemas.
+    const BASE_COLS = "id, task_id, party_name, priority, form_date, completed_at, completed_by, form_payload, image_url, data_entry_status" as const;
+
+    async function runQuery(select: string) {
+      let q = supabase
+        .from("full_kitting_details")
+        .select(select)
+        .limit(500);
+      if (linkType === "sample") {
+        q = q.not("sample_id", "is", null);
+      } else if (linkType === "task") {
+        q = q.not("task_id", "is", null);
+      }
+      return includeIncomplete
+        ? q.order("created_at", { ascending: false })
+        : q.eq("data_entry_status", "completed").order("completed_at", { ascending: false });
+    }
+
+    const wantsSampleCol = linkType === "sample" || linkType === "all";
+    let result = await runQuery(wantsSampleCol ? `${BASE_COLS}, sample_id` : BASE_COLS);
+
+    if (result.error && result.error.message.includes("sample_id")) {
+      result = await runQuery(BASE_COLS);
+    }
+
+    if (result.error) {
+      setError(result.error.message);
       return;
     }
     setError(null);
 
-    // Batch-fetch completer profile names. dedupe so we don't fetch the same
-    // user twice when the DEO has completed many forms.
+    const data = (result.data ?? []) as unknown as Record<string, unknown>[];
+
+    // Batch-fetch parent rows: tasks for task-linked, samples for
+    // sample-linked. For linkType="all" we run both queries since a single
+    // result set can contain rows from either source. We populate one
+    // shared `codeByParentId` map keyed on the parent id so the row
+    // mapping below is source-agnostic.
+    // Helper to safely read a string field from the untyped row.
+    const str = (r: Record<string, unknown>, k: string): string | null =>
+      typeof r[k] === "string" ? (r[k] as string) : null;
+
+    const codeByParentId = new Map<string, string | null>();
+    const partyByParentId = new Map<string, string | null>();
+
+    if (linkType === "sample" || linkType === "all") {
+      const sampleIds = Array.from(
+        new Set(data.map((r) => str(r, "sample_id")).filter((v): v is string => !!v))
+      );
+      if (sampleIds.length > 0) {
+        const { data: samples } = await supabase
+          .from("samples")
+          .select("id, uid, party_name")
+          .in("id", sampleIds);
+        for (const s of samples ?? []) {
+          codeByParentId.set(s.id, s.uid);
+          partyByParentId.set(s.id, s.party_name);
+        }
+      }
+    }
+    if (linkType === "task" || linkType === "all") {
+      const taskIds = Array.from(
+        new Set(data.map((r) => str(r, "task_id")).filter((v): v is string => !!v))
+      );
+      if (taskIds.length > 0) {
+        const { data: tasks } = await supabase
+          .from("tasks")
+          .select("id, task_code")
+          .in("id", taskIds);
+        for (const t of tasks ?? []) {
+          codeByParentId.set(t.id, t.task_code);
+        }
+      }
+    }
+
     const completerIds = Array.from(
-      new Set(
-        (data ?? [])
-          .map((r) => r.completed_by)
-          .filter((v): v is string => !!v)
-      )
+      new Set(data.map((r) => str(r, "completed_by")).filter((v): v is string => !!v))
     );
     const nameById = new Map<string, string>();
     if (completerIds.length > 0) {
@@ -117,22 +233,30 @@ export function CompletedKittingPanel({
       }
     }
 
-    const flat: CompletedRow[] = (data ?? []).map((r) => {
-      const linkedTask =
-        (r as unknown as { tasks?: { task_code?: string | null } | null }).tasks ?? null;
+    const flat: CompletedRow[] = data.map((r) => {
+      const taskId = str(r, "task_id");
+      const sampleId = str(r, "sample_id");
+      const parentId =
+        linkType === "sample" ? sampleId
+        : linkType === "all" ? (taskId ?? sampleId)
+        : taskId;
+      const completedBy = str(r, "completed_by");
       return {
-        id: r.id,
-        task_id: r.task_id,
-        party_name: r.party_name,
-        priority: r.priority as CompletedRow["priority"],
-        form_date: r.form_date,
-        completed_at: r.completed_at,
-        completed_by: r.completed_by,
-        task_code: linkedTask?.task_code ?? null,
-        completer_name: r.completed_by
-          ? nameById.get(r.completed_by) ?? null
-          : null,
-        form_payload: r.form_payload as Record<string, unknown> | null,
+        id: r.id as string,
+        task_id: taskId,
+        sample_id: sampleId,
+        party_name:
+          str(r, "party_name") ??
+          (parentId ? partyByParentId.get(parentId) ?? null : null),
+        priority: (r.priority ?? null) as CompletedRow["priority"],
+        form_date: str(r, "form_date"),
+        completed_at: str(r, "completed_at"),
+        completed_by: completedBy,
+        task_code: parentId ? codeByParentId.get(parentId) ?? null : null,
+        completer_name: completedBy ? nameById.get(completedBy) ?? null : null,
+        form_payload: (r.form_payload as Record<string, unknown> | null) ?? null,
+        image_url: str(r, "image_url"),
+        data_entry_status: (str(r, "data_entry_status") ?? "completed") as KittingStatus,
       };
     });
     setRows(flat);
@@ -142,7 +266,7 @@ export function CompletedKittingPanel({
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [includeIncomplete, linkType]);
 
   const filtered = useMemo(() => {
     if (!rows) return [];
@@ -154,6 +278,15 @@ export function CompletedKittingPanel({
         (r.party_name ?? "").toLowerCase().includes(q)
     );
   }, [rows, search]);
+
+  useEffect(() => {
+    if (onExportRef) {
+      onExportRef.current = handleExport;
+    }
+    return () => {
+      if (onExportRef) onExportRef.current = null;
+    };
+  });
 
   function handleExport() {
     if (!filtered.length) {
@@ -255,8 +388,16 @@ export function CompletedKittingPanel({
         <CardContent className="py-10">
           <EmptyState
             icon={<Archive className="h-10 w-10 text-muted-foreground" />}
-            title="No completed forms yet"
-            description="Once the DEO submits a knitting form it will appear here."
+            title={
+              includeIncomplete
+                ? "No knitting forms yet"
+                : "No completed forms yet"
+            }
+            description={
+              includeIncomplete
+                ? "Briefs with a Full Knitting image will appear here as soon as they're created."
+                : "Once the DEO submits a knitting form it will appear here."
+            }
           />
         </CardContent>
       </Card>
@@ -266,32 +407,33 @@ export function CompletedKittingPanel({
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search UID or party…"
-              className="pl-8 h-9 text-sm"
-            />
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            disabled={filtered.length === 0}
-            className="gap-1.5"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </Button>
-        </div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          {filtered.length} of {rows.length} records
-        </p>
+        {/* Toolbar — hidden when parent provides externalSearch */}
+        {!hasExternalSearch && (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={internalSearch}
+                  onChange={(e) => setInternalSearch(e.target.value)}
+                  placeholder="Search UID or party…"
+                  className="pl-8 h-9 text-sm"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={filtered.length === 0}
+                className="gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </Button>
+            </div>
+          </>
+        )}
 
         {/* Clean 12-field table: record metadata + one column per form
             section. "Other" inputs and Notes textareas are dropped because
@@ -299,32 +441,32 @@ export function CompletedKittingPanel({
             APC Received By, Additional Detail) fold inline into their
             parent column so no signal is lost. */}
         <div className="overflow-x-auto">
-          <table className="min-w-[1700px] text-sm">
-            <thead className="border-y border-border bg-secondary/60 text-left text-[11px] font-bold uppercase tracking-wider text-foreground whitespace-nowrap">
+          <table className={cn("text-sm", includeIncomplete ? "min-w-[1850px]" : "min-w-[1700px]") }>
+            <thead className={TABLE_HEAD}>
               <tr>
                 {/* Metadata */}
-                <th className="px-3 py-2 font-medium">UID</th>
-                <th className="px-3 py-2 font-medium">Party Name</th>
-                <th className="px-3 py-2 font-medium">Form Date</th>
-                <th className="px-3 py-2 font-medium">Completed At</th>
-                <th className="px-3 py-2 font-medium">By</th>
+                <th className={TABLE_TH}>UID</th>
+                <th className={TABLE_TH}>Party Name</th>
+                {includeIncomplete && <th className={TABLE_TH}>Image</th>}
+                <th className={TABLE_TH}>Form Date</th>
+                <th className={TABLE_TH}>Completed At</th>
+                <th className={TABLE_TH}>By</th>
                 {/* 12 form sections */}
-                <th className="px-3 py-2 font-medium">1. Fabric</th>
-                <th className="px-3 py-2 font-medium">2. Width</th>
-                <th className="px-3 py-2 font-medium">3. Design Count</th>
-                <th className="px-3 py-2 font-medium">4. Design Types</th>
-                <th className="px-3 py-2 font-medium">5. Colour Theme</th>
-                <th className="px-3 py-2 font-medium">6. Background</th>
-                <th className="px-3 py-2 font-medium">7. Garment</th>
-                <th className="px-3 py-2 font-medium">8. Motive Size</th>
-                <th className="px-3 py-2 font-medium">9. Concept</th>
-                <th className="px-3 py-2 font-medium">10. APC Cutting</th>
-                <th className="px-3 py-2 font-medium">11. Additional Req</th>
-                <th className="px-3 py-2 font-medium">12. Priority</th>
+                <th className={TABLE_TH}>1. Fabric</th>
+                <th className={TABLE_TH}>2. Width</th>
+                <th className={TABLE_TH}>3. Design Count</th>
+                <th className={TABLE_TH}>4. Design Types</th>
+                <th className={TABLE_TH}>5. Colour Theme</th>
+                <th className={TABLE_TH}>6. Background</th>
+                <th className={TABLE_TH}>7. Garment</th>
+                <th className={TABLE_TH}>8. Motive Size</th>
+                <th className={TABLE_TH}>9. Concept</th>
+                <th className={TABLE_TH}>10. APC Cutting</th>
+                <th className={TABLE_TH}>11. Additional Req</th>
+                <th className={TABLE_TH}>12. Priority</th>
+                {includeIncomplete && <th className={TABLE_TH}>FK Status</th>}
                 {/* Sticky right — always-reachable View button */}
-                <th className="sticky right-0 z-10 bg-secondary/80 px-3 py-2 text-right font-bold shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
-                  Open
-                </th>
+                <th className={TABLE_TH_STICKY_RIGHT}>Open</th>
               </tr>
             </thead>
             <tbody>
@@ -359,7 +501,7 @@ export function CompletedKittingPanel({
                 return (
                   <tr
                     key={r.id}
-                    className="cursor-pointer border-b border-border/40 transition-colors hover:bg-secondary/30"
+                    className={TABLE_ROW_CLICKABLE}
                     onClick={() => navigate(kittingDetailPath(r.id))}
                   >
                     {/* Metadata */}
@@ -369,6 +511,11 @@ export function CompletedKittingPanel({
                     <td className="whitespace-nowrap px-3 py-2 font-medium text-foreground">
                       {r.party_name ?? "—"}
                     </td>
+                    {includeIncomplete && (
+                      <td className="px-3 py-2 align-middle">
+                        <FkThumb path={r.image_url} />
+                      </td>
+                    )}
                     <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
                       {r.form_date ? formatDate(r.form_date) : "—"}
                     </td>
@@ -404,8 +551,21 @@ export function CompletedKittingPanel({
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
+                    {includeIncomplete && (
+                      <td className="whitespace-nowrap px-3 py-2 align-middle">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "border text-[10px]",
+                            STATUS_PILL[r.data_entry_status]
+                          )}
+                        >
+                          {STATUS_LABEL[r.data_entry_status]}
+                        </Badge>
+                      </td>
+                    )}
                     {/* Sticky right — View */}
-                    <td className="sticky right-0 z-10 bg-card px-3 py-2 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                    <td className={TABLE_TD_STICKY_RIGHT}>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -426,5 +586,66 @@ export function CompletedKittingPanel({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================================
+// FkThumb — 40px square preview that lazily resolves a signed URL for the
+// stored FK reference image. Falls back to an icon placeholder when the
+// row has no image or the signed-URL fetch fails.
+// ============================================================================
+function FkThumb({ path }: { path: string | null }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!path) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase.storage
+        .from(FK_BUCKET)
+        .createSignedUrl(path, 3600);
+      if (cancelled) return;
+      if (error || !data?.signedUrl) {
+        setFailed(true);
+        return;
+      }
+      setUrl(data.signedUrl);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  if (!path || failed) {
+    return (
+      <div className="flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-border bg-secondary/40 text-muted-foreground">
+        <ImageOff className="h-4 w-4" />
+      </div>
+    );
+  }
+  return (
+    <a
+      href={url ?? "#"}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!url) e.preventDefault();
+      }}
+      className="block h-10 w-10 overflow-hidden rounded-md border border-border bg-secondary/40"
+      title="Open reference image"
+    >
+      {url ? (
+        <img
+          src={url}
+          alt="FK reference"
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <div className="h-full w-full animate-pulse bg-secondary" />
+      )}
+    </a>
   );
 }

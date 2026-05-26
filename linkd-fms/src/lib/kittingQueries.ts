@@ -17,24 +17,54 @@ import type { KittingFormValues } from "@/components/tasks/FullKittingFormFields
 //    swap insert() for upsert({ onConflict: 'task_id' }).
 // ───────────────────────────────────────────────────────────────────────────
 export async function initiateKitting(args: {
-  taskId: string;
+  /** Exactly one of taskId / sampleId must be set. The DB enforces this
+   *  with a CHECK constraint (full_kitting_details_link_xor). */
+  taskId?: string;
+  sampleId?: string;
   submittedBy: string;
   imageUrl: string;
+  /** Source's party name — seeds the FK row so admins can identify it
+   *  before the DEO digitizes. The DEO's form submission overwrites it. */
+  partyName?: string | null;
+  /** Date the source was created (yyyy-mm-dd). Stamped so the FK row sorts
+   *  by intake date even while still pending. */
+  formDate?: string | null;
 }) {
+  if (!args.taskId && !args.sampleId) {
+    return { data: null, error: "initiateKitting requires taskId or sampleId" };
+  }
+  if (args.taskId && args.sampleId) {
+    return { data: null, error: "initiateKitting cannot link to both task and sample" };
+  }
   // packing_type is NOT NULL in migration 0013. We default it to 'standard'
   // for new Stage A inserts so callers don't have to think about it — the
   // DEO will overwrite it (or leave it) when they fill the digital form.
   const { data, error } = await supabase
     .from("full_kitting_details")
     .insert({
-      task_id: args.taskId,
+      task_id: args.taskId ?? null,
+      sample_id: args.sampleId ?? null,
       submitted_by: args.submittedBy,
       image_url: args.imageUrl,
       data_entry_status: "pending_deo" satisfies KittingDataEntryStatus,
       packing_type: "standard",
+      party_name: args.partyName?.trim() || null,
+      form_date: args.formDate || null,
     })
     .select()
     .single();
+  return { data, error: error?.message ?? null };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 1b. Fetch existing kitting row for a sample.
+// ───────────────────────────────────────────────────────────────────────────
+export async function getKittingBySample(sampleId: string) {
+  const { data, error } = await supabase
+    .from("full_kitting_details")
+    .select("*")
+    .eq("sample_id", sampleId)
+    .maybeSingle();
   return { data, error: error?.message ?? null };
 }
 

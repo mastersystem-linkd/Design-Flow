@@ -21,6 +21,7 @@ import {
   Download,
   Keyboard,
   Layers,
+  Calendar,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -259,6 +260,7 @@ export function KanbanView() {
   const [newBriefOpen, setNewBriefOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const kittingExportRef = useRef<(() => void) | null>(null);
 
   // Keyboard navigation: index of the highlighted row within the active tab.
   const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
@@ -749,7 +751,7 @@ export function KanbanView() {
   const hasAny = totalCount > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <TopBar
         role={role}
         myStats={myStats}
@@ -763,9 +765,17 @@ export function KanbanView() {
         filter={filter}
         setFilter={setFilter}
         urgentCount={urgentCount}
+        dateRange={dateRange}
+        setDateRange={setDateRange}
         onRefresh={handleRefresh}
         isRefreshing={refreshing}
-        onExport={isAdmin ? () => setExportOpen(true) : undefined}
+        onExport={
+          kittingView
+            ? () => kittingExportRef.current?.()
+            : isAdmin
+              ? () => setExportOpen(true)
+              : undefined
+        }
         onNewBrief={() => setNewBriefOpen(true)}
         onOpenShortcuts={() => setShortcutsHelpOpen(true)}
       />
@@ -860,9 +870,11 @@ export function KanbanView() {
             }}
           />
           {kittingView ? (
-            // Sub-folder body: completed kitting records mapped by UID +
-            // Party Name. Search + CSV export live inside the panel.
-            <CompletedKittingPanel />
+            <CompletedKittingPanel
+              includeIncomplete
+              externalSearch={search}
+              onExportRef={kittingExportRef}
+            />
           ) : (
             <TaskTableSection
               key={statusTab}
@@ -1013,6 +1025,8 @@ interface TopBarProps {
   filter: FilterTab;
   setFilter: (v: FilterTab) => void;
   urgentCount: number;
+  dateRange: { from: string | null; to: string | null };
+  setDateRange: (v: { from: string | null; to: string | null }) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
   onExport?: () => void;
@@ -1033,6 +1047,8 @@ function TopBar({
   filter,
   setFilter,
   urgentCount,
+  dateRange,
+  setDateRange,
   onRefresh,
   isRefreshing,
   onExport,
@@ -1059,40 +1075,13 @@ function TopBar({
         />
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onOpenShortcuts}
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          title="Keyboard shortcuts (?)"
-          aria-label="Open keyboard shortcuts"
-        >
-          <Keyboard className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-          title="Refresh"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
-        </button>
-        {onExport && (
-          <button
-            type="button"
-            onClick={onExport}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            title="Export CSV"
-          >
-            <Download className="h-3.5 w-3.5" />
-          </button>
-        )}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* 1. All designers / Stats */}
         {isAdmin ? (
           <select
             value={designerFilter}
             onChange={(e) => setDesignerFilter(e.target.value)}
-            className="h-9 rounded-md border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 min-w-0 flex-shrink rounded-md border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             aria-label="Filter by designer"
           >
             <option value="">All designers</option>
@@ -1105,6 +1094,72 @@ function TopBar({
         ) : (
           <StatCluster stats={myStats} />
         )}
+        {/* 2. Date filter — stacks vertically on small screens */}
+        {isAdmin && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1">
+            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateRange.from ?? ""}
+              onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
+              className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
+              aria-label="Filter from date"
+              title="From date"
+            />
+            <span className="text-[10px] text-muted-foreground">to</span>
+            <input
+              type="date"
+              value={dateRange.to ?? ""}
+              onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
+              className="h-7 w-[105px] sm:w-[118px] min-w-0 rounded border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:ring-0"
+              aria-label="Filter to date"
+              title="To date"
+            />
+            {(dateRange.from || dateRange.to) && (
+              <button
+                type="button"
+                onClick={() => setDateRange({ from: null, to: null })}
+                className="ml-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                title="Clear date filter"
+                aria-label="Clear date filter"
+              >
+                <span className="text-xs leading-none">&times;</span>
+              </button>
+            )}
+          </div>
+        )}
+        {/* 3. Keyboard shortcuts — hidden on mobile (no physical keyboard) */}
+        <button
+          type="button"
+          onClick={onOpenShortcuts}
+          className="hidden sm:flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          title="Keyboard shortcuts (?)"
+          aria-label="Open keyboard shortcuts"
+        >
+          <Keyboard className="h-3.5 w-3.5" />
+        </button>
+        {/* 4. Refresh */}
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+        </button>
+        {/* 5. Export */}
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            title="Export CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {/* 6. New brief */}
         {canCreate && (
           <Button size="sm" className="gap-2" onClick={onNewBrief}>
             <Plus className="h-4 w-4" />
@@ -1296,7 +1351,7 @@ function FilterTabs({
     { id: "urgent", label: "Urgent Only" },
   ];
   return (
-    <div className="inline-flex flex-wrap gap-1.5">
+    <div className="no-scrollbar touch-scroll-x -mx-3 inline-flex max-w-full gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:flex-wrap sm:px-0">
       {TABS.map((t) => {
         const active = value === t.id;
         return (
@@ -1305,7 +1360,7 @@ function FilterTabs({
             type="button"
             onClick={() => onChange(t.id)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
               active
                 ? "border-primary bg-primary text-white"
                 : "border-border bg-card text-foreground hover:border-primary/40"
@@ -1354,7 +1409,9 @@ function StatusTabs({
     <div
       role="tablist"
       aria-label="Task status"
-      className="flex flex-wrap gap-1.5 border-b border-border pb-0"
+      // Scroll instead of wrap on phones so Pool/In Progress/Done/Full
+      // Knitting stay on a single row.
+      className="no-scrollbar touch-scroll-x -mx-3 flex gap-1.5 overflow-x-auto border-b border-border px-3 pb-0 sm:mx-0 sm:flex-wrap sm:px-0"
     >
       {DASHBOARD_STATUSES.map((s) => {
         // Task tabs go inactive when the Full Kitting sub-folder is open.
@@ -1368,7 +1425,7 @@ function StatusTabs({
             aria-selected={active}
             onClick={() => onChange(s)}
             className={cn(
-              "relative inline-flex items-center gap-2 rounded-t-md border border-b-0 px-3.5 py-2 text-sm font-medium transition-colors -mb-px",
+              "relative -mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-md border border-b-0 px-3.5 py-2 text-sm font-medium transition-colors",
               active
                 ? "border-border bg-card text-foreground"
                 : "border-transparent bg-transparent text-muted-foreground hover:text-foreground"

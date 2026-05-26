@@ -189,7 +189,7 @@ export function DesignerConceptDashboard({
         <Card className="md:col-span-1">
           <CardContent className="flex flex-col items-center justify-center py-5">
             <div className="relative h-28 w-28">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                 <RadialBarChart cx="50%" cy="50%" innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} data={chartData} barSize={10}>
                   <RadialBar dataKey="value" cornerRadius={5} background={{ fill: "rgb(var(--border))" }} />
                 </RadialBarChart>

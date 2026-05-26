@@ -47,7 +47,11 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
           id="main-content"
           tabIndex={-1}
           key={location.pathname}
-          className="animate-fade-in px-4 pb-24 pt-20 sm:px-6 md:px-8 md:pb-10 outline-none"
+          // pt-[68px] = 56px topnav + 12px breathing room.
+          // pb-20 on mobile clears the 64px MobileTabBar + 16px of
+          // breathing room so the last data row isn't pinned under the
+          // bar; desktop drops back to pb-8.
+          className="animate-fade-in px-4 pb-20 pt-[68px] sm:px-6 md:px-8 md:pb-8 outline-none"
         >
           {children}
         </main>

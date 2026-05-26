@@ -907,7 +907,7 @@ function TrendChart({
 
   return (
     <div className="h-[160px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
         <AreaChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
           <CartesianGrid
             strokeDasharray="3 3"

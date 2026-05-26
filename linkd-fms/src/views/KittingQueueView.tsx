@@ -25,6 +25,14 @@ import { formatDate, cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { priorityFromEnum } from "@/lib/kitting";
 import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
+import {
+  TABLE_HEAD,
+  TABLE_TH,
+  TABLE_TH_STICKY_RIGHT,
+  TABLE_ROW_CLICKABLE,
+  TABLE_TD,
+  TABLE_TD_STICKY_RIGHT,
+} from "@/lib/tableStyles";
 
 // ============================================================================
 // KittingQueueView — tabbed kitting list (Queue / Completed)
@@ -203,9 +211,14 @@ export default function KittingQueueView() {
         />
       ) : (
         // Shared component — same wide table + CSV export as the
-        // /dashboard?tab=kitting sub-folder. onCountChange feeds the
-        // tab badge count up here.
-        <CompletedKittingPanel onCountChange={setCompletedCount} />
+        // /dashboard?tab=kitting sub-folder. linkType="all" shows every
+        // completed FK form the DEO finished, whether it came from a
+        // brief or a sample. onCountChange feeds the tab badge count up
+        // here so it always matches what's rendered.
+        <CompletedKittingPanel
+          linkType="all"
+          onCountChange={setCompletedCount}
+        />
       )}
     </div>
   );
@@ -388,17 +401,15 @@ function QueueTab({
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="min-w-[1100px] text-sm">
-            <thead className="border-y border-border bg-secondary/60 text-left text-[11px] font-bold uppercase tracking-wider text-foreground whitespace-nowrap">
+            <thead className={TABLE_HEAD}>
               <tr>
-                <th className="px-3 py-2 text-left font-bold">Status</th>
-                <th className="px-3 py-2 text-left font-bold">UID</th>
-                <th className="px-3 py-2 text-left font-bold">Party Name</th>
-                <th className="px-3 py-2 text-left font-bold">Concept</th>
-                <th className="px-3 py-2 text-left font-bold">Priority</th>
-                <th className="px-3 py-2 text-left font-bold">Uploaded At</th>
-                <th className="sticky right-0 z-10 bg-secondary/80 px-3 py-2 text-right font-bold shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
-                  Open
-                </th>
+                <th className={TABLE_TH}>Status</th>
+                <th className={TABLE_TH}>UID</th>
+                <th className={TABLE_TH}>Party Name</th>
+                <th className={TABLE_TH}>Concept</th>
+                <th className={TABLE_TH}>Priority</th>
+                <th className={TABLE_TH}>Uploaded At</th>
+                <th className={TABLE_TH_STICKY_RIGHT}>Open</th>
               </tr>
             </thead>
             <tbody>
@@ -415,10 +426,10 @@ function QueueTab({
                 filtered.map((r) => (
                   <tr
                     key={r.id}
-                    className="cursor-pointer border-b border-border/40 transition-colors hover:bg-secondary/30"
+                    className={TABLE_ROW_CLICKABLE}
                     onClick={() => onOpen(r.id)}
                   >
-                    <td className="whitespace-nowrap px-3 py-2 text-left align-middle">
+                    <td className={cn(TABLE_TD, "whitespace-nowrap align-middle")}>
                       <Badge
                         variant="outline"
                         className={cn(
@@ -429,18 +440,18 @@ function QueueTab({
                         {STATUS_LABEL[r.data_entry_status]}
                       </Badge>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-left align-middle font-mono text-[11px] text-primary">
+                    <td className={cn(TABLE_TD, "whitespace-nowrap align-middle font-mono text-[11px] text-primary")}>
                       {r.task_code ?? "—"}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-left align-middle font-medium text-foreground">
+                    <td className={cn(TABLE_TD, "whitespace-nowrap align-middle font-medium text-foreground")}>
                       {r.client_party_name ?? r.party_name ?? "—"}
                     </td>
-                    <td className="px-3 py-2 text-left align-middle text-foreground">
+                    <td className={cn(TABLE_TD, "align-middle text-foreground")}>
                       <span className="block max-w-[260px] truncate" title={r.concept ?? ""}>
                         {r.concept ?? "—"}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-left align-middle">
+                    <td className={cn(TABLE_TD, "whitespace-nowrap align-middle")}>
                       {r.priority ? (
                         <Badge
                           variant="outline"
@@ -452,10 +463,10 @@ function QueueTab({
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-left align-middle text-[11px] text-muted-foreground">
+                    <td className={cn(TABLE_TD, "whitespace-nowrap align-middle text-[11px] text-muted-foreground")}>
                       {formatDate(r.created_at)}
                     </td>
-                    <td className="sticky right-0 z-10 bg-card px-3 py-2 text-right align-middle shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                    <td className={TABLE_TD_STICKY_RIGHT}>
                       <button
                         type="button"
                         onClick={(e) => {
