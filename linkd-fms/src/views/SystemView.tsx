@@ -11,6 +11,7 @@ import {
   Settings,
   Palette,
   Paintbrush,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/database";
@@ -29,6 +30,7 @@ import { StorageTab } from "@/components/system/StorageTab";
 import { AppInfoTab } from "@/components/system/AppInfoTab";
 import { AppearanceTab } from "@/components/system/AppearanceTab";
 import { DangerZoneTab } from "@/components/system/DangerZoneTab";
+import { TeamView } from "@/views/TeamView";
 
 // ============================================================================
 // SystemView — Settings & Admin
@@ -48,6 +50,7 @@ import { DangerZoneTab } from "@/components/system/DangerZoneTab";
 type TabId =
   | "app-info"
   | "appearance"
+  | "team"
   | "concepts"
   | "fabrics"
   | "clients"
@@ -81,6 +84,14 @@ const TABS: TabSpec[] = [
     desc: "Theme & display preferences",
     group: "general",
     canAccess: () => true,
+  },
+  {
+    id: "team",
+    label: "Team Management",
+    icon: Users,
+    desc: "Users, roles & designer codes",
+    group: "general",
+    canAccess: (role) => role === "admin" || role === "design_coordinator",
   },
   {
     id: "concepts",
@@ -273,6 +284,8 @@ function renderTab(id: TabId, role: UserRole) {
       return <AppInfoTab />;
     case "appearance":
       return <AppearanceTab />;
+    case "team":
+      return <TeamView />;
     case "concepts":
       return adminOnly(<ConceptCategoriesTab />);
     case "fabrics":

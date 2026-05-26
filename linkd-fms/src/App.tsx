@@ -9,7 +9,6 @@ import { KanbanView } from "@/views/KanbanView";
 import { BriefingView } from "@/views/BriefingView";
 import { ConceptsView } from "@/views/ConceptsView";
 import { ProductionView } from "@/views/ProductionView";
-import { TeamView } from "@/views/TeamView";
 import { NotificationsView } from "@/views/NotificationsView";
 import { TaskDashboardView } from "@/views/TaskDashboardView";
 import { ScorecardsView } from "@/views/ScorecardsView";
@@ -95,14 +94,8 @@ export default function App() {
           />
         </Route>
 
-        {/* /team — Team management (admin + coordinator) */}
-        <Route
-          element={
-            <ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />
-          }
-        >
-          <Route path={ROUTES.team} element={<TeamView />} />
-        </Route>
+        {/* /team → redirect to Settings (Team Management tab lives there now) */}
+        <Route path={ROUTES.team} element={<Navigate to={ROUTES.system} replace />} />
 
         {/* /notifications — accessible by ALL roles */}
         <Route
