@@ -239,6 +239,8 @@ export function ConceptsView() {
   const isDesigner = role === "designer";
   const userId = profile?.id;
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
+  type Scope = "mine" | "all";
+  const [scope, setScope] = useState<Scope>(isDesigner ? "mine" : "all");
   const [designerFilter, setDesignerFilter] = useState<string>("");
   const [dateRange, setDateRange] = useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
@@ -321,6 +323,14 @@ export function ConceptsView() {
     },
   ];
 
+  const scopedConcepts = useMemo(
+    () =>
+      scope === "mine" && userId
+        ? concepts.filter((c) => c.submitted_by === userId || c.designer_id === userId)
+        : concepts,
+    [concepts, scope, userId]
+  );
+
   // -- Counts --
   // `approved` here is "approved but NOT yet completed". Fully completed
   // concepts get their own bucket so the two tabs never double-count.
@@ -332,7 +342,7 @@ export function ConceptsView() {
       revision_requested: 0,
       completed: 0,
     };
-    for (const c of concepts) {
+    for (const c of scopedConcepts) {
       if (isCompleted(c)) {
         map.completed++;
       } else {
@@ -340,14 +350,14 @@ export function ConceptsView() {
       }
     }
     return map;
-  }, [concepts]);
+  }, [scopedConcepts]);
 
   // Work-stage counts — most options derive from the approved subset so the
   // chip row reflects the post-approval pipeline. `rejected` is the
   // exception: it counts md_status='rejected' regardless of work_status,
   // surfacing rejected concepts as a one-click subset.
   const workCounts = useMemo(() => {
-    const approved = concepts.filter((c) => c.md_status === "approved");
+    const approved = scopedConcepts.filter((c) => c.md_status === "approved");
     const map: Record<Exclude<WorkTab, "all">, number> = {
       not_started: 0,
       in_progress: 0,
@@ -363,9 +373,9 @@ export function ConceptsView() {
         map[ws as Exclude<WorkTab, "all">]++;
       }
     }
-    map.rejected = concepts.filter((c) => c.md_status === "rejected").length;
+    map.rejected = scopedConcepts.filter((c) => c.md_status === "rejected").length;
     return map;
-  }, [concepts]);
+  }, [scopedConcepts]);
 
   // Admin inbox count — concepts the MD/coordinator must act on:
   //   • md_status='pending'      → initial concept review queue
@@ -392,8 +402,7 @@ export function ConceptsView() {
       }
       return pool;
     }
-    // First narrow by md_status tab.
-    let pool = concepts;
+    let pool = scopedConcepts;
     if (tab === "completed") {
       pool = concepts.filter(isCompleted);
     } else if (tab !== "all") {
@@ -427,7 +436,7 @@ export function ConceptsView() {
       });
     }
     return pool;
-  }, [concepts, tab, workTab, inboxMode, designerFilter, dateRange]);
+  }, [concepts, scopedConcepts, tab, workTab, inboxMode, designerFilter, dateRange]);
 
   const conceptPg = usePagination(allVisible.length, 25);
 
@@ -460,7 +469,7 @@ export function ConceptsView() {
             <div>
               <h1 className="text-base font-semibold leading-tight text-foreground">Concepts</h1>
               <p className="text-[10px] text-muted-foreground">
-                {concepts.length} total · {pendingCount} awaiting review
+                {scopedConcepts.length} total · {pendingCount} awaiting review
               </p>
             </div>
           </div>
@@ -523,6 +532,33 @@ export function ConceptsView() {
             inboxMode && "pointer-events-none opacity-40"
           )}
         >
+          {/* Scope toggle: My Concepts / All */}
+          <div className="flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5">
+            {(["mine", "all"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setScope(s)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  scope === s
+                    ? "bg-primary text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {s === "mine" ? "My Concepts" : "All"}
+                <span className={cn(
+                  "ml-1 tabular-nums",
+                  scope === s ? "text-white/80" : "text-muted-foreground/60"
+                )}>
+                  {s === "mine" && userId
+                    ? concepts.filter((c) => c.submitted_by === userId || c.designer_id === userId).length
+                    : concepts.length}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {/* Status dropdown */}
           <div className="relative shrink-0">
             <select
@@ -530,7 +566,7 @@ export function ConceptsView() {
               onChange={(e) => setTab(e.target.value as Tab)}
               className="h-7 cursor-pointer appearance-none rounded-md border border-border bg-card pl-2 pr-6 text-[11px] font-medium text-foreground transition-colors hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="all">All · {concepts.length}</option>
+              <option value="all">All · {scopedConcepts.length}</option>
               {CONCEPT_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {CONCEPT_STATUS_LABELS[s]} · {counts[s]}
