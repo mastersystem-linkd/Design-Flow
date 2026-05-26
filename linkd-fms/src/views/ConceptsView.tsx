@@ -532,32 +532,34 @@ export function ConceptsView() {
             inboxMode && "pointer-events-none opacity-40"
           )}
         >
-          {/* Scope toggle: My Concepts / All */}
-          <div className="flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5">
-            {(["mine", "all"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setScope(s)}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  scope === s
-                    ? "bg-primary text-white shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {s === "mine" ? "My Concepts" : "All"}
-                <span className={cn(
-                  "ml-1 tabular-nums",
-                  scope === s ? "text-white/80" : "text-muted-foreground/60"
-                )}>
-                  {s === "mine" && userId
-                    ? concepts.filter((c) => c.submitted_by === userId || c.designer_id === userId).length
-                    : concepts.length}
-                </span>
-              </button>
-            ))}
-          </div>
+          {/* Scope toggle: My Concepts / All — designers only */}
+          {isDesigner && (
+            <div className="flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5">
+              {(["mine", "all"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setScope(s)}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    scope === s
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {s === "mine" ? "My Concepts" : "All"}
+                  <span className={cn(
+                    "ml-1 tabular-nums",
+                    scope === s ? "text-white/80" : "text-muted-foreground/60"
+                  )}>
+                    {s === "mine" && userId
+                      ? concepts.filter((c) => c.submitted_by === userId || c.designer_id === userId).length
+                      : concepts.length}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Status dropdown */}
           <div className="relative shrink-0">

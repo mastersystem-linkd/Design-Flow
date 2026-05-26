@@ -1079,6 +1079,7 @@ function TopBar({
         value={filter}
         onChange={setFilter}
         urgentCount={urgentCount}
+        isAdmin={isAdmin}
       />
 
       <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
@@ -1367,16 +1368,23 @@ function FilterTabs({
   value,
   onChange,
   urgentCount,
+  isAdmin,
 }: {
   value: FilterTab;
   onChange: (v: FilterTab) => void;
   urgentCount: number;
+  isAdmin: boolean;
 }) {
-  const TABS: { id: FilterTab; label: string }[] = [
-    { id: "mine", label: "My Tasks" },
-    { id: "all", label: "All Tasks" },
-    { id: "urgent", label: "Urgent Only" },
-  ];
+  const TABS: { id: FilterTab; label: string }[] = isAdmin
+    ? [
+        { id: "all", label: "All Tasks" },
+        { id: "urgent", label: "Urgent Only" },
+      ]
+    : [
+        { id: "mine", label: "My Tasks" },
+        { id: "all", label: "All Tasks" },
+        { id: "urgent", label: "Urgent Only" },
+      ];
   return (
     <>
       {TABS.map((t) => {
