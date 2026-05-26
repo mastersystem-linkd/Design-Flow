@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
 import { supabase } from "@/lib/supabase";
+import { callAdminApi } from "@/lib/adminApi";
 import { sendNotification } from "@/lib/notifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,15 @@ import { ROLE_LABELS } from "@/lib/constants";
 import type { UserRole, Profile } from "@/types/database";
 
 const ALL_ROLES: UserRole[] = ["admin", "design_coordinator", "designer", "deo"];
+
+/** Format the structured error returned by callAdminApi for display. */
+function formatAdminApiError(
+  err: { message: string; status?: number },
+  fallback: string
+): string {
+  const base = err.message || fallback;
+  return err.status ? `${base} (HTTP ${err.status})` : base;
+}
 
 export function TeamView() {
   const { profile: myProfile } = useAuth();
@@ -84,20 +94,23 @@ export function TeamView() {
   // via the admin-update-user edge function in list_emails mode. Only admins
   // and coordinators see emails in the table; everyone else gets a dash.
   const [emailsById, setEmailsById] = useState<Record<string, string>>({});
+  const [emailsError, setEmailsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canManage) return;
     let cancelled = false;
-    void supabase.functions
-      .invoke<{ emails?: Record<string, string>; error?: string }>(
-        "admin-update-user",
-        { body: { list_emails: true } }
-      )
-      .then(({ data, error: invokeErr }) => {
-        if (cancelled) return;
-        if (invokeErr || data?.error) return; // silent — table just shows dashes
-        if (data?.emails) setEmailsById(data.emails);
-      });
+    setEmailsError(null);
+    void callAdminApi<{ emails?: Record<string, string> }>("admin-update-user", {
+      list_emails: true,
+    }).then(({ data, error: apiErr }) => {
+      if (cancelled) return;
+      if (apiErr) {
+        console.error("[TeamView] list_emails failed:", apiErr);
+        setEmailsError(formatAdminApiError(apiErr, "Couldn't load emails"));
+        return;
+      }
+      if (data?.emails) setEmailsById(data.emails);
+    });
     return () => { cancelled = true; };
   }, [canManage, profiles.length]);
 
@@ -251,6 +264,17 @@ export function TeamView() {
           </button>
         </div>
       </div>
+
+      {canManage && emailsError && (
+        <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning-foreground">
+          <span className="font-medium">Email column unavailable:</span> {emailsError}
+          <p className="mt-0.5 text-[10px] text-muted-foreground">
+            The <code className="font-mono">/api/admin-update-user</code> route needs to be live on Vercel with the{" "}
+            <code className="font-mono">SUPABASE_URL</code>, <code className="font-mono">SUPABASE_ANON_KEY</code>, and{" "}
+            <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> env vars set. Check the Vercel function logs for runtime errors.
+          </p>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -765,20 +789,18 @@ function EditUserDialog({
     setNewCode("");
     setError(null);
 
-    // Pull the auth email from the edge function. profiles doesn't store
-    // email — auth.users does — and the SPA can't query auth.users directly.
+    // Pull the auth email from the API route. profiles doesn't store email
+    // — auth.users does — and the SPA can't query auth.users directly.
     if (user?.id) {
       setLoadingDetails(true);
-      void supabase.functions
-        .invoke<{ email?: string; created_at?: string | null; error?: string }>(
-          "admin-update-user",
-          { body: { user_id: user.id, fetch: true } }
-        )
-        .then(({ data, error: invokeErr }) => {
-          if (invokeErr) {
-            setError(invokeErr.message ?? "Couldn't load user details");
-          } else if (data?.error) {
-            setError(data.error);
+      void callAdminApi<{ email?: string; created_at?: string | null }>(
+        "admin-update-user",
+        { user_id: user.id, fetch: true }
+      )
+        .then(({ data, error: apiErr }) => {
+          if (apiErr) {
+            console.error("[EditUserDialog] fetch failed:", apiErr);
+            setError(formatAdminApiError(apiErr, "Couldn't load user details"));
           } else if (data) {
             setEmail(data.email ?? "");
             setOriginalEmail(data.email ?? "");
@@ -845,29 +867,18 @@ function EditUserDialog({
       return;
     }
 
-    const { data, error: invokeErr } = await supabase.functions.invoke<{
-      ok?: boolean;
-      error?: string;
-    }>("admin-update-user", { body: payload });
+    const { error: apiErr } = await callAdminApi<{ ok?: boolean }>(
+      "admin-update-user",
+      payload
+    );
 
     setSaving(false);
 
-    if (invokeErr) {
-      const fnErr = invokeErr as unknown as {
-        message?: string;
-        context?: { body?: string };
-      };
-      let serverMsg: string | null = null;
-      if (fnErr.context?.body) {
-        try {
-          serverMsg = (JSON.parse(fnErr.context.body) as { error?: string })
-            .error ?? null;
-        } catch { /* not JSON */ }
-      }
-      setError(serverMsg ?? fnErr.message ?? "Failed to update user");
+    if (apiErr) {
+      console.error("[EditUserDialog] save failed:", apiErr);
+      setError(formatAdminApiError(apiErr, "Failed to update user"));
       return;
     }
-    if (data?.error) { setError(data.error); return; }
 
     if (payload.role) {
       void sendNotification(
