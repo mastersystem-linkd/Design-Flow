@@ -205,32 +205,68 @@ export function ScorecardDetailView() {
     };
   }, [designerTasks, dayMap, rangeStart, rangeEnd]);
 
-  // ── Trend (last 6 months on-time %)
+  // ── Trend (on-time %) — adapts granularity to the active range
   const monthlyTrend = useMemo(() => {
+    const totalDays = differenceInDays(rangeEnd, rangeStart) + 1;
     const points: { month: string; pct: number; completed: number }[] = [];
-    const now = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const anchor = subMonths(now, i);
-      const ms = startOfMonth(anchor);
-      const me = endOfMonth(anchor);
+
+    const countBucket = (bStart: Date, bEnd: Date) => {
       let comp = 0;
       let ot = 0;
       for (const t of designerTasks) {
         const done = completionDate(t);
         if (!done) continue;
         const d = parseISO(done);
-        if (!isWithinInterval(d, { start: ms, end: me })) continue;
+        if (!isWithinInterval(d, { start: startOfDay(bStart), end: endOfDay(bEnd) })) continue;
         comp++;
         if ((t.delay_days ?? 999) <= 1) ot++;
       }
-      points.push({
-        month: format(anchor, "MMM").toUpperCase(),
-        pct: comp > 0 ? Math.round((ot / comp) * 100) : 0,
-        completed: comp,
-      });
+      return { comp, ot };
+    };
+
+    if (totalDays <= 14) {
+      const allDays = eachDayOfInterval({ start: rangeStart, end: rangeEnd });
+      for (const day of allDays) {
+        const { comp, ot } = countBucket(day, day);
+        points.push({
+          month: format(day, "dd"),
+          pct: comp > 0 ? Math.round((ot / comp) * 100) : 0,
+          completed: comp,
+        });
+      }
+    } else if (totalDays <= 90) {
+      let cursor = startOfWeek(rangeStart, { weekStartsOn: 1 });
+      while (cursor <= rangeEnd) {
+        const ws = cursor < rangeStart ? rangeStart : cursor;
+        const weekEnd = endOfWeek(cursor, { weekStartsOn: 1 });
+        const we = weekEnd > rangeEnd ? rangeEnd : weekEnd;
+        const { comp, ot } = countBucket(ws, we);
+        points.push({
+          month: format(ws, "dd MMM"),
+          pct: comp > 0 ? Math.round((ot / comp) * 100) : 0,
+          completed: comp,
+        });
+        cursor = new Date(weekEnd.getTime() + 86400000);
+      }
+    } else {
+      let cursor = startOfMonth(rangeStart);
+      while (cursor <= rangeEnd) {
+        const ms = cursor < rangeStart ? rangeStart : cursor;
+        const monthEnd = endOfMonth(cursor);
+        const me = monthEnd > rangeEnd ? rangeEnd : monthEnd;
+        const { comp, ot } = countBucket(ms, me);
+        points.push({
+          month: format(cursor, "MMM").toUpperCase(),
+          pct: comp > 0 ? Math.round((ot / comp) * 100) : 0,
+          completed: comp,
+        });
+        const nextMonth = new Date(cursor);
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        cursor = nextMonth;
+      }
     }
     return points;
-  }, [designerTasks]);
+  }, [designerTasks, rangeStart, rangeEnd]);
 
   // ── Weekday pattern (Mon-Sun) within active range
   const weekdayPattern = useMemo(() => {
@@ -450,27 +486,28 @@ export function ScorecardDetailView() {
     return { submitted, reviewed, approved, finalized };
   }, [designerConcepts, rangeStart, rangeEnd]);
 
-  // ── Weekly throughput sparkline (last 12 weeks regardless of range)
+  // ── Weekly throughput sparkline — adapts to the active date range
   const throughputWeekly = useMemo(() => {
     const weeks: { label: string; tasks: number; concepts: number; total: number }[] = [];
-    for (let i = 11; i >= 0; i--) {
-      const anchor = subWeeks(new Date(), i);
-      const ws = startOfWeek(anchor, { weekStartsOn: 1 });
-      const we = endOfWeek(anchor, { weekStartsOn: 1 });
+    let cursor = startOfWeek(rangeStart, { weekStartsOn: 1 });
+    while (cursor <= rangeEnd) {
+      const ws = cursor < rangeStart ? rangeStart : cursor;
+      const weekEnd = endOfWeek(cursor, { weekStartsOn: 1 });
+      const we = weekEnd > rangeEnd ? rangeEnd : weekEnd;
       let taskCount = 0;
       let conceptCount = 0;
       for (const t of designerTasks) {
         const done = completionDate(t);
         if (!done) continue;
         const d = parseISO(done);
-        if (isWithinInterval(d, { start: ws, end: we })) taskCount++;
+        if (isWithinInterval(d, { start: startOfDay(ws), end: endOfDay(we) })) taskCount++;
       }
       for (const c of designerConcepts) {
         if (c.md_status !== "approved") continue;
         const r = c.md_actual_date ?? c.md_reviewed_at;
         if (!r) continue;
         const rd = parseISO(r);
-        if (isWithinInterval(rd, { start: ws, end: we })) conceptCount++;
+        if (isWithinInterval(rd, { start: startOfDay(ws), end: endOfDay(we) })) conceptCount++;
       }
       weeks.push({
         label: format(ws, "MMM d"),
@@ -478,9 +515,67 @@ export function ScorecardDetailView() {
         concepts: conceptCount,
         total: taskCount + conceptCount,
       });
+      cursor = new Date(weekEnd.getTime() + 86400000);
     }
     return weeks;
-  }, [designerTasks, designerConcepts]);
+  }, [designerTasks, designerConcepts, rangeStart, rangeEnd]);
+
+  // ── Momentum chart data — adapts granularity to the active range
+  const momentumData = useMemo(() => {
+    const totalDays = differenceInDays(rangeEnd, rangeStart) + 1;
+    type MPoint = { month: string; conceptsApproved: number; tasksCompleted: number };
+    const points: MPoint[] = [];
+
+    const countBucket = (bStart: Date, bEnd: Date) => {
+      let ca = 0;
+      let tc = 0;
+      for (const c of designerConcepts) {
+        if (c.md_status !== "approved") continue;
+        const rd = c.md_actual_date ?? c.md_reviewed_at;
+        if (!rd) continue;
+        const d = parseISO(rd);
+        if (isWithinInterval(d, { start: startOfDay(bStart), end: endOfDay(bEnd) })) ca++;
+      }
+      for (const t of designerTasks) {
+        const done = completionDate(t);
+        if (!done) continue;
+        const d = parseISO(done);
+        if (isWithinInterval(d, { start: startOfDay(bStart), end: endOfDay(bEnd) })) tc++;
+      }
+      return { ca, tc };
+    };
+
+    if (totalDays <= 14) {
+      const allDays = eachDayOfInterval({ start: rangeStart, end: rangeEnd });
+      for (const day of allDays) {
+        const { ca, tc } = countBucket(day, day);
+        points.push({ month: format(day, "dd MMM"), conceptsApproved: ca, tasksCompleted: tc });
+      }
+    } else if (totalDays <= 90) {
+      let cursor = startOfWeek(rangeStart, { weekStartsOn: 1 });
+      while (cursor <= rangeEnd) {
+        const ws = cursor < rangeStart ? rangeStart : cursor;
+        const weekEnd = endOfWeek(cursor, { weekStartsOn: 1 });
+        const we = weekEnd > rangeEnd ? rangeEnd : weekEnd;
+        const { ca, tc } = countBucket(ws, we);
+        points.push({ month: format(ws, "dd MMM"), conceptsApproved: ca, tasksCompleted: tc });
+        cursor = new Date(weekEnd.getTime() + 86400000);
+      }
+    } else {
+      let cursor = startOfMonth(rangeStart);
+      while (cursor <= rangeEnd) {
+        const ms = cursor < rangeStart ? rangeStart : cursor;
+        const monthEnd = endOfMonth(cursor);
+        const me = monthEnd > rangeEnd ? rangeEnd : monthEnd;
+        const { ca, tc } = countBucket(ms, me);
+        points.push({ month: format(cursor, "MMM yy"), conceptsApproved: ca, tasksCompleted: tc });
+        const nextMonth = new Date(cursor);
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        cursor = nextMonth;
+      }
+    }
+    return points;
+  }, [designerTasks, designerConcepts, rangeStart, rangeEnd]);
 
   // ── Selected day events for the drill-in panel
   const selectedDayEvents = useMemo(() => {
@@ -767,6 +862,31 @@ export function ScorecardDetailView() {
 
           {/* Reliability gauge */}
           <ReliabilityGauge reliability={reliability} tier={tier} />
+        </div>
+      </Card>
+
+      {/* ── Date Range Filter — controls ALL charts + KPIs ── */}
+      <Card className="border border-border">
+        <div className="p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CalendarIcon className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold text-foreground">Date Range</h3>
+              <span className="rounded-md border border-border/60 bg-secondary/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {format(rangeStart, "dd MMM yyyy")} – {format(rangeEnd, "dd MMM yyyy")} · {differenceInDays(rangeEnd, rangeStart) + 1} days
+              </span>
+            </div>
+          </div>
+          <RangeControls
+            preset={preset}
+            setPreset={setPreset}
+            customFrom={customFrom}
+            customTo={customTo}
+            setCustomFrom={setCustomFrom}
+            setCustomTo={setCustomTo}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+          />
         </div>
       </Card>
 
@@ -1199,19 +1319,19 @@ export function ScorecardDetailView() {
         </Card>
       </div>
 
-      {/* ── ROW: 6-Month Momentum (recharts area) ── */}
+      {/* ── ROW: Momentum (recharts area) — responds to date filter ── */}
       <Card className="border border-border">
         <div className="p-5">
           <div className="mb-3 flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">
-              6-Month Momentum
+              Momentum
             </h3>
             <span className="text-xs text-muted-foreground">
               concepts approved + tasks completed
             </span>
           </div>
-          <MomentumChart data={data.trend} />
+          <MomentumChart data={momentumData} />
         </div>
       </Card>
 
@@ -1237,21 +1357,6 @@ export function ScorecardDetailView() {
               </div>
             </div>
 
-            <RangeControls
-              preset={preset}
-              setPreset={setPreset}
-              customFrom={customFrom}
-              customTo={customTo}
-              setCustomFrom={setCustomFrom}
-              setCustomTo={setCustomTo}
-              rangeStart={rangeStart}
-              rangeEnd={rangeEnd}
-            />
-
-            <p className="mt-2 text-center text-[10px] uppercase tracking-wider text-muted-foreground">
-              {differenceInDays(rangeEnd, rangeStart) + 1} days · click any cell
-            </p>
-
             <div className="overflow-x-auto">
               <CalendarHeatmap
                 rangeStart={rangeStart}
@@ -1276,41 +1381,33 @@ export function ScorecardDetailView() {
         </Card>
 
         {/* Composition donut */}
-        <Card className="h-full border border-border">
-          <div className="flex h-full flex-col p-4">
+        <Card className="border border-border">
+          <div className="p-4">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Composition
             </p>
             <h3 className="text-sm font-semibold text-foreground">
               On-time · Late · Pending
             </h3>
-            <div className="flex flex-1 items-center">
-              <div className="w-full">
-                <CompositionDonut
-                  onTime={totals.onTime}
-                  late={totals.delayed}
-                  pending={totals.pending}
-                />
-              </div>
-            </div>
+            <CompositionDonut
+              onTime={totals.onTime}
+              late={totals.delayed}
+              pending={totals.pending}
+            />
           </div>
         </Card>
 
         {/* Weekly throughput sparkline */}
-        <Card className="h-full border border-border">
-          <div className="flex h-full flex-col p-4">
+        <Card className="border border-border">
+          <div className="p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <TrendingUp className="h-3 w-3" />
               <span>Throughput</span>
             </div>
             <h3 className="text-sm font-semibold text-foreground">
-              Weekly · last 12 weeks
+              Weekly Throughput
             </h3>
-            <div className="flex flex-1 items-center">
-              <div className="w-full">
-                <ThroughputSparkline data={throughputWeekly} />
-              </div>
-            </div>
+            <ThroughputSparkline data={throughputWeekly} />
           </div>
         </Card>
       </div>
@@ -1323,7 +1420,7 @@ export function ScorecardDetailView() {
               Trend
             </p>
             <h3 className="text-sm font-semibold text-foreground">
-              6 months · On-Time %
+              On-Time %
             </h3>
             <TrendBars data={monthlyTrend} />
           </div>
@@ -1355,13 +1452,10 @@ export function ScorecardDetailView() {
         </Card>
       </div>
 
-      {/* ── ROW: Priority + Vs Team + Concept Funnel ──
-          `items-stretch` + `h-full` on every card so the priority donut
-          (now substantially taller after the redesign) doesn't leave gaps
-          next to its row-mates. */}
-      <div className="grid items-stretch gap-4 lg:grid-cols-3">
-        <Card className="h-full border border-border">
-          <div className="flex h-full flex-col p-4">
+      {/* ── ROW: Priority + Vs Team + Concept Funnel ── */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="border border-border">
+          <div className="p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Zap className="h-3 w-3" />
               <span>Priority</span>
@@ -1369,9 +1463,7 @@ export function ScorecardDetailView() {
             <h3 className="text-sm font-semibold text-foreground">
               Task priority mix
             </h3>
-            <div className="flex-1">
-              <PriorityBreakdown data={priorityBreakdown} />
-            </div>
+            <PriorityBreakdown data={priorityBreakdown} />
           </div>
         </Card>
 
