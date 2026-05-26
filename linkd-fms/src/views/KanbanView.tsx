@@ -2631,8 +2631,17 @@ function getCtasForRow(args: {
       return [];
 
     case "in_progress":
-      // Completion is now driven by the inline Done? checkbox in the table,
-      // so no CTA button is rendered in the action cell for in-progress rows.
+      if (isMine || isAdmin) {
+        return [
+          {
+            label: "Done",
+            variant: "emerald",
+            icon: Check,
+            onClick: onSubmitReview,
+            pendingOp: "updateStatus",
+          },
+        ];
+      }
       return [];
 
     case "full_kitting":

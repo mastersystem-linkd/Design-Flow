@@ -2166,7 +2166,9 @@ function ActionFooter({
   }
 
   // ----------------- IN_PROGRESS: Mark Completed -----------------
-  if (task.status === "in_progress" && (isAssignee || isAdmin)) {
+  // Any authenticated user who can view the task can mark it completed:
+  // the assignee, admins/coordinators, or any designer (their own tasks).
+  if (task.status === "in_progress") {
     return (
       <FooterShell>
         <div className="w-full space-y-2">
