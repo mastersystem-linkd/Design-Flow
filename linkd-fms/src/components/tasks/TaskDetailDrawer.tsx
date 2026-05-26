@@ -2166,9 +2166,7 @@ function ActionFooter({
   }
 
   // ----------------- IN_PROGRESS: Mark Completed -----------------
-  // Any authenticated user who can view the task can mark it completed:
-  // the assignee, admins/coordinators, or any designer (their own tasks).
-  if (task.status === "in_progress") {
+  if (task.status === "in_progress" && (isAssignee || isAdmin)) {
     return (
       <FooterShell>
         <div className="w-full space-y-2">
@@ -2198,8 +2196,8 @@ function ActionFooter({
   // Digital Designing, i.e. in_progress).
   // For regular tasks, this stage is "Full Kitting" and a single
   // "Mark Completed" action sends the task straight to Done.
-  if (task.status === "full_kitting" && isAdmin) {
-    if (isConceptTrackTask(task)) {
+  if (task.status === "full_kitting" && (isAssignee || isAdmin)) {
+    if (isConceptTrackTask(task) && isAdmin) {
       return (
         <FooterShell>
           <div className="flex w-full gap-2">

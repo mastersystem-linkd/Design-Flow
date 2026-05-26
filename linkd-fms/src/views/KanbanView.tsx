@@ -2645,13 +2645,10 @@ function getCtasForRow(args: {
       return [];
 
     case "full_kitting":
-      if (isAdmin) {
-        // Concept-track briefs need the Approve / Request Revision pair —
-        // they're in the "Design Approval" stage of the concept pipeline.
-        // Regular tasks just have a single "Completed" CTA.
+      if (isAdmin || isMine) {
         const isConceptTrack =
           (task.concept ?? "").trim().toLowerCase() === "concepts";
-        if (isConceptTrack) {
+        if (isConceptTrack && isAdmin) {
           return [
             {
               label: "Approve",
