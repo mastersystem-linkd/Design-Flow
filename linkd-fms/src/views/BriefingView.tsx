@@ -149,10 +149,7 @@ function BriefingForm({
   const [mtr, setMtr] = useState("");
   const [plannedDeadline, setPlannedDeadline] = useState("");
   const [dueTime, setDueTime] = useState("");
-  // Default the concept start date to today; users can change it. Most
-  // briefs kick off the same day they're filed, so saving the click is
-  // worth more than the rare exception.
-  const [conceptStartDate, setConceptStartDate] = useState<string>(todayISO);
+  const conceptStartDate = todayISO();
   const [priority, setPriority] = useState<Priority>("normal");
   const [whatsappGroup, setWhatsappGroup] = useState("");
   const [assignedBy, setAssignedBy] = useState(
@@ -246,8 +243,7 @@ function BriefingForm({
       setMtr(d.mtr ?? "");
       setPlannedDeadline(d.plannedDeadline ?? "");
       setDueTime(d.dueTime ?? "");
-      // Draft falls back to today when the saved value is missing/empty.
-      setConceptStartDate(d.conceptStartDate || todayISO());
+      // conceptStartDate is now always today (auto-set, not user-editable)
       setPriority((d.priority === "urgent" ? "urgent" : "normal") as Priority);
       setWhatsappGroup(d.whatsappGroup ?? "");
       setAssignedBy(d.assignedBy ?? profile?.full_name ?? "");
@@ -273,7 +269,7 @@ function BriefingForm({
     const t = setTimeout(() => {
       const payload = {
         clientId, concept, description, fabric, qty, mtr,
-        plannedDeadline, dueTime, conceptStartDate, priority,
+        plannedDeadline, dueTime, priority,
         whatsappGroup, assignedBy, assignedTo,
         requiresFullKitting, fullKittingNotes,
       };
@@ -339,9 +335,7 @@ function BriefingForm({
     setQty("");
     setMtr("");
     setPlannedDeadline("");
-    // Reset still defaults to today, not blank — same reasoning as the
-    // initial state above.
-    setConceptStartDate(todayISO());
+    // conceptStartDate is auto-set to today on submit
     setDueTime("");
     setPriority("normal");
     setWhatsappGroup("");
@@ -944,18 +938,6 @@ function BriefingForm({
               />
             </Field>
           </div>
-          <Field label="Concept start date" htmlFor="concept_start_date">
-            <Input
-              id="concept_start_date"
-              type="date"
-              value={conceptStartDate}
-              onChange={(e) => setConceptStartDate(e.target.value)}
-              disabled={submitting}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Planned kickoff date. Used to flag tasks that started late.
-            </p>
-          </Field>
         </FormSection>
 
         {!isDialog && <Divider />}
