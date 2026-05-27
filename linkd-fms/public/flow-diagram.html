@@ -87,7 +87,7 @@
 <body>
 
 <h1>LinkD <span>FMS</span> — System Flow Diagram</h1>
-<p class="subtitle">Complete architecture &middot; 22 views &middot; 24 hooks &middot; 80+ components &middot; 20+ migrations &middot; 15+ tables</p>
+<p class="subtitle">Complete architecture &middot; 23 views &middot; 25 hooks &middot; 80+ components &middot; 35 migrations &middot; 15+ tables &middot; 1 Vercel serverless route</p>
 
 <!-- SECTION 1: BOOT -->
 <div class="section">
@@ -118,7 +118,7 @@
 
 <!-- SECTION 2: PAGE MAP -->
 <div class="section">
-<h2>2. Page Map &amp; Navigation (22 views)</h2>
+<h2>2. Page Map &amp; Navigation (23 views)</h2>
 <table class="info-table">
   <thead><tr><th>Route</th><th>View</th><th>Admin</th><th>Coordinator</th><th>Designer</th><th>DEO</th></tr></thead>
   <tbody>
@@ -131,12 +131,13 @@
     <tr><td><code>/brief/new</code></td><td>BriefingView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/concepts</code></td><td>ConceptsView (22-col workflow)</td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/analytics</code></td><td><em>Redirects to</em> <code>/task-dashboard?tab=concepts</code></td><td colspan="4" style="text-align:center;color:var(--muted)">Redirect</td></tr>
+    <tr><td><code>/orders</code></td><td>OrdersView <span class="tag tag-amber">placeholder</span></td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/sampling</code></td><td>ProductionView (Sampling Hub)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/salvedge</code></td><td>SalvedgeView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/kitting</code></td><td>KittingQueueView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes <span class="tag tag-orange">landing</span></td></tr>
     <tr><td><code>/kitting/:recordId</code></td><td>FullKittingFormView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes</td></tr>
     <tr><td><code>/files</code></td><td>FilesView</td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
-    <tr><td><code>/team</code></td><td>TeamView (CRUD + codes)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/team</code></td><td><em>Redirects to</em> <code>/system</code> (Team tab inside Settings)</td><td colspan="4" style="text-align:center;color:var(--muted)">Redirect</td></tr>
     <tr><td><code>/scorecards</code></td><td>ScorecardsView (grid)</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/scorecards/:id</code></td><td>ScorecardDetailView</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>Self only</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/profile</code></td><td>ProfileView</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
@@ -146,7 +147,27 @@
 </table>
 <div class="note">
   <strong>Wrong-role behavior:</strong> URL stays put; ProtectedRoute renders AccessRestrictedView inside AppLayout.<br>
-  <strong>Legacy aliases:</strong> <code>/kanban</code> &rarr; <code>/dashboard</code>, <code>/briefing</code> &rarr; <code>/brief/new</code>, <code>/production</code> &rarr; <code>/sampling</code>
+  <strong>Legacy aliases:</strong> <code>/kanban</code> &rarr; <code>/dashboard</code>, <code>/briefing</code> &rarr; <code>/brief/new</code>, <code>/production</code> &rarr; <code>/sampling</code>, <code>/team</code> &rarr; <code>/system</code>
+</div>
+
+<h2 style="margin-top:32px">Vercel Serverless API Routes (linkd-fms/api/)</h2>
+<table class="info-table">
+  <thead><tr><th>Route</th><th>Modes</th><th>Used By</th><th>Service-role action</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>POST /api/admin-update-user</code></td>
+      <td><code>list_emails</code> / <code>fetch</code> / <code>update</code></td>
+      <td>TeamView (Email column + Edit dialog)</td>
+      <td>Reads <code>auth.users</code> email + updates email/password/profile fields (full_name, role, is_active, created_at)</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note">
+  <strong>Auth flow:</strong> caller's JWT (<code>Authorization: Bearer ...</code>) is verified server-side; only admin / design_coordinator profiles are accepted.<br>
+  <strong>Env (Vercel only):</strong> <code>SUPABASE_URL</code>, <code>SUPABASE_ANON_KEY</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>. The service-role key NEVER ships to the browser.<br>
+  <strong>Client helper:</strong> <code>callAdminApi(route, body)</code> in <code>src/lib/adminApi.ts</code> attaches the Bearer token and returns <code>{data, error}</code>.<br>
+  <strong>Local dev:</strong> <code>npm run dev</code> doesn't serve these (Vite only). Use <code>npx vercel dev</code> to test the API locally; otherwise the Team email column shows a friendly "needs vercel dev" note in development.<br>
+  <strong>Convention:</strong> new privileged endpoints go here, NOT into Supabase Edge Functions. The two existing edge functions (<code>admin-create-user</code>, <code>daily-notifications</code>) stay on Supabase for historical reasons.
 </div>
 </div>
 
@@ -223,7 +244,7 @@
   <strong>Important:</strong> Assigned tasks skip <code>todo</code> &rarr; go straight to <code>in_progress</code>. The <code>todo</code> enum exists but is no longer entered by the app.<br>
   <strong>Task code:</strong> <code>DF NN-D{MMYY}-CONC-QM</code> (e.g. DF 01-S0526-FLOR-200M)<br>
   <strong>Sampling:</strong> Lives on its own <code>/sampling</code> page (not a dashboard tab).<br>
-  <strong>Notifications:</strong> Task assigned &rarr; designer, task done &rarr; coordinators, pool claimed &rarr; previous assignee
+  <strong>Notifications:</strong> Task assigned &rarr; designer, task done &rarr; designer + admins + coordinators, pool claimed &rarr; previous assignee
 </div>
 </div>
 
@@ -251,6 +272,7 @@
 </div>
 <div class="note">
   <strong>Monthly target:</strong> 3 approved concepts per designer<br>
+  <strong>Auto-reminders:</strong> <code>useConceptReminders</code> fires on Day 8 (&ge;1), Day 17 (&ge;2), Day 24 (&ge;3) — sends warning notification if designer is behind target<br>
   <strong>Revision tracking:</strong> <code>completion_history</code> JSONB column records each revision cycle with timestamps + delay_days + notes<br>
   <strong>Multi-file:</strong> <code>concepts.files</code> JSONB array supports multiple file uploads per concept (migration 0018)<br>
   <strong>Notifications:</strong> Concept submitted &rarr; admins, reviewed &rarr; designer, re-submitted &rarr; admins<br>
@@ -300,7 +322,7 @@
 
 <!-- SECTION 7: DATABASE -->
 <div class="section">
-<h2>7. Database Schema (15+ Tables, 20+ Migrations)</h2>
+<h2>7. Database Schema (15+ Tables, 35 Migrations)</h2>
 <div class="grid-4">
   <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">4 roles &middot; soft-delete (is_active)</div></div>
   <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">30+ cols &middot; 7 statuses</div></div>
@@ -324,7 +346,7 @@
   <strong>Storage buckets:</strong> design-files (50 MB) &middot; sample-files (100 MB) &middot; proof-photos (10 MB) &middot; task-files &middot; avatars &mdash; all private with RLS<br>
   <strong>RLS:</strong> 40+ policies &middot; <code>auth_role()</code> + <code>is_admin()</code> + <code>is_admin_or_coordinator()</code> + <code>is_deo()</code> helpers<br>
   <strong>Views:</strong> <code>deo_kitting_queue</code> (joins kitting + tasks + clients) &middot; <code>active_profiles</code> (is_active=true)<br>
-  <strong>Migrations:</strong> 0001, 0003&ndash;0014, 0016&ndash;0024 (0002/0015 merged into earlier files; numbering gaps intentional)
+  <strong>Migrations:</strong> 0001, 0003&ndash;0035 (0002 / 0015 merged into earlier files; numbering gaps intentional). Latest: 0034 broadens notifications insert RLS to authenticated, 0035 adds <code>notify_user</code> / <code>notify_users_batch</code> SECURITY DEFINER RPCs.
 </div>
 </div>
 
@@ -348,8 +370,12 @@
   <div class="node success"><div class="node-label">Image Compression</div><div class="node-sub">Canvas-based resize (1920px max, 0.85 quality) before upload</div></div>
   <div class="node"><div class="node-label">Task Comments</div><div class="node-sub">Discussion threads with Realtime + edit/delete + 2000 char limit</div></div>
   <div class="node teal"><div class="node-label">Form Draft Persistence</div><div class="node-sub">localStorage-backed with 300ms debounce + "draft recovered" hint</div></div>
-  <div class="node purple"><div class="node-label">Team CRUD</div><div class="node-sub">Add user (signUp), edit, role change, soft-delete/deactivate</div></div>
+  <div class="node purple"><div class="node-label">Team CRUD</div><div class="node-sub">Add (Edge fn), edit name/email/password/role/joining-date (Vercel API), soft-delete</div></div>
   <div class="node"><div class="node-label">Dual Theme System</div><div class="node-sub">Light / Dark / System &middot; CSS variables &middot; FOUC prevention</div></div>
+  <div class="node purple"><div class="node-label">Vercel API Routes</div><div class="node-sub"><code style="font-size:9px">/api/admin-update-user</code> &middot; service-role server-side &middot; callAdminApi() client helper</div></div>
+  <div class="node teal"><div class="node-label">Notifications RPC</div><div class="node-sub"><code style="font-size:9px">notify_user</code> / <code style="font-size:9px">notify_users_batch</code> &middot; SECURITY DEFINER &middot; any-authed insert</div></div>
+  <div class="node success"><div class="node-label">Mobile UX Polish</div><div class="node-sub">Pipeline pills stack vertically, DesignerMatrix card rows, login spacing, KittingMix centered</div></div>
+  <div class="node warning"><div class="node-label">Concept Reminders</div><div class="node-sub"><code style="font-size:9px">useConceptReminders</code> &middot; Day 8/17/24 escalating targets (&ge;1/2/3) &middot; client-side deduped</div></div>
 </div>
 </div>
 
@@ -366,10 +392,11 @@
   </div>
   <div style="font-size:32px;color:var(--muted);align-self:center">&hArr;</div>
   <div class="flow-col" style="gap:8px">
+    <div class="node purple"><div class="node-label">Vercel Hosting</div><div class="node-sub">SPA + /api/* serverless functions (Node.js) for service-role ops</div></div>
     <div class="node success"><div class="node-label">Supabase</div><div class="node-sub">PostgreSQL + Auth + Realtime</div></div>
-    <div class="node success"><div class="node-label">PostgREST API</div><div class="node-sub">Auto-generated, typed client (SDK 2.45.4 pinned)</div></div>
+    <div class="node success"><div class="node-label">PostgREST API</div><div class="node-sub">Auto-generated, typed client (SDK 2.45.4 pinned, sb_publishable_* key)</div></div>
     <div class="node success"><div class="node-label">Storage</div><div class="node-sub">5 buckets &middot; design-files 50 MB &middot; sample-files 100 MB</div></div>
-    <div class="node success"><div class="node-label">RLS + Triggers</div><div class="node-sub">40+ policies &middot; auto-timestamps &middot; auto-complete</div></div>
+    <div class="node success"><div class="node-label">RLS + Triggers + RPC</div><div class="node-sub">40+ policies &middot; auto-timestamps &middot; <code style="font-size:9px">notify_user</code> SECURITY DEFINER</div></div>
     <div class="node success"><div class="node-label">Realtime Channels</div><div class="node-sub">Postgres Changes (INSERT) for notifications + comments</div></div>
   </div>
 </div>
@@ -409,7 +436,7 @@
 <div class="divider"></div>
 <p style="text-align:center;color:var(--muted);font-size:12px">
   LinkD FMS &mdash; Design Flow System<br>
-  15+ tables &middot; 4 roles &middot; 22 views &middot; 24 hooks &middot; 80+ components &middot; 20+ migrations<br>
+  15+ tables &middot; 4 roles &middot; 23 views &middot; 25 hooks &middot; 80+ components &middot; 35 migrations &middot; 1 Vercel serverless route<br>
   Updated: May 2026
 </p>
 

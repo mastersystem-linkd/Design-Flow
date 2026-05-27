@@ -108,6 +108,14 @@ For dashboard / hub pages, the header row is:
 - `useNotifications` subscribes via Supabase realtime and plays a Web Audio chime (880 Hz, 200ms, 10s debounce) on every `INSERT` when the tab is visible. Tab-title flashes when hidden.
 - Scheduled daily notifications run via the `daily-notifications` Edge Function at 05:30 UTC / 11:00 IST. See `NOTIFICATIONS_SETUP.md` for deployment.
 - Per-task / per-concept notifications are deduped by `(user_id × kind × entity_id × day)` — never insert raw rows that don't follow this scheme or the user gets repeats.
+- **Sending notifications:** Always go through `sendNotification` / `sendNotificationToMany` / `sendNotificationToRole` in `lib/notifications.ts`. These call the `notify_user` / `notify_users_batch` Postgres RPC functions (SECURITY DEFINER) so the insert succeeds regardless of the caller's role. Do **not** `supabase.from("notifications").insert(...)` directly from the client — that route is gated by `notifications_insert_authenticated` and will break for some legitimate flows (e.g. a designer notifying admins on concept submission).
+- **Client-side concept reminders:** `useConceptReminders` runs once per app shell mount inside `AppLayout` (designers only). It checks escalating monthly concept targets on three checkpoint days:
+  - **Day 8** — need ≥ 1 concept submitted this month
+  - **Day 17** — need ≥ 2 concepts
+  - **Day 24** — need ≥ 3 concepts
+  If the designer is below target, a `warning` notification is sent via the `notify_user` RPC (deduped: skips if a "Concept Submission Reminder" already exists for today). Use the same hook pattern for any new client-only reminder; do not duplicate the polling loop.
+- **Task completion notifications:** When a designer marks a task done (`markTaskDone`), three notifications fire: one `success` to the designer ("You completed X"), and one `success` to all admins + coordinators ("Designer completed X"). Both go through `sendNotificationToRole`.
+- **`sendNotificationToMany` implementation:** Uses `Promise.allSettled` with individual `notify_user` RPC calls (not the batch RPC) to avoid partial-failure issues. Each user gets their own RPC call.
 
 ### 8.7 Theme tokens (dark mode)
 - All surface contrast comes from CSS variables in `src/index.css`. The dark palette has been tuned so card / secondary / border / muted-foreground all hold separation against the canvas. **Do not hardcode dark-mode values** — extend the tokens if a new surface tier is needed.
@@ -160,3 +168,8 @@ Team-member CRUD lives in `src/views/TeamView.tsx`:
 - Edit dialog edits full_name, email, password, role, date-of-joining (`profiles.created_at`), and active status — all in a single Save. Only fields that changed are sent; the dialog fetches the current email + created_at via `/api/admin-update-user` on open.
 - Row actions (View scorecard / Edit / Remove) live behind a `⋮` portal menu (`TeamRowActionsMenu`) so each row stays narrow — never re-introduce inline action buttons.
 - The Email column only renders for `canManage` viewers; on dev (`npm run dev`) it shows a low-key note instead of a yellow warning since the API route 404s locally.
+
+## 11. Orders (placeholder)
+`/orders` (admin + design_coordinator) is a reserved sidebar slot above Sampling in the Manage section. The view at `src/views/OrdersView.tsx` is intentionally a "coming soon" placeholder until the data model + workflow are finalized. Until then:
+- **Do not** add data wiring, hooks, or new tables to OrdersView. Production orders are still managed inside the Sampling queue (via the `order_or_sample` field on the `samples` row).
+- When you build out the real Orders surface, treat it as the canonical home for the `samples` rows where `order_or_sample = 'order'`; don't fork the model.

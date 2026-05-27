@@ -115,6 +115,7 @@ refetchOnWindowFocus: false
     /dashboard/tasks   → KanbanView              (alias)
     /brief/new         → BriefingView            (admin + coordinator + designer)
     /concepts          → ConceptsView            (admin + coordinator + designer)
+    /orders            → OrdersView (placeholder)(admin + coordinator)
     /sampling          → ProductionView          (admin + coordinator)
     /analytics         → redirect → /task-dashboard?tab=concepts
     /team              → TeamView                (admin + coordinator)
@@ -241,12 +242,12 @@ Has profile? → roleHomePath(profile.role)
 │ All Tasks / My Board         │                              │
 │ Concepts                     │                              │
 │ ─── Manage ───  (admin/coord)│                              │
+│ Orders        (placeholder)  │                              │
 │ Sampling                     │                              │
 │ Salvedge                     │                              │
 │ Files                        │                              │
-│ Team                         │                              │
 │ Scorecards  (admin only)     │                              │
-│ Settings                     │                              │
+│ Settings    (Team sub-tab)   │                              │
 │ ─── ─── ─── ───             │                              │
 │ Notifications (with badge)   │                              │
 │                               │                              │
@@ -263,14 +264,16 @@ Mobile (<md): Sidebar hidden, slides in as overlay
 admin:
   Dashboards, All Tasks, Concepts
   ─── Manage ───
-  Sampling, Salvedge, Files, Team, Scorecards, Settings
+  Orders (placeholder), Sampling, Salvedge, Files, Scorecards, Settings
   Notifications
 
 design_coordinator:
   Dashboards, All Tasks, Concepts
   ─── Manage ───
-  Sampling, Salvedge, Files, Team, Settings
+  Orders (placeholder), Sampling, Salvedge, Files, Settings
   Notifications
+
+(Team Management lives inside Settings as a sub-tab — not its own sidebar entry.)
 
 designer:
   Dashboards, My Board, Concepts, Files
@@ -1152,14 +1155,24 @@ Per-table RLS summary:
 ## 10. NOTIFICATION SYSTEM (3-layer)
 
 ```
-Layer 1 — DB table (notifications):
-  user_id, title, message, type (info/warning/urgent/success), link, is_read
-  RLS: own-only SELECT, admin/coordinator INSERT
+Layer 1 — DB table + RPC (notifications + notify_user / notify_users_batch):
+  Table cols: user_id, title, message, type (info/warning/urgent/success), link, is_read
+  RLS:        SELECT own-only · INSERT any authenticated · UPDATE own-only · DELETE admin
+  RPCs:       notify_user(p_user_id, p_title, p_message, p_type?, p_link?) → notification id
+              notify_users_batch(p_user_ids[], p_title, p_message, p_type?, p_link?) → void
+              Both are SECURITY DEFINER so any signed-in caller can dispatch a notification
+              without the table policy being widened beyond "authenticated".
+  Migrations: 0013 (table) · 0034 (broaden insert policy) · 0035 (RPC functions)
 
 Layer 2 — Sending helpers (lib/notifications.ts):
-  sendNotification(userId, title, msg, type?, link?)
-  sendNotificationToMany(userIds, title, msg, type?, link?)
-  sendNotificationToRole(role, title, msg, type?, link?)
+  sendNotification(userId, title, msg, type?, link?)         → calls notify_user RPC
+  sendNotificationToMany(userIds, title, msg, type?, link?)  → Promise.allSettled loop
+                                                                of individual notify_user calls
+  sendNotificationToRole(role, title, msg, type?, link?)     → fetches userIds first, then
+                                                                calls sendNotificationToMany
+
+  Helpers return { data, error } (never throw). On error they also toast and console.error.
+  Never insert into notifications from the client directly — always go via these helpers.
 
 Layer 3 — Realtime + sound (useNotifications hook):
   Subscribes to Supabase Realtime postgres_changes INSERT events
@@ -1170,21 +1183,33 @@ Layer 3 — Realtime + sound (useNotifications hook):
   ↓
   Pulse animation on NotificationBell badge
 
+Layer 3.5 — Client-side concept reminders (useConceptReminders):
+  Mounted once inside AppLayout (designers only). On three checkpoint days per
+  month, checks if the designer has met escalating concept targets:
+    Day 8  → need ≥ 1 concept submitted this month
+    Day 17 → need ≥ 2 concepts
+    Day 24 → need ≥ 3 concepts
+  If below target, sends a "Concept Submission Reminder" warning notification
+  via notify_user RPC. Deduped: skips if a reminder with the same title already
+  exists for today. Runs once per session (useRef guard).
+
 Where notifications fire from:
   ┌───────────────────────────────┬──────────────────────────┐
   │ Trigger                       │ Recipient                │
   ├───────────────────────────────┼──────────────────────────┤
   │ Task assigned                 │ Designer                 │
   │ Task self-claimed             │ Previous assignee        │
-  │ Task marked done              │ All coordinators         │
+  │ Task marked done              │ Designer + admins + coords│
   │ Concept submitted             │ All admins               │
   │ Concept reviewed              │ Submitter                │
   │ Final approval                │ Submitter                │
   │ Revision feedback             │ Submitter                │
   │ Concept re-submitted          │ All admins               │
   │ Role changed                  │ Affected user            │
+  │ Email / password changed (UI) │ Affected user            │
   │ Kitting form uploaded (A)     │ All DEOs                 │
   │ Kitting form digitized (B)    │ Admin + coordinator      │
+  │ Concept reminder (Day 8/17/24)│ Designer (client-side)   │
   └───────────────────────────────┴──────────────────────────┘
 
 UI surfaces:
@@ -1344,6 +1369,7 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 │ useFabrics           │ Fabric lookup (active-only by default)              │
 │ useConceptCategories │ Concept category lookup (active-only by default)    │
 │ useNotifications     │ Notifications + Realtime subscription + sound       │
+│ useConceptReminders  │ Client-side monthly concept target reminders        │
 │ useFullKitting       │ Kitting form CRUD for full_kitting_details          │
 │ useSamples           │ Sample CRUD w/ filters (dateRange, customer, status)│
 │ useSalvedge          │ Salvedge records CRUD + filters                     │
@@ -1391,8 +1417,35 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 0023  DEO policies (is_deo() helper, deo_kitting_queue view, DEO-specific RLS)
 0024  Team CRUD (is_active, deactivated_at, deactivated_by on profiles, rewritten RLS,
       active_profiles view)
+0025  Concept work-status lifecycle — step 1: concept_work_status enum
+      (not_started / in_progress / on_hold / done_partial / in_revision /
+       changes_requested / completed)
+0026  Concept work-status lifecycle — step 2: columns added (work_status, work_started_at,
+      work_held_at, work_resumed_at, work_completed_at, hold_reason, hold_count,
+      revision_count, md_feedback, total_hold_duration)
+0027  Concept work-status lifecycle — step 3: RLS + triggers tying the new columns
+      to designer/MD actions (T6–T13 state machine)
+0028  Concepts.designs_count — the denominator MD sees at final approval
+      ("X of Y approved")
+0029  Auto-start on MD approval — collapses the "Start working" button; the moment MD
+      approves, work_started_at is stamped and work_status flips to in_progress
+0030  Collapse changes_requested — removes the manual "Start changes" step; an MD
+      revision request flips status straight to in_revision
+0031  Sample/kitting link — full_kitting_details can FK to a sample row (mutually
+      exclusive with task_id), so the FK flow runs the same from /sampling as
+      it does from All Tasks → Full Knitting
+0032  Sample UID generator — auto-assigns SMP-YYYY-NNNN on insert; backfills
+      existing rows so the Sampling → Full Knitting table has stable identifiers
+0033  Schedule daily-notifications via pg_cron — activates the existing Edge
+      Function (was deployed but never scheduled)
+0034  Notifications insert policy broadened to "authenticated" — designer-triggered
+      notifications (task complete, concept submit, etc.) were failing under the
+      old admin-or-coordinator gate
+0035  notify_user + notify_users_batch RPC functions (SECURITY DEFINER) so cross-user
+      inserts work regardless of the caller's role; sendNotification* helpers in
+      lib/notifications.ts route through these RPCs
 
-Next migration: 0025
+Next migration: 0036
 ```
 
 ---
@@ -1460,11 +1513,17 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
 - Error boundary wrapping entire app
 - React Query migration (all hooks use @tanstack/react-query, centralized cache keys)
 - Dual theme (light/dark/system) with FOUC prevention
-- 15-table DB with RLS, triggers, auto-generated IDs (migrations 0001-0024)
+- 15-table DB with RLS, triggers, auto-generated IDs (migrations 0001-0035)
 - 5 storage buckets with signed URL access
 - Client-side image compression (Canvas API, all 6 upload handlers)
 - 4-role architecture (admin / design_coordinator / designer / deo)
 - Centralized permissions (lib/permissions.ts)
+- Vercel serverless API routes (`linkd-fms/api/*.ts`) for privileged service-role
+  operations — `admin-update-user` (fetch / list_emails / update modes) backs the
+  Team Management edit dialog and email column. Client helper: `callAdminApi()`.
+- Notifications go through `notify_user` / `notify_users_batch` SECURITY DEFINER
+  RPCs (migrations 0034 + 0035) so cross-user inserts work without weakening
+  table-level RLS.
 
 **Pages:**
 - Dashboard overview (`/dashboard` via `/home` redirect) — KPIs, alerts, activity, pipeline
@@ -1473,7 +1532,12 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
 - Brief creation (`/brief/new`) — full form with Combobox pickers, kitting upload, code gen
 - Concepts (`/concepts`) — role-specific dashboards, designer work board, workflow table, submit/review/finalize with revision history
 - Sampling Hub (`/sampling`) — stats cards, CRUD table, batch entry, charts
-- Team management (`/team`) — full CRUD: add user, edit, role change, soft-delete, designer codes
+- Orders (`/orders`) — admin + coordinator only. Placeholder view reserving the
+  sidebar slot above Sampling; the eventual home for `samples` rows where
+  `order_or_sample = 'order'`.
+- Team management (`/team`) — full CRUD: add user, edit (name/email/password/role/
+  joining-date/active status via `/api/admin-update-user`), role change, soft-delete,
+  designer codes, 3-dot row action menu
 - File browser (`/files`) — grid/list, bucket filters, search, download, delete
 - Profile (`/profile`) — avatar, name, password, theme cards
 - System admin (`/system`) — 7-tab hub (info, categories, fabrics, clients, codes, storage, danger zone)

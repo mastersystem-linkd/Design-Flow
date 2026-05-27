@@ -3,9 +3,16 @@ import { supabase } from "@/lib/supabase";
 import { sendNotification } from "@/lib/notifications";
 import { useAuth } from "@/hooks/useAuth";
 
-const MONTHLY_TARGET = 3;
-const REMINDER_DAYS = [8, 18, 28];
 const REMINDER_TITLE = "Concept Submission Reminder";
+
+// Week 1 (Day 8):  need at least 1 concept
+// Week 2 (Day 17): need at least 2 concepts
+// Week 3 (Day 24): need at least 3 concepts
+const CHECKPOINTS: { day: number; minRequired: number }[] = [
+  { day: 8, minRequired: 1 },
+  { day: 17, minRequired: 2 },
+  { day: 24, minRequired: 3 },
+];
 
 export function useConceptReminders() {
   const { user, role } = useAuth();
@@ -16,7 +23,8 @@ export function useConceptReminders() {
 
     const today = new Date();
     const dayOfMonth = today.getDate();
-    if (!REMINDER_DAYS.includes(dayOfMonth)) return;
+    const checkpoint = CHECKPOINTS.find((c) => c.day === dayOfMonth);
+    if (!checkpoint) return;
 
     hasRun.current = true;
 
@@ -39,7 +47,7 @@ export function useConceptReminders() {
       }
 
       const submitted = count ?? 0;
-      if (submitted >= MONTHLY_TARGET) return;
+      if (submitted >= checkpoint.minRequired) return;
 
       const todayStart = new Date(
         today.getFullYear(),
@@ -56,11 +64,11 @@ export function useConceptReminders() {
 
       if ((existingCount ?? 0) > 0) return;
 
-      const remaining = MONTHLY_TARGET - submitted;
+      const remaining = checkpoint.minRequired - submitted;
       const message =
         submitted === 0
-          ? `You haven't submitted any concepts this month yet. Submit ${remaining} concepts to meet your monthly target of ${MONTHLY_TARGET}.`
-          : `You've submitted ${submitted} of ${MONTHLY_TARGET} concepts this month. Submit ${remaining} more to meet your target!`;
+          ? `You haven't submitted any concepts this month yet. Submit at least ${checkpoint.minRequired} by now to stay on track.`
+          : `You've submitted ${submitted} concept${submitted > 1 ? "s" : ""} this month but need at least ${checkpoint.minRequired} by now. Submit ${remaining} more to stay on track!`;
 
       void sendNotification(user.id, REMINDER_TITLE, message, "warning", "/concepts");
     })();
