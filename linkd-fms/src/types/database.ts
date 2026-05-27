@@ -1085,6 +1085,26 @@ export type Database = {
       is_deo: { Args: Record<string, never>; Returns: boolean };
       next_task_code: { Args: Record<string, never>; Returns: string };
       next_concept_code: { Args: Record<string, never>; Returns: string };
+      notify_user: {
+        Args: {
+          p_user_id: string;
+          p_title: string;
+          p_message: string;
+          p_type?: string;
+          p_link?: string | null;
+        };
+        Returns: string;
+      };
+      notify_users_batch: {
+        Args: {
+          p_user_ids: string[];
+          p_title: string;
+          p_message: string;
+          p_type?: string;
+          p_link?: string | null;
+        };
+        Returns: undefined;
+      };
     };
     Enums: {
       user_role: UserRole;

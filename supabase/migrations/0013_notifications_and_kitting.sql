@@ -46,12 +46,14 @@ create policy "notifications_select_own"
   on public.notifications for select
   using (user_id = auth.uid());
 
--- Admin/coordinator can insert (for manual sends); service_role bypasses RLS
--- for edge-function / trigger-based inserts.
+-- Any authenticated user can insert notifications. Designers trigger
+-- notifications when they complete tasks, submit concepts, add comments, etc.
+-- service_role bypasses RLS for edge-function / trigger-based inserts.
 drop policy if exists "notifications_insert_admin_coordinator" on public.notifications;
-create policy "notifications_insert_admin_coordinator"
+drop policy if exists "notifications_insert_authenticated" on public.notifications;
+create policy "notifications_insert_authenticated"
   on public.notifications for insert
-  with check (public.is_admin_or_coordinator());
+  with check (auth.uid() is not null);
 
 -- Users can only mark their OWN notifications as read (is_read is the only
 -- mutable column — the WITH CHECK ensures they can't change anything else
@@ -67,6 +69,9 @@ drop policy if exists "notifications_delete_admin" on public.notifications;
 create policy "notifications_delete_admin"
   on public.notifications for delete
   using (public.is_admin());
+
+-- Enable Realtime so useNotifications receives live INSERT events
+alter publication supabase_realtime add table public.notifications;
 
 
 -- ============================================================================

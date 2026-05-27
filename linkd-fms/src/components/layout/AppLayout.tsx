@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useConceptReminders } from "@/hooks/useConceptReminders";
 import type { Profile } from "@/types/database";
 
 export interface AppLayoutProps {
@@ -15,6 +16,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { unreadCount } = useNotifications();
+  useConceptReminders();
 
   const mainRef = useRef<HTMLElement>(null);
 

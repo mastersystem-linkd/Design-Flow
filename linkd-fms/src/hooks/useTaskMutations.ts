@@ -747,6 +747,15 @@ export function useTaskMutations(): UseTaskMutations {
 
         if (error) return { data: null, error: error.message };
 
+        // Confirm to the designer that their task is done.
+        void sendNotification(
+          profile.id,
+          "Task Completed",
+          `You completed ${data.task_code ?? taskId}. Great work!`,
+          "success",
+          "/dashboard"
+        );
+
         // Notify admins + coordinators that a task crossed the finish line.
         void sendNotificationToRole(
           ["admin", "design_coordinator"],
