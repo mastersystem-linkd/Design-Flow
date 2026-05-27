@@ -503,7 +503,6 @@ export function ProductionView() {
                 <thead className={TABLE_HEAD}>
                   <tr>
                     <th className={TABLE_TH}>Timestamp</th>
-                    <th className={TABLE_TH}>UID</th>
                     <th className={TABLE_TH}>Party Name</th>
                     <th className={TABLE_TH}>Quality</th>
                     <th className={cn(TABLE_TH, "text-right")}>Received</th>
@@ -755,8 +754,12 @@ function SampleMobileCard({
         <button type="button" onClick={onOpen} className="block w-full pr-7 text-left">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-foreground">{s.party_name}</p>
-              <p className="mt-0.5 truncate font-mono text-[11px] text-primary">{s.uid || "—"}</p>
+              <p
+                className="truncate text-sm font-semibold text-foreground"
+                title={s.uid || undefined}
+              >
+                {s.party_name}
+              </p>
             </div>
             {s.is_completed ? (
               <Badge className="shrink-0 border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
@@ -830,13 +833,11 @@ function SampleRow({
         {formatDate(s.created_at)}
       </td>
 
-      {/* UID */}
-      <td className={cn(TABLE_TD, "whitespace-nowrap font-mono text-[11px] text-primary")}>
-        {s.uid || "—"}
-      </td>
-
-      {/* Party */}
-      <td className={cn(TABLE_TD, "whitespace-nowrap font-medium text-foreground")}>
+      {/* Party — UID hidden from view; still in export + delete dialog. */}
+      <td
+        className={cn(TABLE_TD, "whitespace-nowrap font-medium text-foreground")}
+        title={s.uid || undefined}
+      >
         {s.party_name}
       </td>
 

@@ -163,7 +163,7 @@ export function LoginView() {
   }
 
   return (
-    <div className="relative flex min-h-screen overflow-hidden">
+    <div className="relative flex min-h-screen overflow-hidden" style={{ background: "#0C0B16" }}>
       <style>{`
         @keyframes loginReveal {
           from { opacity: 0; transform: translateY(16px); }
@@ -266,12 +266,12 @@ export function LoginView() {
       </aside>
 
       {/* ═══════════ RIGHT — DARK FORM PANEL ═══════════ */}
-      <section className="relative flex flex-1 flex-col pt-14 lg:pt-0" style={{ background: "#0C0B16" }}>
+      <section className="relative flex flex-1 flex-col pt-14 pb-14 lg:pt-0 lg:pb-0" style={{ background: "#0C0B16" }}>
         <NebulaCanvas />
 
-        <div className="relative z-10 flex flex-1 items-center justify-center px-6 sm:px-10">
+        <div className="relative z-10 flex flex-1 items-center justify-center px-0 sm:px-10">
           {/* Glass card container */}
-          <div className="w-full max-w-[420px] rounded-2xl px-8 py-10"
+          <div className="w-full max-w-[420px] rounded-2xl px-6 py-8 mx-4 sm:mx-0"
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
               backdropFilter: "blur(24px)", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
 

@@ -10,6 +10,7 @@ import {
   Hourglass,
   PlayCircle,
   Pause,
+  Clock,
   Sparkles,
   Calendar,
   Palette,
@@ -457,7 +458,17 @@ export function AnalyticsView({
                 </div>
               </header>
 
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+                {/* First-time MD review queue. Sits at the front of the strip
+                    because nothing else in the pipeline moves until these
+                    are decided. */}
+                <WorkPill
+                  icon={<Clock className="h-3.5 w-3.5" />}
+                  label="Pending Approval"
+                  value={a.funnel.underReview}
+                  tone="warning"
+                  href={`${ROUTES.concepts}?tab=pending`}
+                />
                 <WorkPill
                   icon={<PlayCircle className="h-3.5 w-3.5" />}
                   label="In Progress"
@@ -762,7 +773,11 @@ function WorkPill({
       type="button"
       onClick={() => navigate(href)}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-lg border border-l-[3px] px-3 py-2 text-left transition-all hover:scale-[1.02] hover:shadow-card-soft active:scale-[0.98]",
+        // Mobile: vertical stack (icon+label on top, big value below) so long
+        //         labels like "Pending Approval" / "In Revision" never get
+        //         cropped in the 2-column mobile grid.
+        // Desktop (sm+): horizontal layout with justify-between.
+        "flex flex-col items-start gap-1 rounded-lg border border-l-[3px] px-2.5 py-2 text-left transition-all hover:scale-[1.02] hover:shadow-card-soft active:scale-[0.98] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3",
         toneClass
       )}
     >
@@ -772,7 +787,7 @@ function WorkPill({
           {label}
         </span>
       </div>
-      <span className="shrink-0 text-base font-bold tabular-nums">{value}</span>
+      <span className="shrink-0 text-lg font-bold tabular-nums leading-none sm:text-base">{value}</span>
     </button>
   );
 }
@@ -803,10 +818,10 @@ function QualityKpi({
   accentClass?: string;
 }) {
   return (
-    <div className={cn("rounded-lg border border-border border-l-[3px] bg-secondary/30 px-3 py-2.5", accentClass ? accentClass.replace("text-", "border-l-") : "border-l-primary")}>
-      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {icon}
-        {label}
+    <div className={cn("min-w-0 rounded-lg border border-border border-l-[3px] bg-secondary/30 px-2.5 py-2.5 sm:px-3", accentClass ? accentClass.replace("text-", "border-l-") : "border-l-primary")}>
+      <div className="flex items-start gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="mt-0.5 shrink-0">{icon}</span>
+        <span className="leading-tight">{label}</span>
       </div>
       <p
         className={cn(
@@ -816,7 +831,7 @@ function QualityKpi({
       >
         {value}
       </p>
-      <p className="text-[10px] text-muted-foreground">{sub}</p>
+      <p className="text-[10px] leading-snug text-muted-foreground">{sub}</p>
     </div>
   );
 }

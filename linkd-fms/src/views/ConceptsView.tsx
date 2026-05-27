@@ -823,14 +823,12 @@ export function ConceptsView() {
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <span className="text-xs font-medium text-foreground line-clamp-1">
+                      <span
+                        className="text-xs font-medium text-foreground line-clamp-1"
+                        title={c.concept_code ?? undefined}
+                      >
                         {c.title}
                       </span>
-                      {c.concept_code && (
-                        <span className="block text-[10px] font-mono text-muted-foreground">
-                          {c.concept_code}
-                        </span>
-                      )}
                     </td>
                     <td className="px-3 py-3">
                       {c.description ? (

@@ -8,6 +8,7 @@ export const ROUTES = {
   dashboard: "/dashboard",
   briefNew: "/brief/new",
   concepts: "/concepts",
+  orders: "/orders",
   sampling: "/sampling",
   analytics: "/analytics",
   team: "/team",

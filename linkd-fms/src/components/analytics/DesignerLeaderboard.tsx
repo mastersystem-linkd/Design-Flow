@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Trophy, ChevronUp, ChevronDown } from "lucide-react";
+import { Trophy, ChevronUp, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -61,11 +61,16 @@ export function DesignerLeaderboard({
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Trophy className="h-5 w-5 text-warning" />
-              <h3 className="text-sm font-semibold text-foreground sm:text-lg">
-                Designer Concept Performance
-              </h3>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground sm:text-lg">
+                  Designer Concept Performance
+                </h3>
+                <p className="text-[10px] text-muted-foreground sm:text-[11px]">
+                  Tap any row to open the designer's full scorecard.
+                </p>
+              </div>
             </div>
-            <span className="hidden text-xs text-muted-foreground sm:inline">Monthly target: 3</span>
+            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">Monthly target: 3</span>
           </div>
 
           {/* Mobile card view */}
@@ -80,7 +85,8 @@ export function DesignerLeaderboard({
                   key={d.id}
                   type="button"
                   onClick={() => setScorecardDesignerId(d.id)}
-                  className="flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors active:scale-[0.99] hover:bg-secondary/50"
+                  title="View scorecard"
+                  className="group flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors active:scale-[0.99] hover:bg-secondary/50"
                 >
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-lg">{emoji ?? <span className="text-sm text-muted-foreground">#{rank}</span>}</span>
@@ -100,13 +106,16 @@ export function DesignerLeaderboard({
                       <div><span className="text-muted-foreground">Rev </span><span className="font-semibold text-warning">{d.revisions}</span></div>
                     </div>
                     <div className="mt-2 flex items-center gap-2">
-                      <div className="relative h-4 flex-1 overflow-hidden rounded-full bg-secondary">
-                        <div className={cn("h-full rounded-full", scoreColor)} style={{ width: `${d.score}%` }} />
-                        <span className={cn("absolute top-1/2 -translate-y-1/2 text-[10px] font-bold tabular-nums", d.score >= 20 ? "left-1.5 text-white" : "right-1.5 text-foreground")}>{d.score}</span>
-                      </div>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">{d.approved}/{d.target}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        Approved {d.approved}/{d.target}
+                      </span>
                     </div>
                   </div>
+                  {/* Score pill — same primary-tinted look as Task Dashboard. */}
+                  <span className="mt-1 inline-flex shrink-0 items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-2 py-1 text-[11px] font-semibold tabular-nums text-primary group-active:bg-primary/15">
+                    {d.score}/100
+                    <ChevronRight className="h-3 w-3" aria-hidden />
+                  </span>
                 </button>
               );
             })}
@@ -142,8 +151,9 @@ export function DesignerLeaderboard({
                     <tr
                       key={d.id}
                       onClick={() => setScorecardDesignerId(d.id)}
+                      title="View scorecard"
                       className={cn(
-                        "border-b border-border transition-colors hover:bg-primary/[0.03] cursor-pointer",
+                        "group border-b border-border transition-colors hover:bg-primary/[0.03] cursor-pointer",
                         rank === 1 && "bg-warning/[0.04]",
                         rank === 2 && "bg-muted/[0.06]",
                         rank === 3 && "bg-warning/[0.02]"
@@ -195,22 +205,21 @@ export function DesignerLeaderboard({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3">
-                        <div className="relative h-6 w-full overflow-hidden rounded-full bg-secondary">
-                          <div
-                            className={cn(
-                              "h-full rounded-full transition-[width] duration-[800ms] ease-[cubic-bezier(0.4,0,0.2,1)]",
-                              scoreColor
-                            )}
-                            style={{ width: `${d.score}%`, transitionDelay: `${i * 80}ms` }}
-                          />
-                          <span className={cn(
-                            "absolute top-1/2 -translate-y-1/2 text-xs font-bold tabular-nums",
-                            d.score >= 20 ? "left-2 text-white" : "right-2 text-foreground"
-                          )}>
-                            {d.score}
-                          </span>
-                        </div>
+                      {/* Score — pill style matches the Task Dashboard score
+                          column: primary-tinted, with `{score}/100` and an
+                          inline chevron. The pill is the click target *and*
+                          the affordance; the whole row stays clickable too
+                          so users can tap anywhere. `stopPropagation` here
+                          prevents a double-fire. */}
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setScorecardDesignerId(d.id); }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold tabular-nums text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow"
+                        >
+                          {d.score}/100
+                          <ChevronRight className="h-3 w-3" />
+                        </button>
                       </td>
                     </tr>
                   );

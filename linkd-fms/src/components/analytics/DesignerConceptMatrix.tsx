@@ -255,8 +255,33 @@ export function DesignerConceptMatrix() {
           </div>
         )}
 
-        {/* ── Sort header ── */}
-        <div className="mb-2 flex items-center gap-2 border-b border-border pb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {/* ── Mobile sort selector — replaces the desktop column strip. ── */}
+        <div className="mb-2 flex items-center justify-between gap-2 sm:hidden">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Sort by
+          </span>
+          <select
+            value={`${sort.key}:${sort.dir}`}
+            onChange={(e) => {
+              const [k, d] = e.target.value.split(":") as [SortKey, "asc" | "desc"];
+              setSort({ key: k, dir: d });
+            }}
+            className="h-7 rounded-md border border-border bg-card px-2 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="submitted:desc">Submitted ↓</option>
+            <option value="submitted:asc">Submitted ↑</option>
+            <option value="approved:desc">Approved ↓</option>
+            <option value="approved:asc">Approved ↑</option>
+            <option value="rejected:desc">Rejected ↓</option>
+            <option value="rejected:asc">Rejected ↑</option>
+            <option value="rate:desc">Approval rate ↓</option>
+            <option value="rate:asc">Approval rate ↑</option>
+          </select>
+        </div>
+
+        {/* ── Sort header — desktop only. On mobile, rows are card-style and
+            don't need a column header strip. ── */}
+        <div className="mb-2 hidden items-center gap-2 border-b border-border pb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:flex">
           <span className="flex-1">Designer</span>
           <SortBtn
             label="Subm."
@@ -341,48 +366,72 @@ function DesignerRow({
   return (
     <li
       className={cn(
-        "group rounded-lg border border-border bg-card px-2.5 py-1.5 transition-all hover:border-primary/30 hover:shadow-sm",
+        "group overflow-hidden rounded-lg border border-border bg-card px-3 py-2 transition-all hover:border-primary/30 hover:shadow-sm sm:px-2.5 sm:py-1.5",
         !hasData && "opacity-60"
       )}
     >
-      <div className="flex items-center gap-2.5">
-        {/* Avatar + name — name + code on a single line to save vertical */}
+      {/* Mobile layout — stacked: name row, bar row, counts row.
+          Desktop layout (sm+) — single flex row, same as before. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5">
+        {/* Name row — avatar + first name + designer code chip.
+            On mobile we also show the approval rate inline-right so it's
+            paired with the name; on desktop the rate lives in its own column
+            at the far right. */}
         <button
           type="button"
           onClick={onClickName}
           disabled={!onClickName}
           className={cn(
-            "flex w-[130px] shrink-0 items-center gap-2 rounded-md text-left",
+            "flex w-full items-center gap-2 rounded-md text-left sm:w-[130px] sm:shrink-0",
             onClickName && "cursor-pointer hover:opacity-80"
           )}
           title={onClickName ? "View scorecard" : undefined}
         >
-          <Avatar className="h-6 w-6">
+          <Avatar className="h-6 w-6 shrink-0">
             {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
             <AvatarFallback className="bg-primary/10 text-primary text-[9px]">
               {getInitials(d.full_name)}
             </AvatarFallback>
           </Avatar>
-          <div className="flex min-w-0 items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <p
               className={cn(
-                "truncate text-xs font-medium text-foreground",
+                "truncate text-xs font-medium leading-tight text-foreground",
                 onClickName && "group-hover:text-primary group-hover:underline"
               )}
             >
               {d.full_name.split(" ")[0]}
             </p>
-            <span className="rounded border border-border bg-secondary/40 px-1 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="shrink-0 rounded border border-border bg-secondary/40 px-1 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">
               {d.designerCode}
             </span>
           </div>
+          {/* Mobile-only inline rate so the name row has both identity + score */}
+          <span
+            className={cn(
+              "shrink-0 text-xs font-bold tabular-nums sm:hidden",
+              !hasData
+                ? "text-muted-foreground/50"
+                : d.approvalRate >= 75
+                ? "text-success"
+                : d.approvalRate >= 50
+                ? "text-warning"
+                : "text-destructive"
+            )}
+          >
+            {hasData && d.approved + d.rejected + d.revisions > 0
+              ? `${d.approvalRate}%`
+              : "—"}
+          </span>
         </button>
 
-        {/* Stacked bar — single-line, no secondary legend (counts on the right) */}
-        <div className="min-w-0 flex-1">
+        {/* Stacked bar — full-width on mobile, flex-1 on desktop.
+            "No submissions" placeholder uses leading-tight + single line so
+            it occupies the same vertical room as the bar (no row reflow). */}
+        <div className="w-full min-w-0 sm:flex-1">
           {hasData ? (
             <div
-              className="flex h-4 overflow-hidden rounded-md border border-border/50 bg-secondary/30 transition-[width] duration-[600ms] ease-out"
+              className="flex h-4 max-w-full overflow-hidden rounded-md border border-border/50 bg-secondary/30 transition-[width] duration-[600ms] ease-out"
               style={{ width: `${Math.max(20, widthPct)}%` }}
             >
               <div
@@ -407,25 +456,50 @@ function DesignerRow({
               />
             </div>
           ) : (
-            <p className="text-[10px] italic text-muted-foreground">
+            <p className="truncate text-[10px] italic leading-tight text-muted-foreground">
               No submissions in this period
             </p>
           )}
         </div>
 
-        {/* Counts */}
-        <span className="w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">
-          {d.submitted || <span className="text-muted-foreground/50">0</span>}
-        </span>
-        <span className="w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-success">
-          {d.approved || <span className="text-muted-foreground/50">0</span>}
-        </span>
-        <span className="w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-destructive">
-          {d.rejected || <span className="text-muted-foreground/50">0</span>}
-        </span>
+        {/* Counts — on mobile rendered as a 3-equal-column strip below the bar;
+            on desktop reverts to inline w-12 right-aligned cells matching the
+            sort header. */}
+        <div className="grid w-full grid-cols-3 gap-2 sm:contents">
+          <span className="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground sm:hidden">
+            <span>Sub</span>
+            <span className="text-sm font-semibold tabular-nums text-foreground">
+              {d.submitted || <span className="text-muted-foreground/50">0</span>}
+            </span>
+          </span>
+          <span className="hidden w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground sm:inline">
+            {d.submitted || <span className="text-muted-foreground/50">0</span>}
+          </span>
 
-        {/* Approval rate */}
-        <div className="w-12 shrink-0 text-right">
+          <span className="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground sm:hidden">
+            <span>Apv</span>
+            <span className="text-sm font-semibold tabular-nums text-success">
+              {d.approved || <span className="text-muted-foreground/50">0</span>}
+            </span>
+          </span>
+          <span className="hidden w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-success sm:inline">
+            {d.approved || <span className="text-muted-foreground/50">0</span>}
+          </span>
+
+          <span className="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground sm:hidden">
+            <span>Rej</span>
+            <span className="text-sm font-semibold tabular-nums text-destructive">
+              {d.rejected || <span className="text-muted-foreground/50">0</span>}
+            </span>
+          </span>
+          <span className="hidden w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-destructive sm:inline">
+            {d.rejected || <span className="text-muted-foreground/50">0</span>}
+          </span>
+        </div>
+
+        {/* Approval rate — desktop-only column at the far right.
+            On mobile this is already shown inline next to the name. */}
+        <div className="hidden w-12 shrink-0 text-right sm:block">
           <span
             className={cn(
               "text-sm font-bold tabular-nums",

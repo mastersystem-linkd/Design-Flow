@@ -1196,8 +1196,9 @@ function KittingMixCard({ data }: { data: KittingMix }) {
             No tasks created in this period.
           </p>
         ) : (
-          <div className="mt-3 flex flex-1 items-center gap-4">
-            <div className="relative h-[88px] w-[88px] shrink-0">
+          <div className="mt-3 flex flex-1 flex-col items-center justify-center gap-3">
+            {/* Donut — centered */}
+            <div className="relative h-[100px] w-[100px] shrink-0">
               <svg viewBox="0 0 88 88" className="-rotate-90 h-full w-full" aria-hidden>
                 <circle
                   cx="44"
@@ -1223,18 +1224,19 @@ function KittingMixCard({ data }: { data: KittingMix }) {
                 <p className="text-xl font-bold leading-none tabular-nums text-foreground">
                   {data.pct}%
                 </p>
-                <p className="text-[8px] uppercase tracking-wider text-muted-foreground">
+                <p className="mt-0.5 text-[8px] uppercase tracking-wider text-muted-foreground">
                   need FK
                 </p>
               </div>
             </div>
-            <div className="flex-1 space-y-1.5 text-xs">
-              <LegendRow
+            {/* Legend — single horizontal row, centered under the donut */}
+            <div className="flex items-center justify-center gap-4 text-xs">
+              <LegendInline
                 dot="bg-primary"
                 label="With knitting"
                 value={data.withKitting}
               />
-              <LegendRow
+              <LegendInline
                 dot="bg-muted-foreground/40"
                 label="Without"
                 value={data.withoutKitting}
@@ -1807,5 +1809,25 @@ function LegendRow({
       </span>
       <span className="font-semibold tabular-nums text-foreground">{value}</span>
     </div>
+  );
+}
+
+// Inline variant of LegendRow used under centered donut charts (KittingMix).
+// Renders as: ● Label · 3  — fits multiple side-by-side in a single line.
+function LegendInline({
+  dot,
+  label,
+  value,
+}: {
+  dot: string;
+  label: string;
+  value: number;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <span className={cn("h-2 w-2 rounded-full", dot)} />
+      <span>{label}</span>
+      <span className="font-semibold tabular-nums text-foreground">{value}</span>
+    </span>
   );
 }

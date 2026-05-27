@@ -9,6 +9,7 @@ import { KanbanView } from "@/views/KanbanView";
 import { BriefingView } from "@/views/BriefingView";
 import { ConceptsView } from "@/views/ConceptsView";
 import { ProductionView } from "@/views/ProductionView";
+import { OrdersView } from "@/views/OrdersView";
 import { NotificationsView } from "@/views/NotificationsView";
 import { TaskDashboardView } from "@/views/TaskDashboardView";
 import { ScorecardsView } from "@/views/ScorecardsView";
@@ -65,6 +66,16 @@ export default function App() {
           element={<ProtectedRoute allowedRoles={["designer", "admin", "design_coordinator"]} />}
         >
           <Route path={ROUTES.concepts} element={<ConceptsView />} />
+        </Route>
+
+        {/* /orders — Orders module (admin + coordinator). Placeholder for
+            now; data model + workflow TBD. Same access scope as Sampling. */}
+        <Route
+          element={
+            <ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />
+          }
+        >
+          <Route path={ROUTES.orders} element={<OrdersView />} />
         </Route>
 
         {/* /sampling — Production queue (admin + coordinator) */}

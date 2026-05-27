@@ -653,7 +653,7 @@ function SalvedgeRow({
         {formatDate(r.created_at)}
       </td>
       <td className="whitespace-nowrap px-3 py-3 text-foreground">{designerName}</td>
-      <td className="whitespace-nowrap px-3 py-3 font-mono text-[11px] text-primary">{r.challan_no}</td>
+      <td className="whitespace-nowrap px-3 py-3 text-sm text-foreground">{r.challan_no}</td>
       <td className="whitespace-nowrap px-3 py-3 text-foreground">{r.party_name}</td>
       <td className="px-3 py-3 tabular-nums text-foreground">{r.qty}</td>
 

@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Trophy,
   FolderOpen,
+  ShoppingCart,
   User as UserIcon,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -72,6 +73,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
         {
           label: "Manage",
           items: [
+            { to: ROUTES.orders, label: "Orders", icon: ShoppingCart },
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
             { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
@@ -92,6 +94,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
         {
           label: "Manage",
           items: [
+            { to: ROUTES.orders, label: "Orders", icon: ShoppingCart },
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
             { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
