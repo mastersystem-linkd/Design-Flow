@@ -45,7 +45,14 @@ const BUCKET = "sample-files";
 // expose the same Audio Transcriptions request body so the only differences
 // are the host, model name, and which env var holds the auth token.
 const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
-const OPENAI_WHISPER_MODEL = "whisper-1"; // the only Whisper model OpenAI exposes; well-tested + cheapest at $0.006/min
+// `gpt-4o-mini-transcribe` is OpenAI's small / cost-tuned transcription
+// model (~$0.003/min, half of whisper-1). It outperforms whisper-1 on
+// accented English and short Hinglish snippets while supporting the same
+// `prompt` / `language` / `temperature` parameters the rest of this file
+// relies on. To swap: `gpt-4o-transcribe` for ~2× cost + slightly higher
+// accuracy, or `whisper-1` for the legacy / cheapest-with-language-`en`-trick
+// behaviour.
+const OPENAI_WHISPER_MODEL = "gpt-4o-mini-transcribe";
 const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_WHISPER_MODEL = "whisper-large-v3"; // accuracy-first variant — better than turbo for accented English + Hinglish
 // Both providers cap per-request audio at 25 MB. Reject obviously oversized
