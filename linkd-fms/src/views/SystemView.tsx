@@ -43,8 +43,12 @@ import { TeamView } from "@/views/TeamView";
 //
 // Access:
 //   - Page entry: isAdminOrCoordinator (admins + coordinators)
-//   - Per-tab guards: each tab is gated further (e.g. lookup data + storage +
-//     danger zone require admin, not coordinator)
+//   - Per-tab guards: each tab is gated further. Lookup data (Concept
+//     Categories / Fabrics / Dropdowns / Party Name) is admin + coordinator.
+//     Danger Zone is also admin + coordinator — the two-step confirmation in
+//     DangerZoneTab is the actual safety net, and coordinators run the same
+//     hygiene operations admins do. Storage + Designer Codes stay admin-only
+//     (bucket-level + identity-mapping concerns).
 //
 // Default tab: "App Info" — read-only, safe landing. Direct destructive paths
 // are buried inside the Danger Zone tab behind a double confirmation.
@@ -150,7 +154,13 @@ const TABS: TabSpec[] = [
     icon: AlertTriangle,
     desc: "Permanent data deletion",
     group: "system",
-    canAccess: (role) => role === "admin",
+    // Coordinators run the same data-hygiene operations admins do
+    // (year-end resets, clearing test data, etc.) so they need the
+    // Danger Zone tab too. The two-step confirmation in DangerZoneTab
+    // is the real safety net, not the role gate. Supabase RLS on the
+    // affected tables already permits is_admin_or_coordinator() to
+    // delete, so the destructive calls succeed under either role.
+    canAccess: (role) => role === "admin" || role === "design_coordinator",
     destructive: true,
   },
 ];
@@ -314,7 +324,7 @@ function renderTab(id: TabId, role: UserRole) {
     case "storage":
       return adminOnly(<StorageTab />);
     case "danger":
-      return adminOnly(<DangerZoneTab />);
+      return coordOk(<DangerZoneTab />);
     default:
       return null;
   }
