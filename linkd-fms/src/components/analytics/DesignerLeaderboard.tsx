@@ -70,7 +70,7 @@ export function DesignerLeaderboard({
                 </p>
               </div>
             </div>
-            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">Monthly target: 3</span>
+            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">Monthly target: 2</span>
           </div>
 
           {/* Mobile card view */}

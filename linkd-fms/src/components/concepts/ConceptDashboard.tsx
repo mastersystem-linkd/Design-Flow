@@ -37,7 +37,7 @@ import type { ConceptWithRelations, UserRole, Profile } from "@/types/database";
 // Shared helpers
 // ============================================================================
 
-const MONTHLY_TARGET = 3;
+const MONTHLY_TARGET = 2;
 
 function getCurrentMonth(): { month: number; year: number; label: string } {
   const now = new Date();
@@ -124,14 +124,14 @@ export function DesignerConceptDashboard({
   const progressPct = (progress / MONTHLY_TARGET) * 100;
 
   const progressColor =
-    progress >= 3
+    progress >= MONTHLY_TARGET
       ? "rgb(var(--success))"
       : progress >= 1
         ? "rgb(var(--warning))"
         : "rgb(var(--destructive))";
 
-  const showDay7Warning = dayOfMonth >= 7 && stats.submitted === 0;
-  const showDay24Warning = dayOfMonth >= 24 && stats.approved < 3;
+  const showDay7Warning = dayOfMonth >= 8 && stats.submitted === 0;
+  const showDay24Warning = dayOfMonth >= 20 && stats.approved < MONTHLY_TARGET;
 
   const chartData = [{ name: "progress", value: progressPct, fill: progressColor }];
 
@@ -336,7 +336,7 @@ export function CoordinatorConceptDashboard({
   }, [designerStats]);
 
   const atRiskDesigners = designerStats.filter((d) => {
-    if (dayOfMonth >= 24 && d.approved < 3) return true;
+    if (dayOfMonth >= 20 && d.approved < MONTHLY_TARGET) return true;
     if (dayOfMonth >= 7 && d.submitted === 0) return true;
     return false;
   });
@@ -411,7 +411,7 @@ export function CoordinatorConceptDashboard({
             <tbody>
               {designerStats.map((d) => {
                 const pct = Math.min(100, (d.approved / MONTHLY_TARGET) * 100);
-                const barColor = d.approved >= 3 ? "bg-success" : d.approved >= 1 ? "bg-warning" : "bg-destructive";
+                const barColor = d.approved >= MONTHLY_TARGET ? "bg-success" : d.approved >= 1 ? "bg-warning" : "bg-destructive";
                 return (
                   <tr key={d.id} className="cursor-pointer border-b border-border/60 transition-colors hover:bg-card/60" onClick={() => onDesignerFilter(d.id)}>
                     <td className="px-3 py-2.5 font-medium text-foreground">{d.full_name}</td>

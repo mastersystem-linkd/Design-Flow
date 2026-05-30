@@ -198,7 +198,7 @@ export function DashboardKpiCards({
         }
       : {
           label: "My Concepts",
-          value: `${myConceptsThisMonth}/3`,
+          value: `${myConceptsThisMonth}/2`,
           icon: Lightbulb,
           accent: "primary" as const,
           sub: "monthly target",

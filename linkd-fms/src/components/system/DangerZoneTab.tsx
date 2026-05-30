@@ -200,54 +200,94 @@ export function DangerZoneTab() {
   // service-role key — bypasses RLS so the action either succeeds or
   // returns a real error we can show.
 
+  // Every handler below is wrapped so it ALWAYS clears the busy spinner and
+  // ALWAYS shows a toast — even if callAdminApi/getSession throws. Without
+  // the try/finally an unexpected rejection left the button spinning with no
+  // feedback at all ("nothing happens"), which is exactly what we want to
+  // avoid on a destructive action.
+
   async function executeClearNotifs() {
     setBusyTable("notifications-soft");
-    const { data, error } = await callAdminApi<{ cleared: number }>(
-      "admin-clear-data",
-      { kind: "clear-notifs" }
-    );
-    setBusyTable(null);
-    if (error || !data) {
-      toast.error(error?.message ?? "Failed to clear notifications");
-      return;
+    try {
+      const { data, error } = await callAdminApi<{ cleared: number }>(
+        "admin-clear-data",
+        { kind: "clear-notifs" }
+      );
+      if (error || !data) {
+        toast.error(error?.message ?? "Failed to clear notifications");
+        return;
+      }
+      toast.success(`${data.cleared.toLocaleString()} notifications cleared`);
+      void fetchCounts();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to clear notifications"
+      );
+    } finally {
+      setBusyTable(null);
     }
-    toast.success(`${data.cleared.toLocaleString()} notifications cleared`);
-    void fetchCounts();
   }
 
   async function executeClearTable(spec: TableSpec) {
     setBusyTable(spec.key);
-    const { data, error } = await callAdminApi<{ cleared: number }>(
-      "admin-clear-data",
-      { kind: "clear-table", table: spec.table }
-    );
-    setBusyTable(null);
-    if (error || !data) {
-      toast.error(error?.message ?? `Failed to clear ${spec.label}`);
-      return;
+    try {
+      const { data, error } = await callAdminApi<{ cleared: number }>(
+        "admin-clear-data",
+        { kind: "clear-table", table: spec.table }
+      );
+      if (error || !data) {
+        toast.error(error?.message ?? `Failed to clear ${spec.label}`);
+        return;
+      }
+      toast.success(
+        `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} cleared from ${spec.label}`
+      );
+      void fetchCounts();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : `Failed to clear ${spec.label}`
+      );
+    } finally {
+      setBusyTable(null);
     }
-    toast.success(
-      `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} cleared from ${spec.label}`
-    );
-    void fetchCounts();
   }
 
   async function executeClearAll() {
     setBusyTable("__all__");
-    const { data, error } = await callAdminApi<{
-      cleared: number;
-      perTable?: Record<string, number>;
-    }>("admin-clear-data", { kind: "clear-all" });
-    setBusyTable(null);
-    if (error || !data) {
-      toast.error(error?.message ?? "Failed to clear all data");
-      await fetchCounts();
-      return;
+    try {
+      const { data, error } = await callAdminApi<{
+        cleared: number;
+        perTable?: Record<string, number>;
+        errors?: Record<string, string>;
+      }>("admin-clear-data", { kind: "clear-all" });
+      if (error || !data) {
+        toast.error(error?.message ?? "Failed to clear all data");
+        await fetchCounts();
+        return;
+      }
+      // The wipe is best-effort per table — some may have failed even though
+      // the request itself succeeded. Surface exactly which ones broke.
+      if (data.errors && Object.keys(data.errors).length) {
+        const failed = Object.entries(data.errors)
+          .map(([t, m]) => `${t} (${m})`)
+          .join("; ");
+        toast.error(
+          `Cleared ${data.cleared.toLocaleString()} rows, but some tables failed — ${failed}`
+        );
+        await fetchCounts();
+        return;
+      }
+      toast.success(
+        `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} cleared across all transactional tables`
+      );
+      void fetchCounts();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to clear all data"
+      );
+    } finally {
+      setBusyTable(null);
     }
-    toast.success(
-      `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} cleared across all transactional tables`
-    );
-    void fetchCounts();
   }
 
   // ── Stage transitions ────────────────────────────────────────────────

@@ -116,7 +116,7 @@ export function DesignerScorecardDrawer({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative z-10 mx-4 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-gradient-to-b from-card via-card to-background shadow-2xl sm:mx-auto">
+      <div className="relative z-10 mx-4 flex max-h-[95vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-card shadow-2xl sm:mx-auto">
         <div className="flex-1 overflow-y-auto p-0">
           <ScorecardBody
             designerId={designerId}
@@ -264,13 +264,13 @@ function ScorecardBody({
         onClose={onClose}
       />
 
-      <div className="space-y-4 px-5">
+      <div className="space-y-3 px-4">
         {/* ── VITAL SIGNS ── compact 4-stat strip replacing the old flat
             KPI boxes. Each cell carries a mini-visual (ring, sparkline-ish
             bar) + delta against team / target so the number isn't bare. */}
         <VitalSignsStrip
           monthlyTargetProgress={concept.monthlyTargetProgress}
-          monthlyTarget={3}
+          monthlyTarget={2}
           completed={task.completed}
           assigned={task.assigned}
           onTimePct={onTimePct}

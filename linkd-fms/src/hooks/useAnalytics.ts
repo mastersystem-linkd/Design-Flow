@@ -225,7 +225,7 @@ export interface ConceptDashboardMetrics {
 // Helpers
 // ============================================================================
 
-const MONTHLY_TARGET = 3;
+const MONTHLY_TARGET = 2;
 
 function getPeriodRange(period: Period, now: Date) {
   switch (period) {
