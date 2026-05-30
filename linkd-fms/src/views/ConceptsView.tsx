@@ -847,7 +847,7 @@ export function ConceptsView() {
                     {showCol("submitted") && <Cell>{fmtDate(c.start_date ?? c.created_at)}</Cell>}
                     {showCol("designer") && <td className="px-3 py-1.5">{submitter ? <span className="truncate text-xs font-medium text-foreground">{submitter.full_name}</span> : <Dash />}</td>}
                     {showCol("concept") && <td className="px-3 py-1.5"><span className="text-xs font-medium text-foreground line-clamp-1" title={c.concept_code ?? undefined}>{c.title}</span></td>}
-                    {showCol("description") && <td className="px-3 py-1.5">{c.description ? <span className="max-w-[200px] text-xs text-muted-foreground line-clamp-1">{c.description}</span> : <Dash />}</td>}
+                    {showCol("description") && <td className="px-3 py-1.5">{c.description ? <span className="max-w-[200px] text-xs font-medium text-foreground line-clamp-1" title={c.description}>{c.description}</span> : <Dash />}</td>}
                     {showCol("party") && <Cell>{c.client?.party_name || "—"}</Cell>}
                     {showCol("designs") && <td className="px-3 py-1.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
                     {showCol("assigned_by") && <Cell>{c.assigned_by || "—"}</Cell>}
