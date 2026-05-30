@@ -8,16 +8,19 @@
 //   transcript at all (especially with `lang=hi-IN` on devices that don't
 //   have Google Speech Services tuned for that locale). After the audio is
 //   uploaded to Supabase Storage, the client POSTs the path here and we run
-//   the file through **Groq's hosted Whisper** (the same OpenAI Whisper
-//   model, served on Groq's infra), which auto-detects English / Hindi and
-//   is consistent across devices. Browser SR stays as a "live preview"
+//   the file through **OpenAI Whisper**, which auto-detects English / Hindi
+//   and is consistent across devices. Browser SR stays as a "live preview"
 //   while recording; this endpoint returns the authoritative transcript.
 //
-//   Groq was picked over OpenAI because it has a **free tier** that's more
-//   than enough for a small team (~28,800 audio seconds per day) with no
-//   credit card required. The API surface is OpenAI-compatible — to flip
-//   back to OpenAI later, change WHISPER_URL + WHISPER_MODEL + the env var
-//   name and nothing else moves.
+//   Provider chain:
+//     1. If OPENAI_API_KEY is set → use api.openai.com + whisper-1.
+//     2. Else if GROQ_API_KEY is set → use api.groq.com + whisper-large-v3
+//        (kept as a free-tier fallback so a missing/expired OpenAI key
+//        doesn't take transcription offline).
+//     3. Else → 503 with an actionable hint and the client falls back to
+//        "audio only".
+//   Both providers expose the same Audio Transcriptions request body, so
+//   only the URL + model name + auth key swap between them.
 //
 // Request:  { path: string }     storage path inside `sample-files`
 // Response: { transcript: string }
@@ -26,25 +29,27 @@
 //   • SUPABASE_URL                — same as VITE_SUPABASE_URL
 //   • SUPABASE_ANON_KEY           — same as VITE_SUPABASE_ANON_KEY
 //   • SUPABASE_SERVICE_ROLE_KEY   — to download the audio bypassing RLS
-//   • GROQ_API_KEY                — get one at console.groq.com/keys (free,
-//                                   no credit card). If missing, the
-//                                   endpoint returns 503 and the client
-//                                   silently falls back to "audio only".
+//   • OPENAI_API_KEY              — `sk-…` from platform.openai.com/api-keys.
+//                                   Primary provider. Requires an account
+//                                   with credit balance (~$5 covers months).
+//   • GROQ_API_KEY (optional)     — `gsk_…` from console.groq.com/keys.
+//                                   Free fallback; used when OPENAI_API_KEY
+//                                   isn't set.
 // ============================================================================
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
 const BUCKET = "sample-files";
-// `whisper-large-v3` (non-turbo) is the accuracy-first variant. Turbo is
-// faster but trims layers, which hurts on accented English + Hinglish
-// mid-sentence switches. For short voice notes the latency cost is
-// sub-second and the team needs the transcript to read correctly more
-// than they need it to land 0.5 s earlier.
-const WHISPER_MODEL = "whisper-large-v3";
-const WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-// Groq's per-request audio size limit on the free tier is 25 MB, same as
-// OpenAI. Reject obviously oversized blobs before they cost a round trip.
+// Per-provider config. OpenAI is primary; Groq is a free fallback. Both
+// expose the same Audio Transcriptions request body so the only differences
+// are the host, model name, and which env var holds the auth token.
+const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
+const OPENAI_WHISPER_MODEL = "whisper-1"; // the only Whisper model OpenAI exposes; well-tested + cheapest at $0.006/min
+const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const GROQ_WHISPER_MODEL = "whisper-large-v3"; // accuracy-first variant — better than turbo for accented English + Hinglish
+// Both providers cap per-request audio at 25 MB. Reject obviously oversized
+// blobs before they cost a round trip.
 const MAX_AUDIO_BYTES = 24 * 1024 * 1024;
 
 interface RequestBody {
@@ -74,12 +79,16 @@ export default async function handler(
   const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const ANON = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  // GROQ_API_KEY is the new primary; fall back to OPENAI_API_KEY if someone
-  // is mid-migration (the request body is OpenAI-compatible so it works for
-  // either provider, the URL is the only thing that differs — and that's
-  // pinned to Groq above. If you flip back to OpenAI, change WHISPER_URL
-  // and read OPENAI_API_KEY first here too).
-  const GROQ_API_KEY = process.env.GROQ_API_KEY ?? process.env.OPENAI_API_KEY;
+  // Provider selection: OpenAI is primary, Groq is the free-tier fallback.
+  // We pick at request time so flipping providers is just "add the env var
+  // and redeploy" — no code change needed.
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  const provider = OPENAI_API_KEY
+    ? { name: "openai" as const, key: OPENAI_API_KEY, url: OPENAI_WHISPER_URL, model: OPENAI_WHISPER_MODEL }
+    : GROQ_API_KEY
+    ? { name: "groq" as const, key: GROQ_API_KEY, url: GROQ_WHISPER_URL, model: GROQ_WHISPER_MODEL }
+    : null;
 
   if (!SUPABASE_URL || !ANON || !SERVICE_ROLE) {
     res.status(500).json({
@@ -89,11 +98,11 @@ export default async function handler(
     return;
   }
 
-  if (!GROQ_API_KEY) {
+  if (!provider) {
     // Surface a clear, actionable error so the client can present a hint.
     res.status(503).json({
       error:
-        "Transcription is not configured on this deployment. Add GROQ_API_KEY to Vercel env vars to enable (get a free key at console.groq.com/keys).",
+        "Transcription is not configured on this deployment. Add OPENAI_API_KEY (sk-…) to Vercel env vars to enable. GROQ_API_KEY (gsk_…) also works as a free fallback.",
     });
     return;
   }
@@ -164,12 +173,12 @@ export default async function handler(
     return;
   }
 
-  // ── Send to Whisper (via Groq) ───────────────────────────────────────
+  // ── Send to Whisper (via the selected provider) ─────────────────────
   // FormData is global in Node 18+ (Vercel's default). Whisper sniffs the
   // audio container from the filename extension, so keep the .webm suffix.
   const form = new FormData();
   form.append("file", blob, "audio.webm");
-  form.append("model", WHISPER_MODEL);
+  form.append("model", provider.model);
 
   // **Force Romanized (Hinglish) output.** With no `language` param Whisper
   // auto-detects the spoken language and writes Hindi in Devanagari script
@@ -197,14 +206,14 @@ export default async function handler(
 
   let whisperRes: Response;
   try {
-    whisperRes = await fetch(WHISPER_URL, {
+    whisperRes = await fetch(provider.url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      headers: { Authorization: `Bearer ${provider.key}` },
       body: form,
     });
   } catch (err) {
     res.status(502).json({
-      error: `Failed to reach Whisper: ${
+      error: `Failed to reach Whisper (${provider.name}): ${
         err instanceof Error ? err.message : String(err)
       }`,
     });
@@ -213,11 +222,11 @@ export default async function handler(
 
   if (!whisperRes.ok) {
     const errText = await whisperRes.text();
-    // Don't leak the raw OpenAI body to the client — log it server-side and
-    // return a clean message.
-    console.error("[transcribe] Whisper error", whisperRes.status, errText);
+    // Don't leak the raw provider body to the client — log it server-side
+    // and return a clean message.
+    console.error(`[transcribe] ${provider.name} error`, whisperRes.status, errText);
     res.status(502).json({
-      error: `Whisper failed (HTTP ${whisperRes.status})`,
+      error: `Whisper failed (HTTP ${whisperRes.status} via ${provider.name})`,
     });
     return;
   }
