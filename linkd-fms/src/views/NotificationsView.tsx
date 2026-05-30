@@ -74,30 +74,29 @@ function getCategoryIcon(title: string) {
   return Bell;
 }
 
+// Captures the leading run of 1–3 capitalised words at the start of a
+// notification body — that's the actor (e.g. "Supriya", "Krupesh Late",
+// "Ma'am"). Verb-agnostic so it works for "requested changes on…",
+// "suggested changes…", "ready for review…" and any future phrasing,
+// not just a hard-coded verb list. Falls back to null when the body
+// opens with a generic noun ("Your", "Concept", "You", …) so we don't
+// promote sentence-starters to actor names.
+const ACTOR_BLOCKLIST = new Set([
+  "Your", "You", "You've", "You're",
+  "Concept", "Task", "Sample", "Salvedge", "Design", "Designs",
+  "Changes", "Revision", "New", "Reminder", "System",
+  "DF", "C",
+]);
 function extractActorName(message: string): string | null {
-  const patterns = [
-    /^(\w[\w\s]+?)\s(?:submitted|approved|rejected|completed|claimed|paused|resumed|addressed|started|marked|re-submitted|put on hold)/i,
-    /^Your concept/i,
-  ];
-  for (const p of patterns) {
-    const m = message.match(p);
-    if (m && m[1]) return m[1].trim();
-  }
-  return null;
-}
-
-function extractSubject(message: string): string | null {
-  // 1. Quoted names — new-style messages: submitted "Vintage"
-  const quoted = message.match(/[""]([^""]+)[""]/);
-  if (quoted && quoted[1]) return quoted[1].trim();
-  // 2. Task codes — old-style: completed DF 10-T0526-VINT-10M
-  //    Extract the concept abbreviation from the code
-  const taskCode = message.match(/(DF\s+[\w-]+)/);
-  if (taskCode) return taskCode[1];
-  // 3. Concept codes — old-style: paused C-20260529-AJWE
-  const conceptCode = message.match(/(C-[\w-]+)/);
-  if (conceptCode) return conceptCode[1];
-  return null;
+  const m = message.match(/^([A-Z][\w'\-]*(?:\s+[A-Z][\w'\-]*){0,2})\s+[a-z]/);
+  if (!m) return null;
+  const name = m[1].trim();
+  if (ACTOR_BLOCKLIST.has(name)) return null;
+  // Reject when the first word is blocklisted even if subsequent words
+  // are real (e.g. "Your concept ..." captures "Your" via leading word).
+  const first = name.split(/\s+/, 1)[0];
+  if (ACTOR_BLOCKLIST.has(first)) return null;
+  return name;
 }
 
 function extractTaskId(message: string): string | null {
@@ -105,20 +104,10 @@ function extractTaskId(message: string): string | null {
   return m ? m[1] : null;
 }
 
-function getActionVerb(title: string): string {
-  const t = title.toLowerCase();
-  if (t.includes("re-submitted")) return "re-submitted";
-  if (t.includes("submitted")) return "submitted";
-  if (t.includes("approved")) return "approved";
-  if (t.includes("rejected")) return "rejected";
-  if (t.includes("hold") || t.includes("paused")) return "put on hold";
-  if (t.includes("resumed")) return "resumed";
-  if (t.includes("completed") || t.includes("done")) return "completed";
-  if (t.includes("claimed")) return "claimed";
-  if (t.includes("revision")) return "requested revision";
-  if (t.includes("started")) return "started";
-  return "updated";
-}
+// extractSubject / getActionVerb removed: we now display the sender's
+// title + message verbatim instead of synthesising "{actor} {verb}
+// {subject}" from regex matches, which silently fell back to
+// "System updated" whenever the verb wasn't in the hard-coded list.
 
 function getBadgeLabel(title: string, type: NotificationType): string {
   const t = title.toLowerCase();
@@ -392,8 +381,12 @@ function NotificationCard({
   const actor = g.actorName ? profileMap.get(g.actorName) : null;
   const timeAgo = formatDistanceToNow(new Date(g.created_at), { addSuffix: true });
 
-  const actionVerb = getActionVerb(g.title);
-  const subject = extractSubject(g.message);
+  // We used to reconstruct the row text from title+message via getActionVerb
+  // + extractSubject. That broke as soon as the sender vocabulary widened
+  // ("requested changes", "ready for review", …) and silently fell back to
+  // "System updated" — telling the user nothing. We now display the
+  // sender's actual title + message verbatim and use the helpers only for
+  // the badge / task-id chip.
   const taskId = extractTaskId(g.message);
   const badgeLabel = getBadgeLabel(g.title, g.type);
 
@@ -432,26 +425,45 @@ function NotificationCard({
 
         {/* Content */}
         <div className="min-w-0 flex-1">
-          {/* Line 1: Actor + action + time */}
-          <div className="flex items-center gap-1.5">
-            <p className="min-w-0 flex-1 text-[13px] leading-tight">
-              <span className={cn(g.is_read ? "text-muted-foreground" : "font-semibold text-foreground")}>
-                {g.actorName || "System"}
-              </span>
-              <span className="text-muted-foreground"> {actionVerb}</span>
+          {/* Line 1: sender's actual title + count + time. This is the
+              authoritative "what kind of event is this" — much more
+              reliable than reconstructing a verb from regex. */}
+          <div className="flex items-baseline gap-1.5">
+            <p
+              className={cn(
+                "min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight",
+                g.is_read ? "text-foreground/70" : "text-foreground"
+              )}
+            >
+              {g.title}
               {g.count > 1 && (
-                <span className={cn("ml-1 rounded px-1 py-0.5 text-[9px] font-bold tabular-nums", config.badgeBg)}>
+                <span
+                  className={cn(
+                    "ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums",
+                    config.badgeBg
+                  )}
+                >
                   ×{g.count}
                 </span>
               )}
             </p>
-            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">{timeAgo}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60">
+              {timeAgo}
+            </span>
           </div>
 
-          {/* Line 2: Subject / task name */}
-          {subject && (
-            <p className="mt-0.5 truncate text-xs font-medium text-foreground/80">
-              "{subject}"
+          {/* Line 2: sender's message verbatim — carries the actor, the
+              subject and any extra context (reason, design count, deadline,
+              fabric, etc.). Two-line clamp so longer notes are visible
+              without cropping mid-word; full text shows on expand. */}
+          {g.message && (
+            <p
+              className={cn(
+                "mt-0.5 line-clamp-2 text-xs leading-snug",
+                g.is_read ? "text-muted-foreground" : "text-foreground/80"
+              )}
+            >
+              {g.message}
             </p>
           )}
 
