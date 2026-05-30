@@ -113,67 +113,50 @@
 
   .dark {
     /* ── Tailwind semantic tokens — dark ─────────────────────────
-       Calibration notes (changed from the original palette):
-
-       • --card lifted from `21 27 43` → `26 32 51`. The old value sat
-         too close to `--background` (11 15 25); cards visually
-         dissolved into the canvas. The new value still reads as a
-         dark surface but holds its edge against the page.
-
-       • --secondary lifted from `26 32 53` → `36 44 71`. Gives the
-         second elevation tier (search inputs, tab pills, hover states)
-         a clear lift above `--card`.
-
-       • --muted-foreground lifted from `148 163 184` (slate-400) →
-         `170 184 207` (slate-300-ish). The old value crashed against
-         dark cards for any text smaller than 14px — labels, sub-lines,
-         table secondary columns were genuinely hard to read.
-
-       • --border lifted from `39 46 67` → `52 62 92`. Dividers were
-         barely visible against the new card surface; this restores
-         the architectural read.
-
-       • --input darkened from `14 18 32` → `12 16 27`. Slight extra
-         depression vs. the new card so form fields read as sunken.
-
-       Primary/success/warning/destructive intentionally unchanged —
-       semantic accent colours stay consistent across themes. */
-    --background: 11 15 25;           /* deep navy canvas */
-    --foreground: 241 245 249;
-    --card: 26 32 51;                 /* surface */
-    --card-foreground: 241 245 249;
-    --popover: 26 32 51;
-    --popover-foreground: 241 245 249;
-    --primary: 129 140 248;           /* indigo-400 */
+       Premium neutral-dark palette (à la Spotify / Twitter "dim" /
+       Reddit): LOW-saturation surfaces with only a faint cool tint and
+       quiet hairline borders — NOT the old saturated navy that read as
+       "gaudy". Three clear elevation tiers:
+         background 13 15 19  <  card 24 27 33  <  secondary 33 37 45
+       joined by a restrained border (40 44 53). Accents
+       (primary/success/warning/destructive) stay vivid and unchanged.
+       Keep the hex spec tokens below in sync with these. */
+    --background: 9 9 11;             /* deep near-black, essentially neutral */
+    --foreground: 237 238 240;        /* soft white (not pure #fff) */
+    --card: 19 20 23;                 /* surface — neutral charcoal */
+    --card-foreground: 237 238 240;
+    --popover: 26 27 31;              /* floats above cards */
+    --popover-foreground: 237 238 240;
+    --primary: 129 140 248;           /* indigo-400 — brand accent (unchanged) */
     --primary-foreground: 255 255 255;
-    --secondary: 36 44 71;            /* surface-alt */
-    --secondary-foreground: 241 245 249;
+    --secondary: 30 31 36;            /* surface-alt (inputs, pills, hover) */
+    --secondary-foreground: 237 238 240;
     --accent: 129 140 248;
     --accent-foreground: 255 255 255;
-    --muted: 100 116 139;             /* slate-500 — chip backgrounds */
-    --muted-foreground: 170 184 207;  /* slate-300-ish — body copy */
+    --muted: 55 57 64;                /* chip backgrounds */
+    --muted-foreground: 148 152 160;  /* neutral body copy */
     --destructive: 248 113 113;       /* red-400 */
     --destructive-foreground: 255 255 255;
-    --border: 52 62 92;               /* indigo-tinted divider */
-    --input: 12 16 27;                /* sunken */
+    --border: 39 41 47;               /* quiet neutral hairline */
+    --input: 16 17 20;                /* sunken vs. card */
     --ring: 129 140 248;
     --success: 52 211 153;            /* emerald-400 */
     --warning: 251 191 36;            /* amber-400 */
     --coral: 248 113 113;
-    --sidebar: 8 12 22;
-    --dashboard: 11 15 25;
+    --sidebar: 6 6 8;                 /* deepest tier — near-black */
+    --dashboard: 9 9 11;
 
     /* ── Spec design tokens — dark ─────────────────────────────
        Kept in sync with the Tailwind tokens above: any component
        reading the hex tokens (`--bg-surface`, `--text-secondary`, …)
        now matches what Tailwind utilities resolve to. */
-    --bg-canvas: #0B0F19;
-    --bg-surface: #1A2033;        /* matches --card */
-    --bg-surface-alt: #242C47;    /* matches --secondary */
-    --bg-surface-hover: #2A3354;
-    --bg-surface-sunken: #0C101B;
-    --bg-sidebar: #080C16;
-    --bg-topnav: rgba(11, 15, 25, 0.78);
+    --bg-canvas: #09090B;         /* matches --background (9 9 11) */
+    --bg-surface: #131417;        /* matches --card (19 20 23) */
+    --bg-surface-alt: #1E1F24;    /* matches --secondary (30 31 36) */
+    --bg-surface-hover: #27282D;
+    --bg-surface-sunken: #0A0A0C;
+    --bg-sidebar: #060608;        /* matches --sidebar (6 6 8) */
+    --bg-topnav: rgba(9, 9, 11, 0.78);
 
     --brand-primary: #818CF8;
     --brand-primary-hover: #6366F1;
@@ -182,16 +165,14 @@
                                                           register */
     --brand-primary-muted: rgba(129, 140, 248, 0.18);
 
-    --text-primary: #F1F5F9;
-    --text-secondary: #AAB8CF;    /* matches --muted-foreground */
-    --text-tertiary: #7A8AA6;     /* one step dimmer than secondary */
+    --text-primary: #EDEEF0;
+    --text-secondary: #94989F;    /* matches --muted-foreground (148 152 160) */
+    --text-tertiary: #6B6E76;     /* neutral, one step dimmer */
     --text-link: #A5B4FC;
 
-    --border-default: rgba(255, 255, 255, 0.08);   /* was 0.06 — hairlines
-                                                     were invisible on
-                                                     the new card colour */
-    --border-hover: rgba(255, 255, 255, 0.14);
-    --border-strong: rgba(255, 255, 255, 0.18);
+    --border-default: rgba(255, 255, 255, 0.06);   /* quiet hairlines */
+    --border-hover: rgba(255, 255, 255, 0.11);
+    --border-strong: rgba(255, 255, 255, 0.16);
 
     /* Stronger card shadows in dark — without them, elevated surfaces
        look pasted onto the canvas with no depth cue. */
@@ -200,9 +181,9 @@
     --shadow-dropdown: 0 12px 32px rgba(0, 0, 0, 0.65);
     --shadow-overlay: 0 20px 56px rgba(0, 0, 0, 0.75);
 
-    /* Brighter dot pattern (canvas + textile overlays) so the print-
-       weave aesthetic shows on dark cards instead of disappearing. */
-    --dot-color: rgba(129, 140, 248, 0.08);
+    /* Subtle neutral weave dots — present but quiet, so the canvas reads
+       calm (a saturated indigo dot grid looked gaudy). */
+    --dot-color: rgba(255, 255, 255, 0.03);
 
     --chart-bar-primary: rgba(129, 140, 248, 0.7);
     --chart-bar-secondary: rgba(129, 140, 248, 0.2);

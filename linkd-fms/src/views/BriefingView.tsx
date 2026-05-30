@@ -8,6 +8,13 @@ import {
   Upload,
   X,
   ArrowRight,
+  Paperclip,
+  ClipboardList,
+  Building2,
+  MessageSquare,
+  Sparkles,
+  UserCheck,
+  Layers,
 } from "lucide-react";
 import { toast, Combobox } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
@@ -17,7 +24,7 @@ import { useTaskMutations } from "@/hooks/useTaskMutations";
 import { useClients } from "@/hooks/useClients";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
-import { useFabrics } from "@/hooks/useFabrics";
+import { useAssignedByOptions, ASSIGNED_BY_OTHER } from "@/hooks/useAssignedByOptions";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { Input } from "@/components/ui/input";
@@ -36,6 +43,8 @@ import {
 import { ROUTES } from "@/lib/routes";
 import { initiateKitting, submitKittingForm } from "@/lib/kittingQueries";
 import { sendNotificationToRole } from "@/lib/notifications";
+import { WHATSAPP_GROUPS } from "@/lib/whatsappGroups";
+import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { cn } from "@/lib/utils";
 import {
   FullKittingForm,
@@ -43,17 +52,15 @@ import {
   hasKittingFormContent,
   type KittingFormValues,
 } from "@/components/tasks/FullKittingFormFields";
-import type { Task } from "@/types/database";
+import type { Task, ClientGroup, BriefType } from "@/types/database";
 
-const WHATSAPP_GROUPS = [
-  "New Creation",
-  "Job Work Concept",
-  "Linkd Design",
-  "LD-Garments Sublimation Prints",
-  "LD Cotton Mills Design Group",
-  "Personal - Design Coordinator",
-  "Unplanned",
-] as const;
+// WhatsApp group catalogue lives in `lib/whatsappGroups.ts` so the brief
+// form, EditTaskDialog, and any future surface stay in sync. See that file
+// for the rename history and the isWhatsApp flag that drives the icon below.
+
+// "Assigned By" roster is admin-managed (Settings → Assigned By) via
+// useAssignedByOptions(); ASSIGNED_BY_OTHER (the "Other" sentinel) is imported
+// from that hook. Picking "Other" reveals a free-text input for ad-hoc values.
 
 // Today as yyyy-MM-dd in local time — the format <input type="date"> expects.
 // Defined at module scope so initial useState evaluates it once per mount;
@@ -68,16 +75,28 @@ const FULL_KITTING_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
 const FULL_KITTING_ACCEPT = "*/*";
 const FULL_KITTING_BUCKET = "sample-files";
 
+// Reference files attached to a brief (any file type, 50 MB each). They land
+// in the task's `files` list so designers see them in the task detail drawer.
+const REF_FILE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+const REF_FILE_BUCKET = "design-files";
+
+// Sentinel for the (now mandatory) Assign To select — distinguishes a
+// deliberate "Open Pool" choice from "nothing picked yet".
+const ASSIGN_TO_POOL = "__pool__";
+
 type Priority = "normal" | "urgent";
 
 interface FormErrors {
   client_id?: string;
   concept?: string;
   description?: string;
-  fabric?: string;
   qty?: string;
-  planned_deadline?: string;
   full_kitting_image?: string;
+  whatsapp_group?: string;
+  whatsapp_received_date?: string;
+  whatsapp_received_time?: string;
+  assigned_to?: string;
+  assigned_by?: string;
 }
 
 // ============================================================================
@@ -98,7 +117,7 @@ export function NewBriefDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-2xl max-h-[90vh] overflow-y-auto p-0"
+        className="max-w-[700px] max-h-[95vh] min-h-[640px] overflow-y-auto p-0"
         srTitle="New Brief"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
@@ -133,29 +152,53 @@ function BriefingForm({
 } = {}) {
   const { user, profile } = useAuth();
   const { createTask, isPending } = useTaskMutations();
-  const { clients, refetch: refetchClients } = useClients();
+  // ldClients is still exposed by the hook (used in Settings + other surfaces)
+  // but the brief form only needs the Job Work list — LD briefs don't pick a
+  // party. `clients` (full set) is kept for the lookup at submit / display time.
+  const { clients, jobWorkClients } = useClients();
   const { profiles: designers } = useProfiles({
     roles: ["designer"],
   });
   const { categories: conceptCategories } = useConceptCategories();
-  const { fabrics: fabricList } = useFabrics();
 
   // ---------------- form state ----------------
+  // Brief type drives the Party Name section. 'ld' hides the party picker
+  // entirely (LD = internal work, no external party). 'job_work' requires a
+  // pick from the Job Work roster.
+  const [briefType, setBriefType] = useState<BriefType>("ld");
   const [clientId, setClientId] = useState("");
   const [concept, setConcept] = useState("");
   const [description, setDescription] = useState("");
-  const [fabric, setFabric] = useState("");
+  // Quantity stays visible but is no longer required — empty submits as qty=1
+  // so the DB CHECK (qty > 0) still passes without bothering the coordinator.
   const [qty, setQty] = useState("");
-  const [mtr, setMtr] = useState("");
-  const [plannedDeadline, setPlannedDeadline] = useState("");
-  const [dueTime, setDueTime] = useState("");
+  // Fabric / Meters / Planned deadline / Due time were dropped from the form
+  // per product. The DB schema still has those columns (some NOT NULL), so
+  // submission below sends placeholder defaults rather than nulls for the
+  // required ones. Re-adding the inputs is a UI-only revert.
   const conceptStartDate = todayISO();
   const [priority, setPriority] = useState<Priority>("normal");
   const [whatsappGroup, setWhatsappGroup] = useState("");
-  const [assignedBy, setAssignedBy] = useState(
-    profile?.full_name ?? ""
-  );
-  const [assignedTo, setAssignedTo] = useState<string | null>(null); // null = Open Pool
+  // When the WhatsApp message arrived (not when the brief was logged). The
+  // coordinator types these manually — they often file the brief later in
+  // the day, so we don't want to imply the WA message was received now.
+  const [whatsappReceivedDate, setWhatsappReceivedDate] = useState("");
+  const [whatsappReceivedTime, setWhatsappReceivedTime] = useState("");
+  // Always starts unselected — the dropdown shows "Select a name…" until the
+  // coordinator picks one explicitly. We used to pre-fill from the signed-in
+  // profile, but that risked silently submitting the wrong name when the
+  // person filing the brief wasn't the one who actually requested it.
+  const [assignedBy, setAssignedBy] = useState("");
+  // Defaults to Open Pool. ASSIGN_TO_POOL = Open Pool (→ null at submit), else
+  // a designer id (→ assigned, 'in_progress').
+  const [assignedTo, setAssignedTo] = useState<string>(ASSIGN_TO_POOL);
+
+  // ---------------- reference files (optional) ----------------
+  // Coordinator attaches any reference files (each ≤ 50 MB). Held as raw File
+  // objects and uploaded after the task is created so nothing is orphaned if
+  // the brief is cancelled.
+  const [refFiles, setRefFiles] = useState<File[]>([]);
+  const refFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ---------------- full kitting state ----------------
   const [requiresFullKitting, setRequiresFullKitting] = useState(false);
@@ -187,9 +230,8 @@ function BriefingForm({
   const [success, setSuccess] = useState<Task | null>(null);
 
   // ---------------- add-client inline ----------------
-  const [showAddClient, setShowAddClient] = useState(false);
-  const [newClientName, setNewClientName] = useState("");
-  const [addingClient, setAddingClient] = useState(false);
+  // (Party-add UI moved out of the brief form — admins use Settings → Party
+  // Name instead. The state vars previously kept here are gone.)
 
   // ---------------- draft persistence ----------------
   // Brief forms get abandoned a lot — admin/coordinator gathers context from
@@ -207,23 +249,52 @@ function BriefingForm({
   );
   const savedDraftRef = useRef<Record<string, any> | null>(null);
 
-  // On mount: peek at localStorage. If there's a draft with any non-default
-  // value, show the prompt; otherwise jump straight to ready.
+  // The fields a user MUST fill to submit a brief. We use these as the
+  // "is this draft worth resuming?" signal — counting all persisted fields
+  // would over-trigger because `priority` defaults to "normal" and
+  // `assignedBy` auto-fills from the profile, so every fresh draft would look
+  // like "2 fields filled" before the user types anything.
+  // (Fabric / Quantity / Planned deadline were removed from the form, so
+  // only the 3 truly required text fields remain.)
+  const REQUIRED_DRAFT_FIELDS = [
+    "clientId", "concept", "description",
+  ] as const;
+  // Prompt-to-resume threshold — show only when the user has put real effort
+  // into the brief (2 of 3 required fields). Below this we silently discard
+  // the draft and open a fresh form.
+  const RESUME_THRESHOLD = 2;
+
+  function countFilledRequired(payload: Record<string, any> | null | undefined): number {
+    if (!payload || typeof payload !== "object") return 0;
+    let n = 0;
+    for (const k of REQUIRED_DRAFT_FIELDS) {
+      const v = payload[k];
+      if (typeof v === "string" ? v.trim().length > 0 : v != null && v !== false) {
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  // On mount: peek at localStorage. Show the "Resume draft?" prompt ONLY when
+  // the user already filled at least RESUME_THRESHOLD required fields.
+  // Anything thinner (a stray keystroke, just defaults) is silently discarded.
+  const [filledFieldCount, setFilledFieldCount] = useState(0);
+
   useEffect(() => {
     if (!DRAFT_KEY) return;
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        const hasContent = parsed && typeof parsed === "object" && Object.values(parsed).some(
-          (v) => v !== "" && v !== null && v !== false && v !== undefined
-        );
-        if (hasContent) {
+        const filled = countFilledRequired(parsed);
+        if (filled >= RESUME_THRESHOLD) {
           savedDraftRef.current = parsed;
+          setFilledFieldCount(filled);
           setDraftStatus("prompt");
           return;
         }
-        // Empty husk left over — wipe it so it doesn't keep prompting.
+        // Sub-threshold husk left over — wipe it so it doesn't keep prompting.
         localStorage.removeItem(DRAFT_KEY);
       }
     } catch {
@@ -235,19 +306,22 @@ function BriefingForm({
   function applyDraft() {
     const d = savedDraftRef.current;
     if (d) {
+      setBriefType((d.briefType === "job_work" ? "job_work" : "ld") as BriefType);
       setClientId(d.clientId ?? "");
       setConcept(d.concept ?? "");
       setDescription(d.description ?? "");
-      setFabric(d.fabric ?? "");
       setQty(d.qty ?? "");
-      setMtr(d.mtr ?? "");
-      setPlannedDeadline(d.plannedDeadline ?? "");
-      setDueTime(d.dueTime ?? "");
       // conceptStartDate is now always today (auto-set, not user-editable)
       setPriority((d.priority === "urgent" ? "urgent" : "normal") as Priority);
       setWhatsappGroup(d.whatsappGroup ?? "");
-      setAssignedBy(d.assignedBy ?? profile?.full_name ?? "");
-      setAssignedTo(d.assignedTo ?? null);
+      setWhatsappReceivedDate(d.whatsappReceivedDate ?? "");
+      setWhatsappReceivedTime(d.whatsappReceivedTime ?? "");
+      setAssignedBy(d.assignedBy ?? "");
+      setAssignedTo(
+        typeof d.assignedTo === "string" && d.assignedTo
+          ? d.assignedTo
+          : ASSIGN_TO_POOL
+      );
       setRequiresFullKitting(!!d.requiresFullKitting);
       setFullKittingNotes(d.fullKittingNotes ?? "");
     }
@@ -268,9 +342,9 @@ function BriefingForm({
     if (!DRAFT_KEY || draftStatus !== "ready") return;
     const t = setTimeout(() => {
       const payload = {
-        clientId, concept, description, fabric, qty, mtr,
-        plannedDeadline, dueTime, priority,
-        whatsappGroup, assignedBy, assignedTo,
+        briefType, clientId, concept, description, qty, priority,
+        whatsappGroup, whatsappReceivedDate, whatsappReceivedTime,
+        assignedBy, assignedTo,
         requiresFullKitting, fullKittingNotes,
       };
       // Skip writing if the payload is fully empty — avoids leaving a husk
@@ -289,9 +363,9 @@ function BriefingForm({
     return () => clearTimeout(t);
   }, [
     DRAFT_KEY, draftStatus,
-    clientId, concept, description, fabric, qty, mtr,
-    plannedDeadline, dueTime, conceptStartDate, priority,
-    whatsappGroup, assignedBy, assignedTo,
+    briefType, clientId, concept, description, qty, conceptStartDate, priority,
+    whatsappGroup, whatsappReceivedDate, whatsappReceivedTime,
+    assignedBy, assignedTo,
     requiresFullKitting, fullKittingNotes,
   ]);
 
@@ -309,15 +383,27 @@ function BriefingForm({
 
   function validate(): FormErrors {
     const e: FormErrors = {};
-    if (!clientId) e.client_id = "Pick a client.";
+    // client_id is only required for Job Work briefs. LD briefs save without
+    // a party row.
+    if (briefType === "job_work" && !clientId) {
+      e.client_id = "Pick a Job Work party.";
+    }
     if (!concept.trim()) e.concept = "Design type is required.";
     if (!description.trim()) e.description = "Description is required.";
-    if (!fabric) e.fabric = "Pick a fabric.";
-    const qtyNum = Number(qty);
-    if (!qty || !Number.isFinite(qtyNum) || qtyNum < 1) {
-      e.qty = "Quantity must be at least 1.";
+    if (!whatsappGroup.trim()) e.whatsapp_group = "Group is required.";
+    if (!whatsappReceivedDate) e.whatsapp_received_date = "Message date is required.";
+    if (!whatsappReceivedTime) e.whatsapp_received_time = "Message time is required.";
+    if (!assignedTo) e.assigned_to = "Choose a designer or Open Pool.";
+    if (!assignedBy.trim()) e.assigned_by = "Assigned By is required.";
+    // Quantity is required and must be a positive number (DB CHECK qty > 0).
+    if (!qty.trim()) {
+      e.qty = "Quantity is required.";
+    } else {
+      const qtyNum = Number(qty);
+      if (!Number.isFinite(qtyNum) || qtyNum < 1) {
+        e.qty = "Quantity must be at least 1.";
+      }
     }
-    if (!plannedDeadline) e.planned_deadline = "Deadline is required.";
     // If the coordinator toggled "Requires Full Knitting" on, they must
     // upload the reference image — otherwise no DEO row gets created and
     // the brief won't show up in the Full Knitting screen.
@@ -328,19 +414,20 @@ function BriefingForm({
   }
 
   function resetForm() {
+    setBriefType("ld");
     setClientId("");
     setConcept("");
     setDescription("");
-    setFabric("");
     setQty("");
-    setMtr("");
-    setPlannedDeadline("");
     // conceptStartDate is auto-set to today on submit
-    setDueTime("");
     setPriority("normal");
     setWhatsappGroup("");
-    setAssignedBy(profile?.full_name ?? "");
-    setAssignedTo(null);
+    setWhatsappReceivedDate("");
+    setWhatsappReceivedTime("");
+    setAssignedBy("");
+    setAssignedTo(ASSIGN_TO_POOL);
+    setRefFiles([]);
+    if (refFileInputRef.current) refFileInputRef.current.value = "";
     setRequiresFullKitting(false);
     clearFullKittingFile({ removeRemote: true });
     setFullKittingNotes("");
@@ -350,8 +437,27 @@ function BriefingForm({
     setErrors({});
     setSubmitAttempted(false);
     setSuccess(null);
-    setShowAddClient(false);
-    setNewClientName("");
+  }
+
+  // ---------------- reference-file helpers ----------------
+
+  function onRefFilesPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    const accepted: File[] = [];
+    for (const f of picked) {
+      if (f.size > REF_FILE_MAX_BYTES) {
+        toast.error(`${f.name} is too large — max 50 MB per file.`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    if (accepted.length) setRefFiles((prev) => [...prev, ...accepted]);
+    // Reset so re-picking the same file fires onChange again.
+    if (refFileInputRef.current) refFileInputRef.current.value = "";
+  }
+
+  function removeRefFile(index: number) {
+    setRefFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   // ---------------- full kitting helpers ----------------
@@ -474,27 +580,6 @@ function BriefingForm({
     }
   }
 
-  async function handleAddClient() {
-    const name = newClientName.trim();
-    if (!name) return;
-    setAddingClient(true);
-    const { data, error } = await supabase
-      .from("clients")
-      .insert({ party_name: name })
-      .select()
-      .single();
-    setAddingClient(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    await refetchClients();
-    setClientId(data.id);
-    setShowAddClient(false);
-    setNewClientName("");
-    toast.success(`Added ${data.party_name}`);
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitAttempted(true);
@@ -505,20 +590,31 @@ function BriefingForm({
       return;
     }
 
-    const mtrNum = mtr.trim() === "" ? null : Number(mtr);
+    // Fabric / Meters / Planned deadline / Due time were dropped from the form
+    // (UI-only). The DB schema still has them — fabric is NOT NULL but free-text,
+    // so we send an empty string; the rest stay nullable and submit as null.
+    // qty is validated as required + >= 1 above; parse defensively.
+    const qtyParsed = Number(qty);
+    const qtyValue = Number.isFinite(qtyParsed) && qtyParsed >= 1 ? qtyParsed : 1;
 
     const { data, error } = await createTask({
-      client_id: clientId,
+      brief_type: briefType,
+      client_id: briefType === "job_work" ? clientId : null,
       concept: concept.trim(),
-      qty: Number(qty),
-      fabric,
+      qty: qtyValue,
+      fabric: "",
       priority,
-      assigned_to: assignedTo, // null → status='pool'; otherwise 'in_progress' (skips To-Do).
-      planned_deadline: plannedDeadline,
-      due_time: dueTime || null,
+      // Open Pool → null → status='pool'; a designer id → 'in_progress'.
+      assigned_to: assignedTo === ASSIGN_TO_POOL ? null : assignedTo,
+      planned_deadline: null,
+      due_time: null,
       whatsapp_group: whatsappGroup.trim() || null,
+      // Both nullable independently. If user only filled the date, time is
+      // null (and vice-versa); the DB happily stores either side alone.
+      whatsapp_received_date: whatsappReceivedDate || null,
+      whatsapp_received_time: whatsappReceivedTime || null,
       description: description.trim() || null,
-      mtr: Number.isFinite(mtrNum as number) ? (mtrNum as number) : null,
+      mtr: null,
       assigned_by: assignedBy.trim() || null,
       concept_start_date: conceptStartDate || null,
       // Persist the FK flag + photo path onto the task itself so designers
@@ -535,6 +631,50 @@ function BriefingForm({
       return;
     }
     if (data) {
+      // Upload any reference files now that the task exists. Each lands as a
+      // row in `files` so designers see them in the task detail drawer. A
+      // failure on one file warns but doesn't fail the whole brief.
+      if (refFiles.length > 0 && user) {
+        let failed = 0;
+        for (let i = 0; i < refFiles.length; i++) {
+          const f = refFiles[i];
+          try {
+            // Images get compressed; other types pass through unchanged.
+            const processed = await compressImage(f);
+            const safe = sanitizeFilename(processed.name);
+            const path = `${user.id}/tasks/${data.id}/brief-${Date.now()}-${i}-${safe}`;
+            const { error: upErr } = await supabase.storage
+              .from(REF_FILE_BUCKET)
+              .upload(path, processed, {
+                contentType: processed.type || "application/octet-stream",
+                upsert: false,
+              });
+            if (upErr) {
+              failed++;
+              continue;
+            }
+            const { error: insErr } = await supabase.from("files").insert({
+              task_id: data.id,
+              storage_url: path,
+              file_name: f.name,
+              file_size: processed.size,
+              uploaded_by: user.id,
+            });
+            if (insErr) {
+              void supabase.storage.from(REF_FILE_BUCKET).remove([path]);
+              failed++;
+            }
+          } catch {
+            failed++;
+          }
+        }
+        if (failed > 0) {
+          toast.warning(
+            `Brief created, but ${failed} reference file${failed !== 1 ? "s" : ""} couldn't be attached. Open the task to re-upload.`
+          );
+        }
+      }
+
       // If the coordinator uploaded a kitting photo at brief time, also create
       // a full_kitting_details row so the DEO sees it immediately in the
       // Knitting Queue. Visible warning if it fails so the coordinator knows
@@ -634,15 +774,14 @@ function BriefingForm({
   if (draftStatus === "prompt") {
     const d = savedDraftRef.current ?? {};
     // Quick "what's in the draft" preview so the user can decide whether to
-    // resume — counts the non-empty fields and surfaces the headline ones.
-    const filledCount = Object.values(d).filter(
-      (v) => v !== "" && v !== null && v !== false && v !== undefined
-    ).length;
+    // resume — counts only the REQUIRED fields the user explicitly filled, so
+    // we don't surface "2 fields saved" when the only real values are the
+    // default `priority: 'normal'` and the auto-populated `assignedBy`.
+    const filledCount = filledFieldCount;
     const previewBits = [
-      d.concept ? `Concept: ${String(d.concept).slice(0, 40)}` : null,
-      d.fabric ? `Fabric: ${String(d.fabric).slice(0, 40)}` : null,
-      d.qty ? `Qty: ${d.qty}m` : null,
-      d.plannedDeadline ? `Deadline: ${d.plannedDeadline}` : null,
+      d.concept ? `Design type: ${String(d.concept).slice(0, 40)}` : null,
+      d.description ? `Description: ${String(d.description).slice(0, 40)}` : null,
+      d.qty ? `Qty: ${d.qty}` : null,
     ].filter(Boolean);
     return (
       <div className={cn(
@@ -701,178 +840,172 @@ function BriefingForm({
 
   return (
     <div className={cn(
-      isDialog ? "px-6 py-5" : "mx-auto max-w-[700px] pb-12",
-      isDialog ? "space-y-4" : "space-y-8"
+      isDialog ? "px-4 py-3 sm:px-5 sm:py-4" : "mx-auto max-w-[680px] px-4 py-4",
+      "space-y-2"
     )}>
-      {/* ---------- Header ---------- */}
-      <header className={cn(isDialog ? "space-y-1" : "space-y-2")}>
-        {!isDialog && (
-          <div className="flex items-center gap-3">
-            <Badge className="border border-dashed border-muted bg-card text-[10px] uppercase tracking-wider text-muted-foreground">
-              DRAFT
-            </Badge>
-            <span className="text-[11px] text-muted-foreground">
-              ID assigned on submit
-            </span>
+      {/* ---------- Header banner ---------- */}
+      <div className="relative overflow-hidden rounded-lg border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+            <ClipboardList className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="font-sans text-sm font-semibold tracking-tight text-foreground sm:text-base">
+              New Brief
+            </h1>
+            <p className="text-[10px] text-muted-foreground">
+              Pre-Pool stage · a task code is assigned on submit.
+            </p>
           </div>
-        )}
-        <h1 className={cn(
-          "font-sans tracking-tight text-foreground",
-          isDialog ? "text-lg font-semibold" : "text-4xl"
-        )}>
-          New Brief
-        </h1>
-        <p className="text-xs text-muted-foreground">
-          Fill in the details below. Task code is assigned on submit.
-        </p>
-      </header>
+          <Badge className="ml-auto hidden shrink-0 border border-primary/20 bg-primary/10 text-[10px] font-medium uppercase tracking-wider text-primary sm:inline-flex">
+            Pre-Pool
+          </Badge>
+        </div>
+      </div>
 
-      <form onSubmit={handleSubmit} className={cn(isDialog ? "space-y-4" : "space-y-8")} noValidate>
-        {/* ============== PARTY NAME (was: Client) ============== */}
-        <FormSection title="Party Name" required>
-          {!showAddClient ? (
-            <div className="flex gap-2">
+      <form onSubmit={handleSubmit} className="space-y-2" noValidate>
+        {/* ============== BRIEF TYPE — LD / Job Work ==============
+            LD = internal LinkD work, no external party (client_id stays NULL).
+            Job Work = external client; show the Job Work party picker.
+            Admins maintain the Job Work party list in Settings → Party Name. */}
+        <SectionCard icon={Building2} title="Party Name" required>
+          <div className="flex w-full rounded-md border border-border bg-card p-0.5">
+            <BriefTypeChoice
+              active={briefType === "ld"}
+              onClick={() => {
+                setBriefType("ld");
+                // Clearing the picker selection avoids submitting a stale
+                // Job Work party with brief_type='ld'.
+                setClientId("");
+              }}
+              disabled={submitting}
+            >
+              LD
+              <span className="ml-1 text-[10px] font-normal opacity-70">
+                · internal
+              </span>
+            </BriefTypeChoice>
+            <BriefTypeChoice
+              active={briefType === "job_work"}
+              onClick={() => setBriefType("job_work")}
+              disabled={submitting}
+            >
+              Job Work
+              <span className="ml-1 text-[10px] font-normal opacity-70">
+                · external
+              </span>
+            </BriefTypeChoice>
+          </div>
+
+          {briefType === "job_work" && (
+            <div className="space-y-1">
+              <Label htmlFor="job-work-party">Job Work party</Label>
               <Picker
-                id="client"
+                id="job-work-party"
                 value={clientId}
                 onChange={setClientId}
-                placeholder="Choose a party"
-                options={clients.map((c) => ({ value: c.id, label: c.party_name }))}
+                placeholder="Choose Job Work party"
+                options={jobWorkClients.map((c) => ({
+                  value: c.id,
+                  label: c.party_name,
+                }))}
                 error={show("client_id")}
                 disabled={submitting}
               />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowAddClient(true)}
-                disabled={submitting}
-                className="shrink-0 gap-1.5"
-              >
-                <Plus className="h-4 w-4" />
-                Add new
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2 rounded-md border border-border bg-card p-3">
-              <Label htmlFor="new-client">New client name</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="new-client"
-                  value={newClientName}
-                  onChange={(e) => setNewClientName(e.target.value)}
-                  placeholder="e.g. Westside Stores"
-                  autoFocus
-                  disabled={addingClient}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void handleAddClient();
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  onClick={handleAddClient}
-                  disabled={addingClient || !newClientName.trim()}
-                  className="shrink-0 gap-1.5"
-                >
-                  {addingClient && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Add
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setShowAddClient(false);
-                    setNewClientName("");
-                  }}
-                  disabled={addingClient}
-                  className="shrink-0"
-                  aria-label="Cancel"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
             </div>
           )}
-        </FormSection>
+        </SectionCard>
 
-        {!isDialog && <Divider />}
-
-        {/* ============== WHATSAPP GROUP ============== */}
-        <FormSection title="WhatsApp Group" hint="Optional — pick the coordination thread.">
-          <Field label="Group" htmlFor="wa">
-            <Picker
-              id="wa"
-              value={whatsappGroup}
-              onChange={setWhatsappGroup}
-              placeholder="Choose a group"
-              options={WHATSAPP_GROUPS.map((g) => ({ value: g, label: g }))}
-              disabled={submitting}
-            />
-          </Field>
-        </FormSection>
-
-        {!isDialog && <Divider />}
-
-        {/* ============== WORK ============== */}
-        <FormSection title="The work">
-          <Field
-            label="Design Type"
-            htmlFor="concept"
-            required
-            error={show("concept")}
-          >
-            <Picker
-              id="concept"
-              value={concept}
-              onChange={setConcept}
-              placeholder="Pick a design type"
-              options={conceptCategories.map((c) => ({
-                value: c.name,
-                label: c.name,
-              }))}
-              disabled={submitting}
-              error={show("concept")}
-            />
-          </Field>
-
-          <Field
-            label="Description"
-            htmlFor="description"
-            required
-            error={show("description")}
-          >
-            <textarea
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="Mood, palette, references, anything the designer should know."
-              disabled={submitting}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* ============== GROUP + REFERENCE FILES + MESSAGE ============== */}
+        <SectionCard icon={MessageSquare} title="Source & Message">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Field
-              label="Fabric"
-              htmlFor="fabric"
+              label="Group"
+              htmlFor="wa"
               required
-              error={show("fabric")}
+              error={show("whatsapp_group")}
             >
               <Picker
-                id="fabric"
-                value={fabric}
-                onChange={setFabric}
-                placeholder="Pick a fabric"
-                options={fabricList.map((f) => ({
-                  value: f.name,
-                  label: f.name,
+                id="wa"
+                value={whatsappGroup}
+                onChange={setWhatsappGroup}
+                placeholder="Choose a group"
+                options={WHATSAPP_GROUPS.map((g) => ({
+                  value: g.name,
+                  label: g.name,
+                  icon: g.isWhatsApp ? <WhatsAppIcon /> : undefined,
                 }))}
+                disabled={submitting}
+                error={show("whatsapp_group")}
+              />
+            </Field>
+            <ReferenceFilesField
+              files={refFiles}
+              inputRef={refFileInputRef}
+              onPick={onRefFilesPick}
+              onRemove={removeRefFile}
+              disabled={submitting}
+            />
+          </div>
+          {/* WhatsApp received date + time — when the message originally
+              arrived, not when the brief was logged. Now both required. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Field
+              label="Message date"
+              htmlFor="wa_date"
+              required
+              error={show("whatsapp_received_date")}
+            >
+              <Input
+                id="wa_date"
+                type="date"
+                value={whatsappReceivedDate}
+                onChange={(e) => setWhatsappReceivedDate(e.target.value)}
+                max={todayISO()}
                 disabled={submitting}
               />
             </Field>
+            <Field
+              label="Message time"
+              htmlFor="wa_time"
+              required
+              error={show("whatsapp_received_time")}
+            >
+              <Input
+                id="wa_time"
+                type="time"
+                value={whatsappReceivedTime}
+                onChange={(e) => setWhatsappReceivedTime(e.target.value)}
+                disabled={submitting}
+              />
+            </Field>
+          </div>
+        </SectionCard>
+
+        {/* ============== DESIGN BRIEF — Design Type + Quantity + Description ============== */}
+        <SectionCard icon={Sparkles} title="Design Brief">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="sm:col-span-2">
+              <Field
+                label="Design Type"
+                htmlFor="concept"
+                required
+                error={show("concept")}
+              >
+                <Picker
+                  id="concept"
+                  value={concept}
+                  onChange={setConcept}
+                  placeholder="Pick a design type"
+                  options={conceptCategories.map((c) => ({
+                    value: c.name,
+                    label: c.name,
+                  }))}
+                  disabled={submitting}
+                  error={show("concept")}
+                />
+              </Field>
+            </div>
             <Field
               label="Quantity"
               htmlFor="qty"
@@ -886,140 +1019,89 @@ function BriefingForm({
                 step={1}
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
-                placeholder="200"
+                placeholder="Enter quantity"
                 disabled={submitting}
               />
             </Field>
           </div>
 
-          <Field label="Meters" htmlFor="mtr">
-            <Input
-              id="mtr"
-              type="number"
-              min={0}
-              step={0.5}
-              value={mtr}
-              onChange={(e) => setMtr(e.target.value)}
-              placeholder="e.g. 5.5"
+          <Field
+            label="Description"
+            htmlFor="description"
+            required
+            error={show("description")}
+          >
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Mood, palette, references, anything the designer should know."
               disabled={submitting}
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Total fabric meters needed (separate from design count).
-            </p>
           </Field>
-        </FormSection>
+        </SectionCard>
 
-        {!isDialog && <Divider />}
-
-        {/* ============== TIMING ============== */}
-        <FormSection title="Timing">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field
-              label="Planned deadline"
-              htmlFor="deadline"
-              required
-              error={show("planned_deadline")}
-            >
-              <Input
-                id="deadline"
-                type="date"
-                value={plannedDeadline}
-                onChange={(e) => setPlannedDeadline(e.target.value)}
+        {/* ============== ASSIGNMENT — Assign To + Assigned By + Priority ============== */}
+        <SectionCard icon={UserCheck} title="Assignment">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="assigned_to">
+                Assign To<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <select
+                id="assigned_to"
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
                 disabled={submitting}
-              />
-            </Field>
-            <Field label="Due time" htmlFor="due_time">
-              <Input
-                id="due_time"
-                type="time"
-                value={dueTime}
-                onChange={(e) => setDueTime(e.target.value)}
-                disabled={submitting}
-              />
-            </Field>
-          </div>
-        </FormSection>
-
-        {!isDialog && <Divider />}
-
-        {/* ============== PRIORITY ============== */}
-        <FormSection title="Priority">
-          <div className="inline-flex rounded-md border border-border bg-card p-0.5">
-            <PriorityChoice
-              active={priority === "normal"}
-              onClick={() => setPriority("normal")}
-              disabled={submitting}
-            >
-              Normal
-            </PriorityChoice>
-            <PriorityChoice
-              active={priority === "urgent"}
-              onClick={() => setPriority("urgent")}
-              disabled={submitting}
-              urgent
-            >
-              Urgent
-            </PriorityChoice>
-          </div>
-        </FormSection>
-
-        {!isDialog && <Divider />}
-
-        {/* ============== ASSIGNMENT ============== */}
-        <FormSection
-          title="Assign to"
-          hint="Default is the open Pool — anyone can claim it."
-        >
-          <div className="flex flex-wrap gap-2">
-            <AssigneeChoice
-              active={assignedTo === null}
-              onClick={() => setAssignedTo(null)}
-              disabled={submitting}
-            >
-              <div className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-muted">
-                <Plus className="h-3 w-3 text-muted-foreground" />
-              </div>
-              Open Pool
-            </AssigneeChoice>
-            {designers.map((d) => (
-              <AssigneeChoice
-                key={d.id}
-                active={assignedTo === d.id}
-                onClick={() => setAssignedTo(d.id)}
-                disabled={submitting}
+                className={cn(
+                  "block h-9 w-full rounded-md border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
+                  show("assigned_to") ? "border-destructive" : "border-input"
+                )}
               >
-                <Avatar className="h-6 w-6">
-                  {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
-                  <AvatarFallback className="text-[9px]">
-                    {getInitials(d.full_name)}
-                  </AvatarFallback>
-                </Avatar>
-                {d.full_name}
-              </AssigneeChoice>
-            ))}
-          </div>
-        </FormSection>
+                <option value={ASSIGN_TO_POOL}>Open Pool</option>
+                {designers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+              {show("assigned_to") && (
+                <p className="text-xs text-destructive">{show("assigned_to")}</p>
+              )}
+            </div>
 
-        {!isDialog && <Divider />}
-
-        {/* ============== ASSIGNED BY ============== */}
-        <FormSection title="Assigned By">
-          <Field label="Assigned By" htmlFor="assigned_by">
-            <Input
-              id="assigned_by"
+            <AssignedByPicker
               value={assignedBy}
-              maxLength={60}
-              onChange={(e) => setAssignedBy(e.target.value)}
-              placeholder="Coordinator name"
+              onChange={setAssignedBy}
               disabled={submitting}
+              required
+              error={show("assigned_by")}
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Who is creating this brief? (e.g. Harshali, Admin)
-            </p>
-          </Field>
-        </FormSection>
 
-        {!isDialog && <Divider />}
+            <div className="space-y-1">
+              <Label htmlFor="priority-normal">Priority</Label>
+              <div className="inline-flex w-full rounded-md border border-border bg-card p-0.5">
+                <PriorityChoice
+                  active={priority === "normal"}
+                  onClick={() => setPriority("normal")}
+                  disabled={submitting}
+                >
+                  Normal
+                </PriorityChoice>
+                <PriorityChoice
+                  active={priority === "urgent"}
+                  onClick={() => setPriority("urgent")}
+                  disabled={submitting}
+                  urgent
+                >
+                  Urgent
+                </PriorityChoice>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
 
         {/* ============== FULL KITTING ============== */}
         <FullKittingSection
@@ -1053,10 +1135,7 @@ function BriefingForm({
         />
 
         {/* ============== Submit ============== */}
-        <div className={cn(
-          "flex items-center justify-between",
-          isDialog ? "pt-2" : "border-t border-border pt-6"
-        )}>
+        <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
           {isDialog && onCancel ? (
             <Button
               type="button"
@@ -1090,7 +1169,9 @@ function BriefingForm({
               uploadingFullKitting ||
               (requiresFullKitting && !fullKittingPath)
             }
+            className="gap-2 px-6 shadow-sm shadow-primary/20"
           >
+            <Check className="h-4 w-4" />
             Create brief
           </LoadingButton>
         </div>
@@ -1228,14 +1309,20 @@ function FullKittingSection({
   onInlineFormChange: (v: KittingFormValues) => void;
 }) {
   return (
-    <section className="space-y-4" ref={sectionRef}>
-      <div>
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+    <section
+      className="space-y-1.5 rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30 sm:px-3.5 sm:py-2.5"
+      ref={sectionRef}
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+          <Layers className="h-3 w-3" />
+        </span>
+        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">
           Full Knitting Requirements
         </h2>
       </div>
 
-      <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
         <div className="space-y-0.5">
           <p className="text-sm font-medium text-foreground">
             Requires Full Knitting submission?
@@ -1274,7 +1361,7 @@ function FullKittingSection({
         <div className="min-h-0">
           <div className="space-y-4 pt-1">
             {/* Upload zone */}
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <Label htmlFor="full-kitting-file">
                 Full Knitting Reference Image
                 <span className="ml-0.5 text-destructive">*</span>
@@ -1375,7 +1462,7 @@ function FullKittingSection({
             </div>
 
             {/* Notes */}
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <Label htmlFor="full-kitting-notes">Full Knitting Remarks</Label>
               <textarea
                 id="full-kitting-notes"
@@ -1466,33 +1553,199 @@ function FullKittingSection({
 // Small building blocks
 // ============================================================================
 
-function FormSection({
+/**
+ * SectionCard — a rounded, bordered group with an icon badge + title. Gives the
+ * brief form a modern, scannable card layout instead of flat stacked sections.
+ */
+function SectionCard({
+  icon: Icon,
   title,
   hint,
   required,
   children,
 }: {
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   hint?: string;
   required?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+    <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30 sm:px-3.5 sm:py-2.5">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+          <Icon className="h-3 w-3" />
+        </span>
+        <h2 className="text-[13px] font-semibold tracking-tight text-foreground">
           {title}
-          {required && <span className="ml-1 text-destructive">*</span>}
+          {required && <span className="ml-0.5 text-destructive">*</span>}
+          {hint && <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">{hint}</span>}
         </h2>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <div className="space-y-4">{children}</div>
+      <div className="space-y-2">{children}</div>
     </section>
   );
 }
 
-function Divider() {
-  return <div className="h-px bg-border" aria-hidden />;
+/**
+ * AssignedByPicker — fixed-roster dropdown with an "Other" escape hatch.
+ *
+ * `value` is the canonical string we'll store in `tasks.assigned_by`.
+ *  - If `value` is in ASSIGNED_BY_OPTIONS → dropdown selects that name.
+ *  - Otherwise → "Other" is selected and a free-text input appears, pre-
+ *    filled with whatever `value` currently holds (so legacy or auto-filled
+ *    names like the signed-in user's profile name are editable, not lost).
+ *
+ * Switching FROM the roster TO "Other" clears the input so the user starts
+ * typing fresh. Switching back to a roster name commits that name directly.
+ *
+ * We use a small dedicated `otherMode` boolean so the dropdown stays on
+ * "Other" while the user is typing (even when the typed buffer is empty) —
+ * a value-only derivation would jump back to the placeholder option as
+ * soon as the field was cleared.
+ */
+function AssignedByPicker({
+  value,
+  onChange,
+  disabled,
+  required,
+  error,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  required?: boolean;
+  error?: string;
+}) {
+  // Admin-managed roster (Settings → Assigned By).
+  const { names: assignedByNames } = useAssignedByOptions();
+  // Initial mode: if the seeded value isn't in the roster, we open in "Other"
+  // mode so the user sees the input pre-populated and editable.
+  const inRoster = (v: string): boolean => assignedByNames.includes(v);
+  const [otherMode, setOtherMode] = useState(
+    value !== "" && !inRoster(value)
+  );
+
+  // Dropdown's effective <select> value
+  const dropdownValue = otherMode ? ASSIGNED_BY_OTHER : inRoster(value) ? value : "";
+
+  function handleSelect(next: string) {
+    if (next === ASSIGNED_BY_OTHER) {
+      setOtherMode(true);
+      onChange(""); // clear so the input starts empty
+    } else {
+      setOtherMode(false);
+      onChange(next);
+    }
+  }
+
+  return (
+    <Field label="Assigned By" htmlFor="assigned_by" required={required} error={error}>
+      <select
+        id="assigned_by"
+        value={dropdownValue}
+        onChange={(e) => handleSelect(e.target.value)}
+        disabled={disabled}
+        className={cn(
+          "block h-9 w-full rounded-md border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
+          error ? "border-destructive" : "border-input"
+        )}
+      >
+        <option value="">Select a name…</option>
+        {assignedByNames.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+        <option value={ASSIGNED_BY_OTHER}>Other</option>
+      </select>
+      {otherMode && (
+        <Input
+          value={value}
+          maxLength={60}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Type the name"
+          disabled={disabled}
+          className="mt-2"
+          autoFocus
+        />
+      )}
+    </Field>
+  );
+}
+
+/**
+ * ReferenceFilesField — optional multi-file picker shown beside the Group
+ * dropdown. Any file type, 50 MB each. Files are held as raw File objects and
+ * uploaded after the brief is created (see handleSubmit), so cancelling the
+ * form never leaves orphaned uploads.
+ */
+function ReferenceFilesField({
+  files,
+  inputRef,
+  onPick,
+  onRemove,
+  disabled,
+}: {
+  files: File[];
+  inputRef: React.RefObject<HTMLInputElement>;
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: (index: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor="brief-ref-files">Reference Files</Label>
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={disabled}
+        className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-50"
+      >
+        <Upload className="h-4 w-4" />
+        Add files
+      </button>
+      <input
+        ref={inputRef}
+        id="brief-ref-files"
+        type="file"
+        multiple
+        accept="*/*"
+        onChange={onPick}
+        className="hidden"
+      />
+      <p className="text-[11px] text-muted-foreground">
+        Optional · any file type · 50 MB each
+      </p>
+      {files.length > 0 && (
+        <ul className="space-y-1">
+          {files.map((f, i) => (
+            <li
+              key={`${f.name}-${i}`}
+              className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-xs"
+            >
+              <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-foreground">
+                {f.name}
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {(f.size / 1024 / 1024).toFixed(1)} MB
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                disabled={disabled}
+                className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                aria-label={`Remove ${f.name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function Field({
@@ -1509,7 +1762,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       <Label htmlFor={htmlFor}>
         {label}
         {required && <span className="ml-0.5 text-destructive">*</span>}
@@ -1524,6 +1777,9 @@ function Field({
 // <select> couldn't keep up with the 1.6k-client list; the autocomplete
 // combobox replaces it everywhere this is used (Client, WhatsApp Group,
 // Concept Category, Fabric, Assigned By, Assignee) with one swap.
+// (ClientGroupPicker was removed — the brief form no longer lets users
+//  add a party inline; admins maintain the lists in Settings → Party Name.)
+
 function Picker({
   id,
   value,
@@ -1536,7 +1792,7 @@ function Picker({
   id: string;
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; icon?: React.ReactNode }[];
   placeholder?: string;
   disabled?: boolean;
   error?: string;
@@ -1553,6 +1809,37 @@ function Picker({
       error={!!error}
       clearable
     />
+  );
+}
+
+/** Pill segment used for the LD / Job Work toggle on the brief form.
+ *  Mirrors PriorityChoice styling so the two pickers visually rhyme. */
+function BriefTypeChoice({
+  active,
+  children,
+  onClick,
+  disabled,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex-1 rounded-[5px] px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50",
+        active
+          ? "bg-primary text-white"
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+      )}
+      aria-pressed={active}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1575,7 +1862,7 @@ function PriorityChoice({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "rounded-[5px] px-5 py-1.5 text-sm font-medium transition-colors disabled:opacity-50",
+        "flex-1 rounded-[5px] px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50",
         active
           ? urgent
             ? "bg-destructive text-destructive-foreground"

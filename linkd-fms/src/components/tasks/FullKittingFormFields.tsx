@@ -6,6 +6,7 @@ import {
   Trash2,
   Save,
   Link2,
+  Plus,
 } from "lucide-react";
 import {
   Button,
@@ -15,7 +16,8 @@ import {
 import { Combobox } from "@/components/ui/Combobox";
 import { Input } from "@/components/ui/input";
 import { useClients } from "@/hooks/useClients";
-import { ASSIGNED_BY_OPTIONS } from "@/lib/constants";
+import { useAssignedByOptions } from "@/hooks/useAssignedByOptions";
+import { useReceivedByOptions } from "@/hooks/useReceivedByOptions";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
@@ -189,10 +191,12 @@ export function KittingChip({
       disabled={disabled}
       aria-pressed={selected}
       className={cn(
-        "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+        // Resting chips are borderless (just a soft fill) so a dense group of
+        // options reads calm, not boxed-in. Selected chips fill with tone.
+        "inline-flex items-center rounded-full border border-transparent px-2.5 py-1 text-[11px] font-medium transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
         selected
           ? CHIP_TONE_CLASSES[tone]
-          : "border-border bg-secondary text-muted-foreground hover:border-primary/30 hover:bg-primary/10 hover:text-primary",
+          : "bg-secondary/70 text-muted-foreground hover:bg-primary/10 hover:text-primary",
         disabled && "cursor-not-allowed opacity-50",
         className
       )}
@@ -218,7 +222,7 @@ function Reveal({
       className={cn(
         "grid overflow-hidden transition-all duration-200",
         open
-          ? "mt-3 grid-rows-[1fr] opacity-100"
+          ? "mt-1.5 grid-rows-[1fr] opacity-100"
           : "grid-rows-[0fr] opacity-0"
       )}
     >
@@ -245,24 +249,48 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-4 rounded-xl border border-border bg-card p-5">
-      <header className="mb-3 flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold tabular-nums text-primary">
+    <section
+      className={cn(
+        // mb-2 + break-inside-avoid make these pack cleanly inside the masonry
+        // (CSS columns) container. Flat (no shadow) + soft border keeps a dense
+        // 12-section form calm rather than boxed-in and noisy.
+        "mb-2 break-inside-avoid rounded-lg border border-border/60 bg-card px-3 py-2 transition-colors hover:border-primary/30"
+      )}
+    >
+      <header className="mb-1.5 flex items-center gap-1.5">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[9px] font-semibold tabular-nums text-primary">
           {index}
         </span>
-        <h3 className="text-sm font-semibold text-foreground">
+        <h3 className="text-xs font-semibold text-foreground">
           {title}
-          {required && <span className="ml-1 text-destructive">*</span>}
+          {required && <span className="ml-0.5 text-destructive">*</span>}
         </h3>
       </header>
       <div>{children}</div>
       {error && (
-        <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
+        <p className="mt-1.5 flex items-center gap-1 text-xs text-destructive">
           <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
           {error}
         </p>
       )}
     </section>
+  );
+}
+
+// "＋ Other" reveal toggle — appended to a chip row to expose the free-text
+// custom-value input only when the user opts in (keeps the form compact).
+function OtherToggle({
+  active,
+  onClick,
+}: {
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <KittingChip selected={active} onClick={onClick} className="gap-0.5">
+      <Plus className="h-3 w-3" aria-hidden />
+      Other
+    </KittingChip>
   );
 }
 
@@ -278,7 +306,7 @@ function FieldLabel({
   required?: boolean;
 }) {
   return (
-    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
       {required && <span className="ml-0.5 text-destructive">*</span>}
     </span>
@@ -415,6 +443,10 @@ export interface FullKittingFormProps {
    *  display in Brief Details. Null/undefined when the form isn't bound to
    *  a task (preview / new). */
   taskCode?: string | null;
+  /** Pre-filled from the linked task for read-only display in Brief Details. */
+  designerName?: string | null;
+  conceptName?: string | null;
+  descriptionText?: string | null;
   /**
    * When true, the form renders without its sticky header/footer and as a
    * plain `<div>` (so it can be embedded inside another `<form>` like the
@@ -435,6 +467,9 @@ export function FullKittingForm({
   onDraftSave,
   submitLabel = "Submit Knitting Form",
   taskCode,
+  designerName,
+  conceptName,
+  descriptionText,
   embedded = false,
   onValuesChange,
 }: FullKittingFormProps) {
@@ -445,6 +480,13 @@ export function FullKittingForm({
   const [submitting, setSubmitting] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
+  // Per-section "Other / custom" reveal. Open when the user taps the chip OR a
+  // value already exists (e.g. resuming a draft) so nothing is ever hidden.
+  const [othersOpen, setOthersOpen] = useState<Record<string, boolean>>({});
+  const isOtherOpen = (key: string, val: string) =>
+    !!othersOpen[key] || val.trim().length > 0;
+  const toggleOther = (key: string) =>
+    setOthersOpen((p) => ({ ...p, [key]: !p[key] }));
 
   // Embedded mode: propagate every change to the parent so it can read the
   // current values at outer-form submit time.
@@ -470,16 +512,27 @@ export function FullKittingForm({
     [clients]
   );
 
-  // Static list of named coordinators / stakeholders, shared with the New
-  // Brief + Submit Concept forms. The list is small + static, so it lives
-  // in constants.ts rather than the DB.
+  // Named coordinators / stakeholders — admin-managed from Settings →
+  // Assigned By (Full Knitting context).
+  const { names: assignedByNames } = useAssignedByOptions("full_kitting");
   const assignedByOptions = useMemo(
     () =>
-      ASSIGNED_BY_OPTIONS.map((name) => ({
+      assignedByNames.map((name) => ({
         value: name,
         label: name,
       })),
-    []
+    [assignedByNames]
+  );
+
+  // "Received By" — admin-managed from Settings → Received By.
+  const { names: receivedByNames } = useReceivedByOptions();
+  const receivedByOptions = useMemo(
+    () =>
+      receivedByNames.map((name) => ({
+        value: name,
+        label: name,
+      })),
+    [receivedByNames]
   );
 
   // Day auto-derives from Date (locale "en-IN" returns "Monday", "Tuesday", …).
@@ -573,27 +626,27 @@ export function FullKittingForm({
   const formContent = (
     <>
       {!embedded && (
-      <div className="sticky top-0 z-10 -mx-1 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <ClipboardList className="h-4 w-4 text-primary" aria-hidden />
-          </div>
+      <div className="sticky top-0 z-10 -mx-1 rounded-lg border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-3 py-1.5 shadow-sm backdrop-blur">
+        <div className="flex items-center gap-2">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-white shadow-sm shadow-primary/20">
+            <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+          </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold text-foreground sm:text-xl">
+            <h2 className="text-sm font-semibold leading-tight tracking-tight text-foreground">
               Full Knitting Form
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[10px] leading-tight text-muted-foreground">
               Linkd Prints — Design Brief
             </p>
           </div>
           <div className="hidden text-right sm:block">
-            <p className="flex items-center justify-end gap-1.5 text-xs font-medium text-muted-foreground">
+            <p className="flex items-center justify-end gap-1.5 text-[11px] font-medium text-muted-foreground">
               {completion.filled === completion.total && (
-                <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden />
+                <CheckCircle2 className="h-3 w-3 text-success" aria-hidden />
               )}
               {completion.filled} of {completion.total} fields filled
             </p>
-            <div className="mt-1 h-1.5 w-44 overflow-hidden rounded-full bg-secondary">
+            <div className="mt-1 h-1 w-36 overflow-hidden rounded-full bg-secondary">
               <div
                 className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
                 style={{ width: `${completionPct}%` }}
@@ -601,24 +654,12 @@ export function FullKittingForm({
             </div>
           </div>
         </div>
-        {/* Mobile progress bar — full width below the header */}
-        <div className="mt-2 sm:hidden">
-          <p className="mb-1 text-[11px] text-muted-foreground">
-            {completion.filled} of {completion.total} fields filled
-          </p>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-              style={{ width: `${completionPct}%` }}
-            />
-          </div>
-        </div>
       </div>
       )}
 
       {/* ── Header info section ── */}
-      <section className="rounded-xl border border-border bg-card p-5">
-        <h3 className="mb-3 text-sm font-semibold text-foreground">
+      <section className="rounded-lg border border-border/60 bg-card px-3 py-2 transition-colors hover:border-primary/30">
+        <h3 className="mb-1 text-xs font-semibold text-foreground">
           Brief details
         </h3>
 
@@ -626,16 +667,34 @@ export function FullKittingForm({
             confirm they're filling the right form without scrolling back
             to the page header. Hidden when not bound to a task. */}
         {taskCode && (
-          <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2 text-xs">
-            <Link2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-            <span className="font-semibold uppercase tracking-wider text-muted-foreground">
-              UID
-            </span>
-            <span className="font-mono text-primary">{taskCode}</span>
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/30 px-2 py-1 text-[11px]">
+              <Link2 className="h-3 w-3 text-muted-foreground" aria-hidden />
+              <span className="font-semibold uppercase tracking-wider text-muted-foreground">UID</span>
+              <span className="font-mono text-primary">{taskCode}</span>
+            </div>
+            {designerName && (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/30 px-2 py-1 text-[11px]">
+                <span className="font-semibold uppercase tracking-wider text-muted-foreground">Designer</span>
+                <span className="font-medium text-foreground">{designerName}</span>
+              </div>
+            )}
+            {conceptName && (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/30 px-2 py-1 text-[11px]">
+                <span className="font-semibold uppercase tracking-wider text-muted-foreground">Concept</span>
+                <span className="font-medium text-foreground">{conceptName}</span>
+              </div>
+            )}
+            {descriptionText && (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/30 px-2 py-1 text-[11px]">
+                <span className="font-semibold uppercase tracking-wider text-muted-foreground">Desc</span>
+                <span className="max-w-[250px] truncate font-medium text-foreground" title={descriptionText}>{descriptionText}</span>
+              </div>
+            )}
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-2 gap-y-1.5 sm:grid-cols-3">
           <div>
             <FieldLabel required={reqd}>Party Name</FieldLabel>
             <Combobox
@@ -659,6 +718,7 @@ export function FullKittingForm({
             <FieldLabel required={reqd}>Date</FieldLabel>
             <Input
               type="date"
+              className="h-8"
               value={values.date}
               onChange={(e) => setField("date", e.target.value)}
             />
@@ -676,7 +736,7 @@ export function FullKittingForm({
               value={values.day}
               readOnly
               placeholder="Auto-fills from date"
-              className="bg-secondary/40 text-muted-foreground"
+              className="h-8 bg-secondary/40 text-muted-foreground"
             />
           </label>
 
@@ -694,7 +754,7 @@ export function FullKittingForm({
                     )
                   }
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    "rounded-md px-3 py-1 text-xs font-medium transition-colors",
                     values.channel === opt
                       ? "bg-primary text-white shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
@@ -726,348 +786,171 @@ export function FullKittingForm({
             )}
           </div>
 
-          <label>
+          <div>
             <FieldLabel>Received By</FieldLabel>
-            <Input
+            <Combobox
               value={values.receivedBy}
-              onChange={(e) => setField("receivedBy", e.target.value)}
-              placeholder="Who received the brief"
+              onChange={(v) => setField("receivedBy", v)}
+              options={receivedByOptions}
+              placeholder="Who received it…"
+              searchPlaceholder="Search…"
+              emptyMessage="No match"
+              clearable
             />
-          </label>
+          </div>
         </div>
       </section>
 
-      {/* ── 1. Fabric ── */}
-      <SectionCard
-        index={1}
-        title="Fabric"
-        required={reqd}
-        error={showErrors ? errors.fabricSource : undefined}
-      >
-        <div className="flex flex-wrap gap-2">
-          {(["Party Fabric", "If In House"] as const).map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.fabricSource === opt}
-              onClick={() =>
-                setField(
-                  "fabricSource",
-                  values.fabricSource === opt ? "" : opt
-                )
-              }
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <Reveal open={values.fabricSource === "If In House"}>
-          <Input
-            value={values.fabricName}
-            onChange={(e) => setField("fabricName", e.target.value)}
-            placeholder="Fabric name (in-house stock)"
-          />
-        </Reveal>
-      </SectionCard>
+      {/* ── Numbered field sections — masonry (CSS columns) so cards pack
+           tightly top-to-bottom with NO ragged gaps below short sections.
+           "Other" inputs stay hidden behind a chip to keep it compact. ── */}
+      <div className="columns-1 gap-4 sm:columns-2">
+        <SectionCard index={1} title="Fabric" required={reqd} error={showErrors ? errors.fabricSource : undefined}>
+          <div className="flex flex-wrap gap-1.5">
+            {(["Party Fabric", "If In House"] as const).map((opt) => (
+              <KittingChip key={opt} selected={values.fabricSource === opt} onClick={() => setField("fabricSource", values.fabricSource === opt ? "" : opt)}>{opt}</KittingChip>
+            ))}
+          </div>
+          <Reveal open={values.fabricSource === "If In House"}>
+            <Input className="h-8" value={values.fabricName} onChange={(e) => setField("fabricName", e.target.value)} placeholder="Fabric name (in-house stock)" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 2. Fabric Width ── */}
-      <SectionCard index={2} title="Fabric Width (Inches)">
-        <div className="flex flex-wrap gap-2">
-          {FABRIC_WIDTHS.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.fabricWidths.includes(opt)}
-              onClick={() => toggleInArray("fabricWidths", opt)}
-            >
-              {opt}″
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.fabricWidthOther}
-            onChange={(e) => setField("fabricWidthOther", e.target.value)}
-            placeholder="Other width…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={2} title="Fabric Width (Inches)">
+          <div className="flex flex-wrap gap-1.5">
+            {FABRIC_WIDTHS.map((opt) => (
+              <KittingChip key={opt} selected={values.fabricWidths.includes(opt)} onClick={() => toggleInArray("fabricWidths", opt)}>{opt}″</KittingChip>
+            ))}
+            <OtherToggle active={isOtherOpen("fabricWidth", values.fabricWidthOther)} onClick={() => toggleOther("fabricWidth")} />
+          </div>
+          <Reveal open={isOtherOpen("fabricWidth", values.fabricWidthOther)}>
+            <Input className="h-8" value={values.fabricWidthOther} onChange={(e) => setField("fabricWidthOther", e.target.value)} placeholder="Other width…" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 3. Number of Designs Needed ── */}
-      <SectionCard index={3} title="Number of Designs Needed">
-        <div className="flex flex-wrap gap-2">
-          {DESIGN_COUNTS.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.designCount === opt}
-              onClick={() =>
-                setField(
-                  "designCount",
-                  values.designCount === opt ? "" : opt
-                )
-              }
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.designCountOther}
-            onChange={(e) => setField("designCountOther", e.target.value)}
-            placeholder="Custom…"
-            inputMode="numeric"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={3} title="Design Count">
+          <div className="flex flex-wrap gap-1.5">
+            {DESIGN_COUNTS.map((opt) => (
+              <KittingChip key={opt} selected={values.designCount === opt} onClick={() => setField("designCount", values.designCount === opt ? "" : opt)}>{opt}</KittingChip>
+            ))}
+            <OtherToggle active={isOtherOpen("designCount", values.designCountOther)} onClick={() => toggleOther("designCount")} />
+          </div>
+          <Reveal open={isOtherOpen("designCount", values.designCountOther)}>
+            <Input className="h-8" value={values.designCountOther} onChange={(e) => setField("designCountOther", e.target.value)} placeholder="Custom count…" inputMode="numeric" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 4. Type of Designs ── */}
-      <SectionCard index={4} title="Type of Designs">
-        <div className="flex flex-wrap gap-2">
-          {DESIGN_TYPES_ROW_1.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.designTypes.includes(opt)}
-              onClick={() => toggleInArray("designTypes", opt)}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {DESIGN_TYPES_ROW_2.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.designTypes.includes(opt)}
-              onClick={() => toggleInArray("designTypes", opt)}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.designTypeOther}
-            onChange={(e) => setField("designTypeOther", e.target.value)}
-            placeholder="Other type…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={4} title="Type of Designs">
+          <div className="flex flex-wrap gap-1.5">
+            {[...DESIGN_TYPES_ROW_1, ...DESIGN_TYPES_ROW_2].map((opt) => (
+              <KittingChip key={opt} selected={values.designTypes.includes(opt)} onClick={() => toggleInArray("designTypes", opt)}>{opt}</KittingChip>
+            ))}
+            <OtherToggle active={isOtherOpen("designType", values.designTypeOther)} onClick={() => toggleOther("designType")} />
+          </div>
+          <Reveal open={isOtherOpen("designType", values.designTypeOther)}>
+            <Input className="h-8" value={values.designTypeOther} onChange={(e) => setField("designTypeOther", e.target.value)} placeholder="Other type…" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 5. Colour Theme ── */}
-      <SectionCard index={5} title="Colour Theme">
-        <div className="flex flex-wrap gap-2">
-          {COLOUR_THEMES.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.colourThemes.includes(opt)}
-              onClick={() => toggleInArray("colourThemes", opt)}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.colourThemeOther}
-            onChange={(e) => setField("colourThemeOther", e.target.value)}
-            placeholder="Other theme…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={5} title="Colour Theme">
+          <div className="flex flex-wrap gap-1.5">
+            {COLOUR_THEMES.map((opt) => (
+              <KittingChip key={opt} selected={values.colourThemes.includes(opt)} onClick={() => toggleInArray("colourThemes", opt)}>{opt}</KittingChip>
+            ))}
+            <OtherToggle active={isOtherOpen("colourTheme", values.colourThemeOther)} onClick={() => toggleOther("colourTheme")} />
+          </div>
+          <Reveal open={isOtherOpen("colourTheme", values.colourThemeOther)}>
+            <Input className="h-8" value={values.colourThemeOther} onChange={(e) => setField("colourThemeOther", e.target.value)} placeholder="Other theme…" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 6. Background Colour ── */}
-      <SectionCard index={6} title="Background Colour">
-        <div className="flex flex-wrap gap-2">
-          {BACKGROUND_COLOURS.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.backgroundColour === opt}
-              onClick={() =>
-                setField(
-                  "backgroundColour",
-                  values.backgroundColour === opt ? "" : opt
-                )
-              }
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.backgroundColourOther}
-            onChange={(e) => setField("backgroundColourOther", e.target.value)}
-            placeholder="Other colour…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={6} title="Background Colour">
+          <div className="flex flex-wrap gap-1.5">
+            {BACKGROUND_COLOURS.map((opt) => (
+              <KittingChip key={opt} selected={values.backgroundColour === opt} onClick={() => setField("backgroundColour", values.backgroundColour === opt ? "" : opt)}>{opt}</KittingChip>
+            ))}
+            <OtherToggle active={isOtherOpen("backgroundColour", values.backgroundColourOther)} onClick={() => toggleOther("backgroundColour")} />
+          </div>
+          <Reveal open={isOtherOpen("backgroundColour", values.backgroundColourOther)}>
+            <Input className="h-8" value={values.backgroundColourOther} onChange={(e) => setField("backgroundColourOther", e.target.value)} placeholder="Other colour…" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 7. Garment Size / Application ── */}
-      <SectionCard index={7} title="Garment Size / Application">
-        <div className="flex flex-wrap gap-2">
-          {GARMENT_APPS.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.garmentApplications.includes(opt)}
-              onClick={() => toggleInArray("garmentApplications", opt)}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.garmentApplicationOther}
-            onChange={(e) =>
-              setField("garmentApplicationOther", e.target.value)
-            }
-            placeholder="Other…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={7} title="Garment / Application">
+          <div className="flex flex-wrap gap-1.5">
+            {GARMENT_APPS.map((opt) => (
+              <KittingChip key={opt} selected={values.garmentApplications.includes(opt)} onClick={() => toggleInArray("garmentApplications", opt)}>{opt}</KittingChip>
+            ))}
+            <OtherToggle active={isOtherOpen("garmentApplication", values.garmentApplicationOther)} onClick={() => toggleOther("garmentApplication")} />
+          </div>
+          <Reveal open={isOtherOpen("garmentApplication", values.garmentApplicationOther)}>
+            <Input className="h-8" value={values.garmentApplicationOther} onChange={(e) => setField("garmentApplicationOther", e.target.value)} placeholder="Other…" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 8. Motive Print Size ── */}
-      <SectionCard index={8} title="Motive Print Size">
-        <div className="flex flex-wrap gap-2">
-          {MOTIVE_SIZES.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.motivePrintSize === opt}
-              onClick={() =>
-                setField(
-                  "motivePrintSize",
-                  values.motivePrintSize === opt ? "" : opt
-                )
-              }
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-      </SectionCard>
+        <SectionCard index={8} title="Motive Print Size">
+          <div className="flex flex-wrap gap-1.5">
+            {MOTIVE_SIZES.map((opt) => (
+              <KittingChip key={opt} selected={values.motivePrintSize === opt} onClick={() => setField("motivePrintSize", values.motivePrintSize === opt ? "" : opt)}>{opt}</KittingChip>
+            ))}
+          </div>
+        </SectionCard>
 
-      {/* ── 9. Concept ── */}
-      <SectionCard index={9} title="Concept">
-        <div className="flex flex-wrap gap-2">
-          {CONCEPTS.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.concept === opt}
-              onClick={() =>
-                setField("concept", values.concept === opt ? "" : opt)
-              }
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.conceptNotes}
-            onChange={(e) => setField("conceptNotes", e.target.value)}
-            placeholder="Concept notes…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={9} title="Concept">
+          <div className="flex flex-wrap gap-1.5">
+            {CONCEPTS.map((opt) => (
+              <KittingChip key={opt} selected={values.concept === opt} onClick={() => setField("concept", values.concept === opt ? "" : opt)}>{opt}</KittingChip>
+            ))}
+          </div>
+          <div className="mt-1.5">
+            <Input className="h-8" value={values.conceptNotes} onChange={(e) => setField("conceptNotes", e.target.value)} placeholder="Concept notes (optional)…" />
+          </div>
+        </SectionCard>
 
-      {/* ── 10. If APC Cutting Received ── */}
-      <SectionCard index={10} title="If APC Cutting Received">
-        <div className="flex flex-wrap gap-2">
-          {(["No", "Yes"] as const).map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.apcCuttingReceived === opt}
-              onClick={() =>
-                setField(
-                  "apcCuttingReceived",
-                  values.apcCuttingReceived === opt ? "" : opt
-                )
-              }
-              tone={opt === "Yes" ? "success" : "primary"}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <Reveal open={values.apcCuttingReceived === "Yes"}>
-          <Input
-            value={values.apcReceivedBy}
-            onChange={(e) => setField("apcReceivedBy", e.target.value)}
-            placeholder="Who received it…"
-          />
-        </Reveal>
-      </SectionCard>
+        <SectionCard index={10} title="APC Cutting Received">
+          <div className="flex flex-wrap gap-1.5">
+            {(["No", "Yes"] as const).map((opt) => (
+              <KittingChip key={opt} selected={values.apcCuttingReceived === opt} onClick={() => setField("apcCuttingReceived", values.apcCuttingReceived === opt ? "" : opt)} tone={opt === "Yes" ? "success" : "primary"}>{opt}</KittingChip>
+            ))}
+          </div>
+          <Reveal open={values.apcCuttingReceived === "Yes"}>
+            <Input className="h-8" value={values.apcReceivedBy} onChange={(e) => setField("apcReceivedBy", e.target.value)} placeholder="Who received it…" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 11. Additional Requirement ── */}
-      <SectionCard index={11} title="Additional Requirement">
-        <div className="flex flex-wrap gap-2">
-          {(["No", "Yes"] as const).map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.additionalRequirement === opt}
-              onClick={() =>
-                setField(
-                  "additionalRequirement",
-                  values.additionalRequirement === opt ? "" : opt
-                )
-              }
-              tone={opt === "Yes" ? "warning" : "primary"}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <Reveal open={values.additionalRequirement === "Yes"}>
-          <textarea
-            value={values.additionalRequirementDetail}
-            onChange={(e) =>
-              setField("additionalRequirementDetail", e.target.value)
-            }
-            placeholder="If yes, describe…"
-            rows={2}
-            className="block w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </Reveal>
-      </SectionCard>
+        <SectionCard index={11} title="Additional Requirement">
+          <div className="flex flex-wrap gap-1.5">
+            {(["No", "Yes"] as const).map((opt) => (
+              <KittingChip key={opt} selected={values.additionalRequirement === opt} onClick={() => setField("additionalRequirement", values.additionalRequirement === opt ? "" : opt)} tone={opt === "Yes" ? "warning" : "primary"}>{opt}</KittingChip>
+            ))}
+          </div>
+          <Reveal open={values.additionalRequirement === "Yes"}>
+            <textarea value={values.additionalRequirementDetail} onChange={(e) => setField("additionalRequirementDetail", e.target.value)} placeholder="If yes, describe…" rows={2} className="block w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </Reveal>
+        </SectionCard>
 
-      {/* ── 12. Priority ── */}
-      <SectionCard
-        index={12}
-        title="Priority"
-        required={reqd}
-        error={showErrors ? errors.priority : undefined}
-      >
-        <div className="flex flex-wrap gap-2">
-          {PRIORITIES.map((opt) => (
-            <KittingChip
-              key={opt}
-              selected={values.priority === opt}
-              onClick={() =>
-                setField("priority", values.priority === opt ? "" : opt)
-              }
-              tone={PRIORITY_TONE[opt]}
-            >
-              {opt}
-            </KittingChip>
-          ))}
-        </div>
-        <div className="mt-3">
-          <Input
-            value={values.priorityNotes}
-            onChange={(e) => setField("priorityNotes", e.target.value)}
-            placeholder="Notes…"
-          />
-        </div>
-      </SectionCard>
+        <SectionCard index={12} title="Priority" required={reqd} error={showErrors ? errors.priority : undefined}>
+          <div className="flex flex-wrap gap-1.5">
+            {PRIORITIES.map((opt) => (
+              <KittingChip key={opt} selected={values.priority === opt} onClick={() => setField("priority", values.priority === opt ? "" : opt)} tone={PRIORITY_TONE[opt]}>{opt}</KittingChip>
+            ))}
+          </div>
+          <div className="mt-1.5">
+            <Input className="h-8" value={values.priorityNotes} onChange={(e) => setField("priorityNotes", e.target.value)} placeholder="Priority notes (optional)…" />
+          </div>
+        </SectionCard>
+      </div>
 
       {!embedded && (
-      <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur">
+      <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/95 px-3 py-1.5 shadow-lg backdrop-blur">
         <Button
           type="button"
           variant="ghost"
+          size="sm"
           onClick={handleClear}
           className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
         >
-          <Trash2 className="h-4 w-4" aria-hidden />
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
           Clear Form
         </Button>
 
@@ -1076,23 +959,25 @@ export function FullKittingForm({
             <LoadingButton
               type="button"
               variant="outline"
+              size="sm"
               onClick={handleDraft}
               loading={draftSaving}
               loadingText="Saving…"
               className="gap-1.5"
             >
-              <Save className="h-4 w-4" aria-hidden />
+              <Save className="h-3.5 w-3.5" aria-hidden />
               Save Draft
             </LoadingButton>
           )}
           <LoadingButton
             type="submit"
+            size="sm"
             loading={submitting}
             loadingText="Submitting…"
             disabled={hasErrors}
             className="gap-1.5"
           >
-            <CheckCircle2 className="h-4 w-4" aria-hidden />
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
             {submitLabel}
           </LoadingButton>
         </div>
@@ -1102,9 +987,9 @@ export function FullKittingForm({
   );
 
   return embedded ? (
-    <div className="space-y-4">{formContent}</div>
+    <div className="space-y-1.5">{formContent}</div>
   ) : (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-1.5">
       {formContent}
     </form>
   );

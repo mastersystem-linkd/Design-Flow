@@ -225,7 +225,7 @@ export function FullKittingModal({
   return (
     <>
       <Dialog open={open} onOpenChange={handleCloseAttempt}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <DialogTitle className="flex-1">

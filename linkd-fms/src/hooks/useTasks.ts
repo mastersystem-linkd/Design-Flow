@@ -46,7 +46,7 @@ const SELECT_FRAGMENT = `
   client:clients!tasks_client_id_fkey(id, party_name),
   assignee:profiles!tasks_assigned_to_fkey(id, full_name, role, avatar_url),
   creator:profiles!tasks_created_by_fkey(id, full_name, role, avatar_url),
-  files(id, file_name)
+  files(id, file_name, file_size, storage_url)
 `;
 
 /** Strip out characters that would break PostgREST's `.or()` syntax. */

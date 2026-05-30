@@ -45,7 +45,7 @@ import {
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
 import { supabase } from "@/lib/supabase";
-import { isAdmin as isAdminCheck } from "@/lib/permissions";
+import { isAdmin as isAdminCheck, isAdminOrCoordinator } from "@/lib/permissions";
 import { scorecardDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { KpiCard } from "@/components/analytics/KpiCard";
@@ -154,6 +154,8 @@ export function ScorecardsView() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const isAdmin = isAdminCheck(profile?.role);
+  // Coordinators can view scorecards; destructive actions stay admin-only.
+  const canView = isAdminOrCoordinator(profile?.role);
 
   const [period, setPeriod] = useState<Period>("month");
   const [search, setSearch] = useState("");
@@ -271,13 +273,13 @@ export function ScorecardsView() {
   }, [rows]);
 
   // ── Permission gate ──
-  if (!isAdmin) {
+  if (!canView) {
     return (
       <div className="mx-auto max-w-md py-20">
         <EmptyState
           icon={<AlertTriangle className="h-10 w-10 text-destructive" />}
-          title="Admin only"
-          description="Designer scorecards are visible to admins."
+          title="Restricted"
+          description="Designer scorecards are visible to admins and coordinators."
         />
       </div>
     );

@@ -68,15 +68,20 @@ export function DashboardView() {
     const todo = tasks.filter((t) => t.status === "todo").length;
     const inProgress = relevantTasks.filter((t) => t.status === "in_progress").length;
     const fullKitting = relevantTasks.filter((t) => t.status === "full_kitting").length;
-    const done = relevantTasks.filter((t) => t.status === "done").length;
+    // 'done' here means "finished" — merges the new terminal 'completed'
+    // status with 'done' (which is now the awaiting-details intermediate).
+    const done = relevantTasks.filter(
+      (t) => t.status === "done" || t.status === "completed"
+    ).length;
     const sampling = relevantTasks.filter((t) => t.status === "sampling").length;
     const approved = relevantTasks.filter((t) => t.status === "approved").length;
-    const urgent = relevantTasks.filter((t) => t.priority === "urgent" && t.status !== "done").length;
+    const isFinished = (s: TaskStatus) => s === "done" || s === "completed";
+    const urgent = relevantTasks.filter((t) => t.priority === "urgent" && !isFinished(t.status)).length;
     const total = relevantTasks.length;
     const active = total - done;
 
     const overdue = relevantTasks.filter((t) => {
-      if (!t.planned_deadline || t.status === "done") return false;
+      if (!t.planned_deadline || isFinished(t.status)) return false;
       return new Date(t.planned_deadline) < new Date();
     }).length;
 
@@ -102,6 +107,7 @@ export function DashboardView() {
       approved: 0,
       sampling: 0,
       done,
+      completed: 0,
     };
 
     return {

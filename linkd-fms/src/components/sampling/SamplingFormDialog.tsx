@@ -1,17 +1,37 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Trash2, Upload, X, ExternalLink } from "lucide-react";
-import { toast } from "@/components/ui";
+import {
+  Loader2,
+  Trash2,
+  Upload,
+  X,
+  ExternalLink,
+  Camera,
+  Paperclip,
+  Image as ImageIcon,
+  Video as VideoIcon,
+  PenLine,
+  Building2,
+  Package,
+  ClipboardList,
+  Settings2,
+  CheckSquare,
+} from "lucide-react";
+import { toast, Combobox } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
 import { useFabrics } from "@/hooks/useFabrics";
-import { ASSIGNED_BY_OPTIONS } from "@/lib/constants";
+import { useProfiles } from "@/hooks/useProfiles";
+import { useConceptCategories } from "@/hooks/useConceptCategories";
+import { useAssignedByOptions } from "@/hooks/useAssignedByOptions";
+import { useSamplingDropdowns } from "@/hooks/useSamplingDropdowns";
 import { initiateKitting, getKittingBySample } from "@/lib/kittingQueries";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn } from "@/lib/utils";
@@ -38,6 +58,13 @@ const FIELD_LABEL: Record<FileField, string> = {
   video_url: "Video",
   signature_url: "Signature",
   full_kitting_image_url: "Full Knitting Image",
+};
+
+const FIELD_ICON: Record<FileField, React.ComponentType<{ className?: string }>> = {
+  photo_url: ImageIcon,
+  video_url: VideoIcon,
+  signature_url: PenLine,
+  full_kitting_image_url: ImageIcon,
 };
 
 interface Props {
@@ -68,6 +95,10 @@ export function SamplingFormDialog({
   const { user } = useAuth();
   const { clients } = useClients();
   const { fabrics } = useFabrics();
+  const { names: assignedByNames } = useAssignedByOptions("sampling");
+  const { names: samplingNames } = useSamplingDropdowns();
+  const { profiles: allProfiles } = useProfiles({ roles: ["admin", "design_coordinator"] });
+  const { categories: concepts } = useConceptCategories();
   const isEdit = !!editSample;
 
   // ── Form state ─────────────────────────────────────────────────────────
@@ -280,260 +311,184 @@ export function SamplingFormDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]"
+        className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[700px]"
         srTitle={isEdit ? "Sample Details" : "Add Sample"}
       >
         {/* Header */}
-        <div className="shrink-0 border-b border-border bg-card/80 px-5 pt-5 pb-4">
-          <h2 className="text-lg font-semibold text-foreground">
-            {isEdit ? "Sample Details" : "Add Sample"}
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {isEdit
-              ? "View or update this sampling record."
-              : "Log a new sampling entry."}
-          </p>
+        <div className="shrink-0 relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+              <Upload className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+                {isEdit ? "Sample Details" : "Add Sample"}
+              </h2>
+              <p className="text-[10px] text-muted-foreground">
+                {isEdit ? "View or update this sampling record." : "Log a new sampling entry."}
+              </p>
+            </div>
+            {isEdit && editSample?.uid && (
+              <Badge className="ml-auto shrink-0 border border-primary/20 bg-primary/10 font-mono text-[10px] font-medium text-primary">
+                {editSample.uid}
+              </Badge>
+            )}
+          </div>
         </div>
 
         {/* Body */}
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-          <Field label="Party Name" required>
-            <select
-              value={partyName}
-              onChange={(e) => setPartyName(e.target.value)}
-              disabled={saving}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            >
-              <option value="">— Choose party —</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.party_name}>
-                  {c.party_name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Quality">
-            <select
-              value={quality}
-              onChange={(e) => setQuality(e.target.value)}
-              disabled={saving}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            >
-              <option value="">— Choose fabric —</option>
-              {fabrics.map((f) => (
-                <option key={f.id} value={f.name}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Total Fabrics Received">
-              <Input
-                type="number"
-                min={0}
-                value={totalFabrics}
-                onChange={(e) => setTotalFabrics(e.target.value)}
-                disabled={saving}
-              />
-            </Field>
-            <Field label="Pending (computed)">
-              <Input value={pending} disabled readOnly />
-            </Field>
-          </div>
-
-          <Field label="Requirement">
-            <textarea
-              value={requirement}
-              onChange={(e) => setRequirement(e.target.value)}
-              rows={2}
-              disabled={saving}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Assigned By">
-              <select
-                value={assignedBy}
-                onChange={(e) => setAssignedBy(e.target.value)}
-                disabled={saving}
-                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">— Select —</option>
-                {ASSIGNED_BY_OPTIONS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Sampling Done By">
-              <Input
-                value={samplingDoneBy}
-                onChange={(e) => setSamplingDoneBy(e.target.value)}
-                disabled={saving}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Printed Mtr">
-              <Input
-                type="number"
-                min={0}
-                step={0.5}
-                value={printedMtr}
-                onChange={(e) => setPrintedMtr(e.target.value)}
-                disabled={saving}
-              />
-            </Field>
-
-            <Field label="SR NO">
-              <Input
-                type="number"
-                value={srNo}
-                onChange={(e) => setSrNo(e.target.value)}
-                placeholder="e.g. 101"
-                disabled={saving}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Order / Sample">
-              <select
-                value={orderOrSample}
-                onChange={(e) =>
-                  setOrderOrSample(e.target.value as "order" | "sample" | "")
-                }
-                disabled={saving}
-                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">—</option>
-                <option value="order">Order</option>
-                <option value="sample">Sample</option>
-              </select>
-            </Field>
-
-            <Field label="Fusing Operator">
-              <Input
-                value={fusingOperator}
-                onChange={(e) => setFusingOperator(e.target.value)}
-                disabled={saving}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <ToggleRow
-              label="Completed"
-              checked={isCompleted}
-              onChange={setIsCompleted}
-              disabled={saving}
-            />
-            <ToggleRow
-              label="Neatly Prepared"
-              checked={neatlyPrepared}
-              onChange={setNeatlyPrepared}
-              disabled={saving}
-            />
-          </div>
-
-          <Field label="Comments">
-            <textarea
-              value={additionalComments}
-              onChange={(e) => setAdditionalComments(e.target.value)}
-              rows={2}
-              disabled={saving}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            />
-          </Field>
-
-          <div className="space-y-3 rounded-lg border border-border bg-card/30 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Attachments
-            </p>
-            <FileSlot
-              field="photo_url"
-              value={photoUrl}
-              onChange={setPhotoUrl}
-              userId={user?.id ?? null}
-              disabled={saving}
-            />
-            <FileSlot
-              field="video_url"
-              value={videoUrl}
-              onChange={setVideoUrl}
-              userId={user?.id ?? null}
-              disabled={saving}
-            />
-            <FileSlot
-              field="signature_url"
-              value={signatureUrl}
-              onChange={setSignatureUrl}
-              userId={user?.id ?? null}
-              disabled={saving}
-            />
-          </div>
-
-          <ToggleRow
-            label="Requires Full Knitting?"
-            checked={requiresFullKitting}
-            onChange={setRequiresFullKitting}
-            disabled={saving}
-          />
-          {requiresFullKitting && (
-            <div className="rounded-lg border border-border bg-card/30 p-3">
-              <FileSlot
-                field="full_kitting_image_url"
-                value={fkImageUrl}
-                onChange={setFkImageUrl}
-                userId={user?.id ?? null}
-                disabled={saving}
-              />
+        <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3 sm:px-5">
+          {/* Party & Requirement */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <SectionHeader icon={Building2} title="Party & Requirement" />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Field label="Party Name" required>
+                <Combobox
+                  value={partyName}
+                  onChange={setPartyName}
+                  options={clients.map((c) => ({ value: c.party_name, label: c.party_name }))}
+                  placeholder="Search party…"
+                  disabled={saving}
+                  clearable
+                />
+              </Field>
+              <Field label="Quality (Fabric)">
+                <Combobox
+                  value={quality}
+                  onChange={setQuality}
+                  options={fabrics.map((f) => ({ value: f.name, label: f.name }))}
+                  placeholder="Choose fabric"
+                  disabled={saving}
+                  clearable
+                />
+              </Field>
+              <Field label="Requirement">
+                <Combobox
+                  value={requirement}
+                  onChange={setRequirement}
+                  options={samplingNames.requirement.map((n) => ({ value: n, label: n }))}
+                  placeholder="Select requirement"
+                  disabled={saving}
+                  clearable
+                />
+              </Field>
             </div>
-          )}
+          </section>
+
+          {/* Quantity & Tracking */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <SectionHeader icon={Package} title="Quantity & Tracking" />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Field label="Received">
+                <Input type="number" min={0} value={totalFabrics} onChange={(e) => setTotalFabrics(e.target.value)} disabled={saving} />
+              </Field>
+              <Field label="Printed Mtr">
+                <Input type="number" min={0} step={0.5} value={printedMtr} onChange={(e) => setPrintedMtr(e.target.value)} disabled={saving} />
+              </Field>
+              <Field label="Pending">
+                <Input value={pending} disabled readOnly className="bg-secondary/40 text-muted-foreground" />
+              </Field>
+              <Field label="SR No">
+                <Input type="number" value={srNo} onChange={(e) => setSrNo(e.target.value)} placeholder="e.g. 101" disabled={saving} />
+              </Field>
+            </div>
+          </section>
+
+          {/* Team */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <SectionHeader icon={ClipboardList} title="Team" />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Assigned By">
+                  <Combobox
+                    value={assignedBy}
+                    onChange={setAssignedBy}
+                    options={assignedByNames.map((n) => ({ value: n, label: n }))}
+                    placeholder="Select"
+                    disabled={saving}
+                    clearable
+                  />
+                </Field>
+                <Field label="Sampling Done By">
+                  <Combobox
+                    value={samplingDoneBy}
+                    onChange={setSamplingDoneBy}
+                    options={samplingNames.sampling_done_by.map((n) => ({ value: n, label: n }))}
+                    placeholder="Select"
+                    disabled={saving}
+                    clearable
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Fusing Operator">
+                  <Combobox
+                    value={fusingOperator}
+                    onChange={setFusingOperator}
+                    options={samplingNames.fusing_operator.map((n) => ({ value: n, label: n }))}
+                    placeholder="Select"
+                    disabled={saving}
+                    clearable
+                  />
+                </Field>
+                <Field label="Order / Sample">
+                  <div className="flex w-full rounded-md border border-border bg-card p-0.5">
+                    {(["sample", "order"] as const).map((opt) => (
+                      <button key={opt} type="button" onClick={() => setOrderOrSample(opt)} disabled={saving}
+                        className={cn("flex-1 rounded-[5px] px-2 py-1.5 text-xs font-medium capitalize transition-colors disabled:opacity-50",
+                          orderOrSample === opt ? "bg-primary text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        )} aria-pressed={orderOrSample === opt}>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+            </div>
+          </section>
+
+          {/* Attachments */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <SectionHeader icon={Paperclip} title="Attachments" />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <FileSlot field="photo_url" value={photoUrl} onChange={setPhotoUrl} userId={user?.id ?? null} disabled={saving} />
+              <FileSlot field="video_url" value={videoUrl} onChange={setVideoUrl} userId={user?.id ?? null} disabled={saving} />
+              <FileSlot field="signature_url" value={signatureUrl} onChange={setSignatureUrl} userId={user?.id ?? null} disabled={saving} />
+            </div>
+          </section>
+
+          {/* Toggles + Comments */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <SectionHeader icon={CheckSquare} title="Status" />
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <ToggleRow label="Completed" checked={isCompleted} onChange={setIsCompleted} disabled={saving} />
+              <ToggleRow label="Neatly Prepared" checked={neatlyPrepared} onChange={setNeatlyPrepared} disabled={saving} />
+            </div>
+            <Field label="Comments">
+              <textarea value={additionalComments} onChange={(e) => setAdditionalComments(e.target.value)} rows={2} disabled={saving}
+                placeholder="Optional notes…"
+                className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" />
+            </Field>
+          </section>
 
           {error && (
-            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
-            </p>
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 border-t border-border px-5 py-4">
+        <div className="shrink-0 border-t border-border px-4 py-2.5">
           <div className="flex items-center gap-2">
             {isEdit && onDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmingDelete(true)}
-                disabled={saving || deleting}
-                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
+              <Button variant="outline" size="sm" onClick={() => setConfirmingDelete(true)} disabled={saving || deleting}
+                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10">
+                <Trash2 className="h-3.5 w-3.5" /> Delete
               </Button>
             )}
             <div className="flex-1" />
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={saving}
-            >
-              {isEdit ? "Cancel" : "Close"}
-            </Button>
-            <LoadingButton
-              loading={saving}
-              loadingText="Saving…"
-              onClick={() => void handleSubmit()}
-            >
-              {isEdit ? "Save" : "Add Sample"}
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <LoadingButton loading={saving} loadingText="Saving…" onClick={() => void handleSubmit()} className="gap-2 px-6 shadow-sm shadow-primary/20">
+              {isEdit ? "Save Changes" : "Add Sample"}
             </LoadingButton>
           </div>
         </div>
@@ -559,6 +514,17 @@ export function SamplingFormDialog({
 // stable across renders. If they lived inside SamplingFormDialog, every
 // keystroke would unmount/remount the inputs and steal focus.
 // ============================================================================
+
+function SectionHeader({ icon: Icon, title }: { icon: React.ComponentType<{ className?: string }>; title: string }) {
+  return (
+    <div className="mb-1.5 flex items-center gap-2">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <Icon className="h-3 w-3" />
+      </span>
+      <h3 className="text-[13px] font-semibold tracking-tight text-foreground">{title}</h3>
+    </div>
+  );
+}
 
 function Field({
   label,
@@ -591,8 +557,8 @@ function ToggleRow({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border bg-card p-3">
-      <Label className="text-[12px] font-medium text-foreground">{label}</Label>
+    <div className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-2">
+      <Label className="text-[11px] font-medium text-foreground">{label}</Label>
       <button
         type="button"
         role="switch"
@@ -628,8 +594,12 @@ function FileSlot({
   userId: string | null;
   disabled?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // Photo + Signature are images → offer a camera-capture option too. Video
+  // keeps a single upload (no in-app recording).
+  const isImage = field !== "video_url";
 
   async function pick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -674,54 +644,87 @@ function FileSlot({
     onChange(null);
   }
 
+  const FieldIcon = FIELD_ICON[field];
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-[110px] text-[11px] font-medium text-muted-foreground">
+    <div className="rounded-lg border border-border/60 bg-secondary/20 p-2.5">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+        <FieldIcon className="h-3.5 w-3.5 text-muted-foreground" />
         {FIELD_LABEL[field]}
-      </span>
+      </div>
+
       {value ? (
-        <div className="flex flex-1 items-center gap-1.5 rounded-md border border-success/30 bg-success/5 px-2 py-1.5 text-[11px]">
+        <div className="flex items-center gap-1.5 rounded-md border border-success/30 bg-success/5 px-2 py-1.5 text-[11px]">
           <button
             type="button"
             onClick={() => void openSigned()}
             className="flex flex-1 items-center gap-1 truncate text-success hover:underline"
             title="Open file"
           >
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="h-3 w-3 shrink-0" />
             View
           </button>
           <button
             type="button"
             onClick={clear}
             disabled={disabled}
-            className="text-muted-foreground hover:text-destructive"
+            className="shrink-0 text-muted-foreground hover:text-destructive"
             title="Remove"
           >
             <X className="h-3 w-3" />
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={busy || disabled}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
-        >
-          {busy ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Upload className="h-3 w-3" />
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => uploadRef.current?.click()}
+            disabled={busy || disabled}
+            className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
+            title="Upload a file"
+          >
+            {busy ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Upload className="h-3 w-3" />
+            )}
+            Upload
+          </button>
+          {isImage && (
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={busy || disabled}
+              className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
+              title="Take a photo with the camera"
+            >
+              <Camera className="h-3 w-3" />
+              Camera
+            </button>
           )}
-          Upload
-        </button>
+        </div>
       )}
+
+      {/* Upload picker */}
       <input
-        ref={inputRef}
+        ref={uploadRef}
         type="file"
         accept={FIELD_ACCEPT[field]}
         className="hidden"
         onChange={(e) => void pick(e)}
       />
+      {/* Camera capture (mobile opens the rear camera; desktop falls back to a
+          file picker). Images only. */}
+      {isImage && (
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => void pick(e)}
+        />
+      )}
     </div>
   );
 }

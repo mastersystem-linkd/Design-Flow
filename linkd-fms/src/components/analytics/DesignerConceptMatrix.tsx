@@ -37,7 +37,7 @@ import { useConcepts } from "@/hooks/useConcepts";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
 import { useAuth } from "@/hooks/useAuth";
-import { isAdmin as isAdminCheck } from "@/lib/permissions";
+import { isAdminOrCoordinator } from "@/lib/permissions";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
 import { cn } from "@/lib/utils";
 
@@ -78,7 +78,7 @@ interface DesignerRow {
  */
 export function DesignerConceptMatrix() {
   const { profile: viewer } = useAuth();
-  const canOpenScorecard = isAdminCheck(viewer?.role);
+  const canOpenScorecard = isAdminOrCoordinator(viewer?.role);
   const [scorecardDesignerId, setScorecardDesignerId] = useState<string | null>(null);
   const [period, setPeriod] = useState<LocalPeriod>("month");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({

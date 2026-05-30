@@ -404,7 +404,7 @@ function QueueTab({
         <div className="overflow-x-auto">
           <table className="min-w-[1100px] text-sm">
             <thead className={TABLE_HEAD}>
-              <tr>
+              <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
                 <th className={TABLE_TH}>Status</th>
                 <th className={TABLE_TH}>UID</th>
                 <th className={TABLE_TH}>Party Name</th>

@@ -72,6 +72,9 @@ interface KittingRow {
   // linked brief's UID or party name.
   task_code: string | null;
   client_party_name: string | null;
+  designer_name: string | null;
+  concept: string | null;
+  description: string | null;
 }
 
 const STATUS_PILL_CLASS: Record<KittingRow["data_entry_status"], string> = {
@@ -94,24 +97,20 @@ export default function FullKittingFormView() {
   const location = useLocation();
   const { user } = useAuth();
 
-  // Where to go on "Back" + after-submit. We assume the user came from one
-  // of three places:
-  //   * /kitting (DEO queue) → default
-  //   * /dashboard?tab=kitting (admin/coordinator's Full Kitting sub-folder)
-  //   * /dashboard (admin/coordinator clicked a task's ⋮ → Full Kitting)
-  // The previous URL is stashed in history.state by react-router; we read
-  // it via document.referrer as a heuristic. Anything containing "tab=kitting"
-  // means we should return to the Full Kitting sub-folder.
+  // Where to go on "Back" + after-submit. Callers can pass { from: url }
+  // via react-router location state. Fallback heuristic: check the current
+  // URL search params and document.referrer.
   const backTarget = useMemo(() => {
-    const referrer = document.referrer;
-    if (referrer.includes("tab=kitting")) {
+    const fromState = (location.state as { from?: string } | null)?.from;
+    const hint = fromState || document.referrer || "";
+    if (hint.includes("tab=kitting") || hint.includes("tab=full_kitting")) {
       return { path: `${ROUTES.dashboard}?tab=kitting`, label: "Back to Full Knitting" };
     }
-    if (referrer.includes(ROUTES.dashboard)) {
+    if (hint.includes(ROUTES.dashboard)) {
       return { path: ROUTES.dashboard, label: "Back to tasks" };
     }
     return { path: ROUTES.kitting, label: "Back to queue" };
-  }, [location.pathname]);
+  }, [location.state, location.pathname]);
 
   const [state, setState] = useState<LoadState>(() =>
     !recordId || recordId === "new" ? { kind: "preview" } : { kind: "loading" }
@@ -165,17 +164,24 @@ export default function FullKittingFormView() {
 
       let parentCode: string | null = null;
       let parentParty: string | null = null;
+      let designerName: string | null = null;
+      let concept: string | null = null;
+      let description: string | null = null;
       const sampleId = (data as { sample_id?: string | null }).sample_id ?? null;
       if (data.task_id) {
         const { data: t } = await supabase
           .from("tasks")
-          .select("task_code, clients:client_id ( party_name )")
+          .select("task_code, brief_type, concept, description, clients:client_id ( party_name ), assignee:assigned_to ( full_name )")
           .eq("id", data.task_id)
           .maybeSingle();
         if (t) {
           parentCode = t.task_code;
           const c = (t as unknown as { clients?: { party_name?: string | null } | null }).clients;
-          parentParty = c?.party_name ?? null;
+          parentParty = c?.party_name ?? (t.brief_type === "ld" ? "LD Silk Mills" : null);
+          const a = (t as unknown as { assignee?: { full_name?: string | null } | null }).assignee;
+          designerName = a?.full_name ?? null;
+          concept = t.concept ?? null;
+          description = t.description ?? null;
         }
       } else if (sampleId) {
         const { data: s } = await supabase
@@ -200,6 +206,9 @@ export default function FullKittingFormView() {
         form_payload: data.form_payload as Record<string, unknown> | null,
         task_code: parentCode,
         client_party_name: parentParty,
+        designer_name: designerName,
+        concept,
+        description,
       };
       setState({ kind: "ready", row });
     })();
@@ -404,6 +413,7 @@ export default function FullKittingFormView() {
                 open={mobileImageOpen}
                 onToggle={() => setMobileImageOpen((v) => !v)}
                 imageUrl={imageUrl}
+                rawPath={state.kind === "ready" ? state.row.image_url : null}
               />
             </div>
           )}
@@ -415,6 +425,15 @@ export default function FullKittingFormView() {
                 defaultValues={defaultValues}
                 taskCode={
                   state.kind === "ready" ? state.row.task_code : null
+                }
+                designerName={
+                  state.kind === "ready" ? state.row.designer_name : null
+                }
+                conceptName={
+                  state.kind === "ready" ? state.row.concept : null
+                }
+                descriptionText={
+                  state.kind === "ready" ? state.row.description : null
                 }
                 onSubmit={async (values) => {
                   try {
@@ -432,7 +451,7 @@ export default function FullKittingFormView() {
           {/* Desktop sticky image pane — stays visible as the form scrolls. */}
           {showImagePane && (
             <aside className="hidden lg:block">
-              <DesktopImagePane imageUrl={imageUrl} />
+              <DesktopImagePane imageUrl={imageUrl} rawPath={state.kind === "ready" ? state.row.image_url : null} />
             </aside>
           )}
         </div>
@@ -445,16 +464,21 @@ export default function FullKittingFormView() {
 // Image panes — sticky on desktop, collapsible on mobile
 // ============================================================================
 
-function DesktopImagePane({ imageUrl }: { imageUrl: string | null }) {
+function isPdfUrl(url: string | null): boolean {
+  if (!url) return false;
+  const lower = url.split("?")[0].toLowerCase();
+  return lower.endsWith(".pdf");
+}
+
+function DesktopImagePane({ imageUrl, rawPath }: { imageUrl: string | null; rawPath: string | null }) {
+  const pdf = isPdfUrl(rawPath);
   return (
-    // Sticky tighter to the viewport top so the image pane uses almost the
-    // full screen height. Pairs with the max-h-[calc(100vh-3rem)] below.
     <div className="sticky top-2">
       <Card className="overflow-hidden">
         <CardContent className="space-y-2 p-3">
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Form photo
+              {pdf ? "Form document" : "Form photo"}
             </p>
             {imageUrl && (
               <a
@@ -471,23 +495,27 @@ function DesktopImagePane({ imageUrl }: { imageUrl: string | null }) {
           </div>
           <div className="overflow-auto rounded-md border border-border bg-secondary/40 max-h-[calc(100vh-6rem)]">
             {imageUrl ? (
-              // Zoomable in two ways: (1) the parent has overflow-auto so the
-              // browser handles pan/scroll if image overflows; (2) the link
-              // above opens full size in a new tab for serious inspection.
-              // We render the natural image size capped by the column.
-              <a
-                href={imageUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block"
-                title="Open full size"
-              >
-                <img
+              pdf ? (
+                <iframe
                   src={imageUrl}
-                  alt="Knitting form to digitize"
-                  className="block w-full"
+                  title="Knitting form PDF"
+                  className="h-[calc(100vh-8rem)] w-full"
                 />
-              </a>
+              ) : (
+                <a
+                  href={imageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                  title="Open full size"
+                >
+                  <img
+                    src={imageUrl}
+                    alt="Knitting form to digitize"
+                    className="block w-full"
+                  />
+                </a>
+              )
             ) : (
               <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
                 <ImageOff className="mr-1.5 h-4 w-4" />
@@ -505,10 +533,12 @@ function MobileImageAccordion({
   open,
   onToggle,
   imageUrl,
+  rawPath,
 }: {
   open: boolean;
   onToggle: () => void;
   imageUrl: string | null;
+  rawPath: string | null;
 }) {
   return (
     <Card className="overflow-hidden">
@@ -551,19 +581,27 @@ function MobileImageAccordion({
           <div className="min-h-0">
             <div className="border-t border-border bg-secondary/40">
               {imageUrl ? (
-                <a
-                  href={imageUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block"
-                  title="Open full size"
-                >
-                  <img
+                isPdfUrl(rawPath) ? (
+                  <iframe
                     src={imageUrl}
-                    alt="Knitting form to digitize"
-                    className="block max-h-[70vh] w-full object-contain"
+                    title="Knitting form PDF"
+                    className="h-[70vh] w-full"
                   />
-                </a>
+                ) : (
+                  <a
+                    href={imageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                    title="Open full size"
+                  >
+                    <img
+                      src={imageUrl}
+                      alt="Knitting form to digitize"
+                      className="block max-h-[70vh] w-full object-contain"
+                    />
+                  </a>
+                )
               ) : (
                 <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
                   Loading photo…

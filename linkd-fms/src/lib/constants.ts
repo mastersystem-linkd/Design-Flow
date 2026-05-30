@@ -22,15 +22,20 @@ export const STATUS_ORDER: readonly TaskStatus[] = [
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   pool: "Pool",
+  // 'todo' is legacy/unused — claiming a pool task jumps straight to
+  // in_progress, so no task sits here. Kept only for enum completeness.
   todo: "To-Do",
   in_progress: "In Progress",
   full_kitting: "Full Knitting",
   approved: "Approved",
   sampling: "Sampling",
   done: "Done",
+  completed: "Completed",
 };
 
-/** Pill/badge styling for a status. */
+/** Pill/badge styling for a status. `completed` is a SOLID success — reads
+ *  as "fully wrapped up" vs `done`'s soft tint, while staying on the same
+ *  semantic token (no hardcoded palette colors per CLAUDE.md). */
 export const STATUS_COLORS: Record<TaskStatus, string> = {
   pool: "bg-secondary text-muted-foreground border border-border",
   todo: "bg-card text-foreground border border-border",
@@ -39,6 +44,7 @@ export const STATUS_COLORS: Record<TaskStatus, string> = {
   approved: "bg-primary text-white border border-primary",
   sampling: "bg-warning/30 text-warning border border-warning/40",
   done: "bg-success/20 text-success border border-success/30",
+  completed: "bg-success text-white border border-success",
 };
 
 /**
@@ -53,6 +59,7 @@ export const COLUMN_BG: Record<TaskStatus, string> = {
   approved: "bg-primary/5",
   sampling: "bg-warning/10",
   done: "bg-success/10",
+  completed: "bg-success/20",
 };
 
 /** Solid dot next to each column heading. */
@@ -64,6 +71,7 @@ export const COLUMN_DOT: Record<TaskStatus, string> = {
   approved: "bg-primary",
   sampling: "bg-warning",
   done: "bg-success",
+  completed: "bg-success",
 };
 
 /** 3-px top accent stripe — same color family as the dot, stronger. */
@@ -75,6 +83,7 @@ export const COLUMN_ACCENT: Record<TaskStatus, string> = {
   approved: "bg-primary",
   sampling: "bg-warning",
   done: "bg-success",
+  completed: "bg-success",
 };
 
 // ============================================================================
@@ -221,21 +230,9 @@ export function monthNumberFromCode(code: MonthCode): number {
 // ============================================================================
 
 // ============================================================================
-// "Assigned By" — concept-form dropdown options. Internal stakeholder names
-// supplied by the team; some are users (SELF, Supriya), some are external
-// reviewers (NAUSHI MAM, GAURAV SIR, etc).
+// "Assigned By" options are now DB-backed (public.assigned_by_options,
+// migration 0045) and admin-managed from Settings → Assigned By. Use the hook
+// useAssignedByOptions() (with DEFAULT_ASSIGNED_BY / ASSIGNED_BY_OTHER from the
+// same module). The previous hard-coded array was removed when the lookup
+// table landed.
 // ============================================================================
-export const ASSIGNED_BY_OPTIONS: readonly string[] = [
-  "SELF",
-  "NAUSHI MAM",
-  "Nandu Desai",
-  "OTHER",
-  "Eldee",
-  "GAURAV SIR",
-  "Raghav Sir",
-  "Shrikant Bhole",
-  "Jiten",
-  "Supriya",
-  "Laxmikant Sir",
-  "Hiren",
-] as const;

@@ -83,7 +83,7 @@ import { useConcepts } from "@/hooks/useConcepts";
 import { useTasks } from "@/hooks/useTasks";
 import { sendNotification } from "@/lib/notifications";
 import { exportToCSV, type CsvColumn } from "@/lib/exportCSV";
-import { isAdmin as isAdminCheck } from "@/lib/permissions";
+import { isAdmin as isAdminCheck, isAdminOrCoordinator } from "@/lib/permissions";
 import { ROLE_LABELS } from "@/lib/constants";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
@@ -114,6 +114,8 @@ export function ScorecardDetailView() {
   const navigate = useNavigate();
   const { designerId = "" } = useParams<{ designerId: string }>();
   const isAdmin = isAdminCheck(viewer?.role);
+  // Coordinators can view any scorecard; MD feedback actions stay admin-only.
+  const canView = isAdminOrCoordinator(viewer?.role);
   const isSelf = viewer?.id === designerId;
 
   // Range state — controls the heatmap + KPI computation
@@ -651,13 +653,13 @@ export function ScorecardDetailView() {
   }, [selectedDay, designerTasks, designerConcepts]);
 
   // ── Permission gate ──
-  if (!isAdmin && !isSelf) {
+  if (!canView && !isSelf) {
     return (
       <div className="mx-auto max-w-md py-20">
         <EmptyState
           icon={<AlertTriangle className="h-10 w-10 text-destructive" />}
           title="Restricted"
-          description="Scorecards are visible to admins or the designer viewing their own."
+          description="Scorecards are visible to admins, coordinators, or the designer viewing their own."
         />
       </div>
     );
@@ -2078,10 +2080,14 @@ function MomentumChart({
             contentStyle={{
               backgroundColor: "rgb(var(--card))",
               border: "1px solid rgb(var(--border))",
-              borderRadius: 8,
+              borderRadius: 10,
               fontSize: 12,
               color: "rgb(var(--foreground))",
+              boxShadow: "var(--shadow-dropdown)",
+              padding: "8px 10px",
             }}
+            labelStyle={{ fontWeight: 600, marginBottom: 2 }}
+            cursor={{ stroke: "rgb(var(--border))", strokeWidth: 1 }}
           />
           <Legend
             wrapperStyle={{ fontSize: 11, paddingTop: 4 }}

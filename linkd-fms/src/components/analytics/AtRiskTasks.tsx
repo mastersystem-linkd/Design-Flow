@@ -39,6 +39,7 @@ export function AtRiskTasks({ tasks }: Props) {
       .filter(
         (t) =>
           t.status !== "done" &&
+          t.status !== "completed" &&
           t.planned_deadline &&
           new Date(t.planned_deadline) < now
       )
@@ -54,7 +55,12 @@ export function AtRiskTasks({ tasks }: Props) {
 
   const urgent = useMemo(() => {
     return tasks
-      .filter((t) => t.priority === "urgent" && t.status !== "done")
+      .filter(
+        (t) =>
+          t.priority === "urgent" &&
+          t.status !== "done" &&
+          t.status !== "completed"
+      )
       .map((t) => ({
         task: t,
         ageDays: differenceInDays(new Date(), parseISO(t.created_at)),

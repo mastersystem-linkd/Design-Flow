@@ -16,7 +16,14 @@ const LABEL_MAP: Record<Theme, string> = {
   system: "System",
 };
 
-export function ThemeToggle({ className }: { className?: string }) {
+export function ThemeToggle({
+  className,
+  labelClassName,
+}: {
+  className?: string;
+  /** Extra classes for the text label — lets a collapsed sidebar hide it. */
+  labelClassName?: string;
+}) {
   const { theme, setTheme } = useTheme();
 
   function cycle() {
@@ -38,8 +45,8 @@ export function ThemeToggle({ className }: { className?: string }) {
       aria-label={`Theme: ${LABEL_MAP[theme]}. Click to change.`}
       title={`Current: ${LABEL_MAP[theme]}. Click to switch.`}
     >
-      <Icon className="h-4 w-4" />
-      <span>{LABEL_MAP[theme]}</span>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className={labelClassName}>{LABEL_MAP[theme]}</span>
     </button>
   );
 }

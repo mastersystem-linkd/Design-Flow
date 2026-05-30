@@ -23,6 +23,8 @@ import {
   Trash2,
   ClipboardList,
   FilterX,
+  ExternalLink,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -107,7 +109,7 @@ export function ProductionView() {
   // operational view). "dashboard" = analytics rollups. Two distinct mental
   // modes — coordinators bounce between them, so a tab is cheaper than a
   // separate route.
-  const [tab, setTab] = useState<"samples" | "dashboard" | "kitting">("samples");
+  const [tab, setTab] = useState<"samples" | "dashboard">("samples");
 
   // ── Sample filters ──
   const [customerSearch, setCustomerSearch] = useState("");
@@ -145,12 +147,6 @@ export function ProductionView() {
   const [deleteSampleTarget, setDeleteSampleTarget] = useState<SampleWithTask | Sample | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Full Knitting tab — search + export are lifted into the page header
-  // so they sit next to the title instead of inside the table card.
-  // CompletedKittingPanel already supports externalSearch + onExportRef
-  // for this exact lift-state-up pattern.
-  const [kittingSearch, setKittingSearch] = useState("");
-  const kittingExportRef = useRef<(() => void) | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
   const sampleExportColumns: CsvColumn<Sample>[] = [
@@ -262,45 +258,6 @@ export function ProductionView() {
     return Object.entries(days).map(([date, count]) => ({ date, count }));
   }, [samples]);
 
-  // ── Full Knitting funnel for the Sample Dashboard ──────────────────────
-  // Pulls only sample-sourced rows from full_kitting_details and buckets
-  // them by data_entry_status. Re-runs when the samples list refetches so
-  // a newly-uploaded FK image appears in the funnel without a full reload.
-  const [fkSampleStats, setFkSampleStats] = useState<{
-    pendingDeo: number;
-    inProgress: number;
-    completed: number;
-    total: number;
-  }>({ pendingDeo: 0, inProgress: 0, completed: 0, total: 0 });
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const { data } = await supabase
-        .from("full_kitting_details")
-        .select("data_entry_status")
-        .not("sample_id", "is", null);
-      if (cancelled || !data) return;
-      let pendingDeo = 0;
-      let inProgress = 0;
-      let completed = 0;
-      for (const row of data) {
-        if (row.data_entry_status === "pending_deo" || row.data_entry_status === "pending_image") pendingDeo++;
-        else if (row.data_entry_status === "in_progress") inProgress++;
-        else if (row.data_entry_status === "completed") completed++;
-      }
-      setFkSampleStats({
-        pendingDeo,
-        inProgress,
-        completed,
-        total: pendingDeo + inProgress + completed,
-      });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [samples]);
-
   return (
     <div className="space-y-4">
       {/* ── Header — title left, primary actions right ── */}
@@ -360,7 +317,6 @@ export function ProductionView() {
           {([
             { id: "samples" as const, label: "Samples", icon: Package },
             { id: "dashboard" as const, label: "Sample Dashboard", icon: BarChart3 },
-            { id: "kitting" as const, label: "Full Knitting", icon: Layers },
           ]).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -428,29 +384,6 @@ export function ProductionView() {
             </div>
           </div>
         )}
-        {tab === "kitting" && (
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            <div className="relative w-full sm:w-[300px]">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={kittingSearch}
-                onChange={(e) => setKittingSearch(e.target.value)}
-                placeholder="Search UID or party…"
-                className="h-9 pl-8 text-sm"
-              />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => kittingExportRef.current?.()}
-              className="gap-1.5"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export CSV
-            </Button>
-          </div>
-        )}
       </div>
 
       {tab === "samples" && (
@@ -458,15 +391,6 @@ export function ProductionView() {
 
       {/* ── Samples Table ── */}
       <section className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border bg-card/50 px-4 py-2.5">
-          <h2 className="text-sm font-semibold text-foreground">
-            Sample Records
-            <span className="ml-2 text-[10px] font-normal text-muted-foreground">
-              {samples.length}
-            </span>
-          </h2>
-        </div>
-
         {samplesLoading ? (
           <div className="p-4"><SkeletonText lines={4} /></div>
         ) : samples.length === 0 ? (
@@ -501,7 +425,7 @@ export function ProductionView() {
               <table className="w-full min-w-[2800px] text-sm">
                 <caption className="sr-only">Sampling records</caption>
                 <thead className={TABLE_HEAD}>
-                  <tr>
+                  <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
                     <th className={TABLE_TH}>Timestamp</th>
                     <th className={TABLE_TH}>Party Name</th>
                     <th className={TABLE_TH}>Quality</th>
@@ -522,8 +446,6 @@ export function ProductionView() {
                     <th className={TABLE_TH}>Video</th>
                     <th className={TABLE_TH}>Signature</th>
                     <th className={TABLE_TH}>Comments</th>
-                    <th className={TABLE_TH}>Full Knitting</th>
-                    <th className={TABLE_TH}>FK Image</th>
                     <th className={TABLE_TH}>Actions</th>
                   </tr>
                 </thead>
@@ -542,7 +464,7 @@ export function ProductionView() {
                 </tbody>
               </table>
             </div>
-            {sampleTotal > 0 && (
+            {samplePg.totalPages > 1 && (
               <div className="px-4 pb-3">
                 <Pagination
                   page={samplePg.page}
@@ -570,20 +492,6 @@ export function ProductionView() {
           stats={stats}
           chartData={chartData}
           aggregates={dashboardAggregates}
-          fkStats={fkSampleStats}
-        />
-      )}
-
-      {tab === "kitting" && (
-        // linkType="sample" filters to FK rows initiated from the Sampling
-        // screen — brief-sourced rows live in All Tasks → Full Knitting.
-        // externalSearch + onExportRef move the search box and Export CSV
-        // button up into the page header.
-        <CompletedKittingPanel
-          includeIncomplete
-          linkType="sample"
-          externalSearch={kittingSearch}
-          onExportRef={kittingExportRef}
         />
       )}
 
@@ -733,20 +641,6 @@ function SampleMobileCard({
     setMenuOpen((p) => !p);
   }, []);
 
-  const handleFullKnitting = useCallback(async () => {
-    setMenuOpen(false);
-    if (!s.requires_full_kitting) {
-      toast.error("Full Knitting is not enabled for this sample");
-      return;
-    }
-    const { data: row } = await getKittingBySample(s.id);
-    if (row) {
-      navigate(kittingDetailPath(row.id));
-    } else {
-      toast.error("No Full Knitting record found for this sample");
-    }
-  }, [s, navigate]);
-
   const pending = s.pending_qty;
   return (
     <>
@@ -790,11 +684,6 @@ function SampleMobileCard({
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />Edit sample
             </button>
-            {s.requires_full_kitting && (
-              <button type="button" role="menuitem" onClick={handleFullKnitting} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
-                <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />Full Knitting
-              </button>
-            )}
             {canDelete && (
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
                 <Trash2 className="h-3.5 w-3.5" />Delete sample
@@ -949,20 +838,6 @@ function SampleRow({
         {s.additional_comments || "—"}
       </td>
 
-      {/* Full Kitting */}
-      <td className={TABLE_TD}>
-        {s.requires_full_kitting ? (
-          <Badge className="border border-primary/30 bg-primary/10 px-1.5 py-0 text-[10px] text-primary">
-            Yes
-          </Badge>
-        ) : (
-          <span className="text-[11px] text-muted-foreground">No</span>
-        )}
-      </td>
-
-      {/* FK Image */}
-      <td className={TABLE_TD}><FilePresenceCell path={s.full_kitting_image_url} /></td>
-
       {/* Actions */}
       <td className={TABLE_TD}>
         <SampleActionsMenu sample={s} canDelete={canDelete} onView={onView} onEdit={onEdit} onDelete={onDelete} />
@@ -1006,15 +881,6 @@ function SampleActionsMenu({
     []
   );
 
-  const handleFullKnitting = useCallback(async () => {
-    setOpen(false);
-    const { data: row } = await getKittingBySample(s.id);
-    if (row) {
-      navigate(kittingDetailPath(row.id));
-    } else {
-      toast.error("No Full Knitting record found");
-    }
-  }, [s.id, navigate]);
 
   return (
     <>
@@ -1031,11 +897,6 @@ function SampleActionsMenu({
             <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />Edit sample
             </button>
-            {s.requires_full_kitting && (
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); handleFullKnitting(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
-                <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />Full Knitting
-              </button>
-            )}
             {canDelete && (
               <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
                 <Trash2 className="h-3.5 w-3.5" />Delete sample
@@ -1050,20 +911,43 @@ function SampleActionsMenu({
 }
 
 // ---------------------------------------------------------------------------
-// FilePresenceCell — read-only cell indicator that a file has been attached.
-// Clicking the cell does NOT open the file (row click opens the dialog,
-// where the user can View / Replace / Remove). Keeps cell behavior
-// predictable: every cell defers to the row's onClick.
+// FilePresenceCell — clickable indicator for an attached file. Clicking opens
+// the file in a new tab via a short-lived signed URL (sample-files bucket).
+// stopPropagation so it doesn't also trigger the row's onClick (edit dialog).
 // ---------------------------------------------------------------------------
 function FilePresenceCell({ path }: { path: string | null }) {
+  const [busy, setBusy] = useState(false);
   if (!path) {
     return <span className="text-[11px] text-muted-foreground">—</span>;
   }
+  async function open(e: React.MouseEvent) {
+    e.stopPropagation();
+    setBusy(true);
+    const { data, error } = await supabase.storage
+      .from("sample-files")
+      .createSignedUrl(path!, 300);
+    setBusy(false);
+    if (error || !data) {
+      toast.error("Could not open file.");
+      return;
+    }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }
   return (
-    <Badge className="border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
-      <Check className="mr-0.5 h-3 w-3" />
-      Attached
-    </Badge>
+    <button
+      type="button"
+      onClick={open}
+      disabled={busy}
+      title="Open file"
+      className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success transition-colors hover:border-success/60 hover:bg-success/25 disabled:opacity-50"
+    >
+      {busy ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <ExternalLink className="h-3 w-3" />
+      )}
+      View
+    </button>
   );
 }
 
@@ -1094,14 +978,6 @@ interface SampleDashboardProps {
     untagged: number;
     topCustomers: { party_name: string; count: number }[];
   };
-  /** Sample-sourced Full Knitting funnel — pulled separately from
-   *  full_kitting_details since that pipeline isn't on the samples row. */
-  fkStats: {
-    pendingDeo: number;
-    inProgress: number;
-    completed: number;
-    total: number;
-  };
 }
 
 function SampleDashboard({
@@ -1110,7 +986,6 @@ function SampleDashboard({
   stats,
   chartData,
   aggregates,
-  fkStats,
 }: SampleDashboardProps) {
   // Designer view: hide most rollups (RLS already trims to their data, but
   // the KPIs/charts are coordinator-oriented). Keep just the personal volume.
@@ -1375,135 +1250,10 @@ function SampleDashboard({
       {/* ── Full Knitting funnel — sample-sourced FK forms across their
            three lifecycle stages. Coverage = how many samples flagged FK
            actually have an FK row created (image uploaded). */}
-      <FullKnittingPanel samples={samples} fkStats={fkStats} />
     </div>
   );
 }
 
-// ─── Full Knitting funnel block ──────────────────────────────────────────
-function FullKnittingPanel({
-  samples,
-  fkStats,
-}: {
-  samples: SampleWithTask[];
-  fkStats: { pendingDeo: number; inProgress: number; completed: number; total: number };
-}) {
-  const flagged = samples.filter((s) => s.requires_full_kitting).length;
-  const withImage = samples.filter(
-    (s) => s.requires_full_kitting && s.full_kitting_image_url
-  ).length;
-  const coverage = flagged > 0 ? Math.round((withImage / flagged) * 100) : 0;
-  const total = Math.max(1, fkStats.total);
-  const pendingPct = (fkStats.pendingDeo / total) * 100;
-  const inProgPct = (fkStats.inProgress / total) * 100;
-  const donePct = (fkStats.completed / total) * 100;
-
-  return (
-    <Card>
-      <CardContent className="space-y-4 py-4">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
-            <Layers className="h-4 w-4 text-primary" />
-          </span>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Full Knitting Pipeline
-            </h3>
-            <span className="text-[10px] text-muted-foreground">
-              sample-sourced FK forms
-            </span>
-          </div>
-        </div>
-
-        {/* 4 KPI tiles in a row — mirrors the dashboard's KPI strip */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <FkStatTile
-            label="Flagged"
-            value={flagged}
-            sub={flagged > 0 ? `${withImage} with image · ${coverage}% coverage` : "No samples flagged"}
-            tone="muted"
-          />
-          <FkStatTile label="Pending DEO" value={fkStats.pendingDeo} tone="destructive" />
-          <FkStatTile label="In Progress" value={fkStats.inProgress} tone="warning" />
-          <FkStatTile label="Completed" value={fkStats.completed} tone="success" />
-        </div>
-
-        {/* Funnel progress bar — relative width of each status. Hidden when
-            no FK rows exist yet so we don't render an empty grey bar. */}
-        {fkStats.total > 0 && (
-          <div className="space-y-1.5">
-            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-secondary">
-              {pendingPct > 0 && (
-                <div
-                  className="h-full bg-destructive transition-[width] duration-700"
-                  style={{ width: `${pendingPct}%` }}
-                  title={`Pending DEO: ${fkStats.pendingDeo}`}
-                />
-              )}
-              {inProgPct > 0 && (
-                <div
-                  className="h-full bg-warning transition-[width] duration-700"
-                  style={{ width: `${inProgPct}%` }}
-                  title={`In Progress: ${fkStats.inProgress}`}
-                />
-              )}
-              {donePct > 0 && (
-                <div
-                  className="h-full bg-success transition-[width] duration-700"
-                  style={{ width: `${donePct}%` }}
-                  title={`Completed: ${fkStats.completed}`}
-                />
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
-              <LegendDot color="bg-destructive" label={`Pending DEO ${fkStats.pendingDeo}`} />
-              <LegendDot color="bg-warning" label={`In Progress ${fkStats.inProgress}`} />
-              <LegendDot color="bg-success" label={`Completed ${fkStats.completed}`} />
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function FkStatTile({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: number;
-  sub?: string;
-  tone: "muted" | "destructive" | "warning" | "success";
-}) {
-  const toneText: Record<typeof tone, string> = {
-    muted: "text-foreground",
-    destructive: "text-destructive",
-    warning: "text-warning",
-    success: "text-success",
-  };
-  const toneBg: Record<typeof tone, string> = {
-    muted: "bg-secondary",
-    destructive: "bg-destructive/10",
-    warning: "bg-warning/10",
-    success: "bg-success/10",
-  };
-  return (
-    <div className={cn("rounded-lg px-3 py-3", toneBg[tone])}>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p className={cn("mt-0.5 text-2xl font-bold leading-none tabular-nums", toneText[tone])}>
-        {value}
-      </p>
-      {sub && (
-        <p className="mt-1.5 text-[10px] leading-tight text-muted-foreground">{sub}</p>
-      )}
-    </div>
-  );
-}
 
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (

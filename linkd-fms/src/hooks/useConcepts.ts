@@ -145,7 +145,7 @@ export interface UseConcepts {
   /** T8 — Designer resumes a held concept (adds hold duration to total). */
   resumeConcept: (conceptId: string) => Promise<MutationResult<Concept>>;
   /** T9+T10 — Designer marks done; row auto-moves to in_revision for MD. */
-  markConceptDone: (conceptId: string) => Promise<MutationResult<Concept>>;
+  markConceptDone: (conceptId: string, options?: { newFiles?: string[]; notes?: string }) => Promise<MutationResult<Concept>>;
   /** T11 — Admin approves the finished design (terminal). Optionally records
    *  how many of the submitted designs were approved (compared to
    *  `designs_count` at submission). */
@@ -160,9 +160,10 @@ export interface UseConcepts {
   ) => Promise<MutationResult<Concept>>;
   /** T13 — Designer starts implementing requested changes. */
   startChanges: (conceptId: string) => Promise<MutationResult<Concept>>;
-  /** Hard-delete a concept (admin/coordinator only — gated by RLS). The
-   *  schema cascades attached files via FK rules, so this also removes
-   *  related concept_files. Returns the deleted id on success. */
+  /** Hard-delete a concept — gated by RLS to admins/coordinators OR the
+   *  concept's owner (submitted_by / designer_id = auth.uid()). The schema
+   *  cascades attached files via FK rules, so this also removes related
+   *  concept_files. Returns the deleted id on success. */
   deleteConcept: (
     conceptId: string
   ) => Promise<MutationResult<{ id: string }>>;
@@ -351,7 +352,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         }
       }
 
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
 
       const submitterName = profile?.full_name ?? "A designer";
       void sendNotificationToRole(
@@ -393,7 +399,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("id", conceptId)
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        if (err.message.includes("Cannot coerce") || err.message.includes("JSON object")) {
+          return { data: null, error: "You don't have permission to review concepts. Only admins can approve, revise, or reject." };
+        }
+        return { data: null, error: err.message };
+      }
 
       if (data) {
         // Per-verdict notification — the submitter learns the outcome AND
@@ -484,7 +495,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("id", conceptId)
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       invalidateAll();
       return { data, error: null };
     },
@@ -524,7 +540,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .select("*")
         .single();
 
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
 
       if (data) {
         void sendNotification(
@@ -566,7 +587,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .select("*")
         .single();
 
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
 
       if (data) {
         void sendNotification(
@@ -617,7 +643,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .select("*")
         .single();
 
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
 
       if (data) {
         const submitterName = profile?.full_name ?? "Designer";
@@ -712,7 +743,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         err = retry.error;
       }
 
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return {
           data: null,
@@ -768,7 +804,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("work_status", "not_started")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not in 'Ready' state" };
       }
@@ -820,7 +861,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("work_status", "in_progress")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not currently in progress" };
       }
@@ -885,7 +931,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("work_status", "on_hold")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not on hold" };
       }
@@ -905,24 +956,30 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
   );
 
   const markConceptDone = useCallback<UseConcepts["markConceptDone"]>(
-    async (conceptId) => {
+    async (conceptId, options) => {
       if (!user) return { data: null, error: "Not authenticated" };
+
+      const newFiles = options?.newFiles ?? [];
+      const doneNotes = options?.notes?.trim() || undefined;
 
       // T9+T10 in the spec — skip `done_partial` (transient) and go straight
       // to `in_revision`. revision_count increments each round.
       const { data: row } = await supabase
         .from("concepts")
-        .select("revision_count")
+        .select("revision_count, files, image_url")
         .eq("id", conceptId)
         .single();
       const nextRevisionCount = (row?.revision_count ?? 0) + 1;
       const now = new Date().toISOString();
-      const history = await appendHistory(conceptId, {
+
+      const historyEntry: CompletionHistoryEntry = {
         type: "marked_done",
         date: now.slice(0, 10),
         by: profile?.full_name ?? "Designer",
         round: nextRevisionCount,
-      });
+      };
+      if (doneNotes) historyEntry.feedback = doneNotes;
+      const history = await appendHistory(conceptId, historyEntry);
 
       // Also stamp the legacy `designer_actual_date` so the four-stage
       // pipeline UI (which reads that column for stage 3 = "Designer
@@ -937,19 +994,36 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       const designerActualDate =
         existing?.designer_actual_date ?? now.slice(0, 10);
 
+      // Append new files to existing files array (versioning: append, not replace)
+      const existingFiles: string[] = Array.isArray(row?.files) ? (row!.files as string[]) : row?.image_url ? [row.image_url] : [];
+      const mergedFiles = [...existingFiles, ...newFiles];
+      const newPrimary = newFiles[0] ?? row?.image_url ?? null;
+
+      const update: Record<string, unknown> = {
+        work_status: "in_revision",
+        revision_count: nextRevisionCount,
+        completion_history: history as unknown as any,
+        designer_actual_date: designerActualDate,
+      };
+      if (newFiles.length > 0) {
+        update.files = mergedFiles;
+        update.image_url = newPrimary;
+        update.file_url = newPrimary;
+      }
+
       const { data, error: err } = await supabase
         .from("concepts")
-        .update({
-          work_status: "in_revision",
-          revision_count: nextRevisionCount,
-          completion_history: history as unknown as any,
-          designer_actual_date: designerActualDate,
-        })
+        .update(update)
         .eq("id", conceptId)
         .eq("work_status", "in_progress")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not currently in progress" };
       }
@@ -1005,7 +1079,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("work_status", "in_revision")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not awaiting design review" };
       }
@@ -1057,7 +1136,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("work_status", "in_revision")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not awaiting design review" };
       }
@@ -1098,7 +1182,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .eq("work_status", "changes_requested")
         .select("*")
         .single();
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       if (!data) {
         return { data: null, error: "Concept is not in 'Changes Needed' state" };
       }
@@ -1124,7 +1213,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .from("concepts")
         .delete()
         .eq("id", conceptId);
-      if (err) return { data: null, error: err.message };
+      if (err) {
+        const msg = err.message.includes("Cannot coerce") || err.message.includes("JSON object")
+          ? "You don't have permission to perform this action on this concept."
+          : err.message;
+        return { data: null, error: msg };
+      }
       invalidateAll();
       return { data: { id: conceptId }, error: null };
     },

@@ -5,7 +5,10 @@ import { TopNav } from "@/components/layout/TopNav";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useConceptReminders } from "@/hooks/useConceptReminders";
+import { cn } from "@/lib/utils";
 import type { Profile } from "@/types/database";
+
+const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
 export interface AppLayoutProps {
   profile: Profile;
@@ -14,6 +17,24 @@ export interface AppLayoutProps {
 
 export function AppLayout({ profile, children }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Desktop sidebar collapse — persisted per device. Collapsed = slim icon
+  // rail that expands on hover; expanded = pinned open. Defaults to expanded.
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () =>
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"
+  );
+  function toggleCollapsed() {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore quota / private-mode errors */
+      }
+      return next;
+    });
+  }
   const location = useLocation();
   const { unreadCount } = useNotifications();
   useConceptReminders();
@@ -37,9 +58,18 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
         notificationCount={unreadCount}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
       />
 
-      <div className="md:pl-[220px]">
+      {/* Content padding follows the PINNED state only (hover-expand overlays,
+          so it doesn't reflow the page). */}
+      <div
+        className={cn(
+          "transition-[padding] duration-200",
+          collapsed ? "md:pl-[64px]" : "md:pl-[220px]"
+        )}
+      >
         <TopNav
           profile={profile}
           onMobileMenuClick={() => setMobileOpen(true)}

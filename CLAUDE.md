@@ -173,3 +173,123 @@ Team-member CRUD lives in `src/views/TeamView.tsx`:
 `/orders` (admin + design_coordinator) is a reserved sidebar slot above Sampling in the Manage section. The view at `src/views/OrdersView.tsx` is intentionally a "coming soon" placeholder until the data model + workflow are finalized. Until then:
 - **Do not** add data wiring, hooks, or new tables to OrdersView. Production orders are still managed inside the Sampling queue (via the `order_or_sample` field on the `samples` row).
 - When you build out the real Orders surface, treat it as the canonical home for the `samples` rows where `order_or_sample = 'order'`; don't fork the model.
+
+## 12. Brief Form & Party Name (LD vs Job Work)
+The New Brief form (`src/views/BriefingView.tsx`) and the clients table model two business segments. **This is load-bearing — read before touching either.**
+
+### 12.1 Brief type (`tasks.brief_type`)
+- Every task is `'ld'` (internal LinkD work) or `'job_work'` (external client work). Migration `0038`.
+- **LD briefs**: `client_id` is **NULL** — there is no external party. The brief form shows no party picker when LD is selected.
+- **Job Work briefs**: `client_id` is **required** and must point to a `job_work`-group client.
+- A DB CHECK (`tasks_brief_type_client_consistency`) enforces this: `brief_type='job_work'` ⇒ `client_id IS NOT NULL`. `tasks.client_id` is now **nullable** (was NOT NULL pre-0038).
+- The brief form's `BriefType` toggle defaults to `'ld'`. Switching to LD clears `clientId` so a stale Job Work pick can't submit with the wrong type. The mutation (`useTaskMutations.createTask`) zeroes `client_id` whenever `brief_type==='ld'` defensively.
+- **Display**: task tables render `task.client?.party_name ?? "—"`; an LD brief shows "—". Don't crash on null client.
+
+### 12.2 Party Name groups (`clients.client_group`)
+- `clients.client_group` is `'ld'` or `'job_work'` (migration `0037`). The same party name MAY exist in both groups (no cross-group uniqueness) — same client can give both kinds of work.
+- `useClients()` returns `clients` (all), plus pre-filtered `ldClients` / `jobWorkClients`, plus the `CLIENT_GROUP_LABEL` map. Use these instead of re-filtering.
+- **Settings → Party Name** (`ClientManagementTab.tsx`): two pill tabs (LD / Job Work) scope the count, search, dedup detection, and add-form. Duplicates are detected **within** a group only.
+- **Admins add parties only from Settings.** The brief form does NOT have an inline "add party" button — don't re-introduce one.
+
+### 12.3 Brief form field rules
+- **Required fields:** Design Type, Description, **Quantity** (≥ 1), **Group** (`whatsapp_group`), **Message date** + **Message time** (`whatsapp_received_date` / `_time`), **Assigned By**, and **Assign To**. `validate()` blocks submit and shows inline errors for each. For Job Work briefs, the party picker is also required.
+- **Fabric / Meters / Planned deadline / Due time** were removed from the form (UI only). The DB columns still exist; submit sends `fabric: ""`, the rest `null`. Designers set `planned_deadline` themselves at claim time (see §13). Don't re-add these inputs without a product ask.
+- **Quantity** is **required** and must be ≥ 1 (satisfies the `qty > 0` CHECK).
+- **WhatsApp received date/time** (`tasks.whatsapp_received_date` / `whatsapp_received_time`, migration `0036`) capture when the brief arrived on WhatsApp — independent of `created_at`. **Both are now required.**
+- **WhatsApp group** options live in `src/lib/whatsappGroups.ts` (single source of truth, shared by brief form + EditTaskDialog). Entries flagged `isWhatsApp` render a green `<WhatsAppIcon>` in the Combobox.
+- **Assigned By** is an admin/coordinator-managed dropdown (`useAssignedByOptions("task")`, see §16) + an "Other" free-text escape hatch (`ASSIGNED_BY_OTHER`); required, defaults to nothing selected. The old hard-coded `ASSIGNED_BY_OPTIONS` array is gone.
+- **Assign To** defaults to **Open Pool** (sentinel `ASSIGN_TO_POOL` → submits `assigned_to: null` → `status='pool'`). Picking a designer submits their id → `status='in_progress'`. There is no blank option, so the field is always satisfied. Don't reintroduce a "Select…" placeholder.
+- **Draft auto-save**: the "Resume your draft?" prompt only fires when ≥ 2 of the required fields (client/concept/description) are filled — guards against the prompt nagging on near-empty drafts. Reference files are NOT persisted (File objects don't serialise).
+
+### 12.4 Reference files (optional)
+- The brief form has a **Reference Files** field beside the Group picker (`ReferenceFilesField`). Optional, multi-file, **any type, 50 MB each** (`REF_FILE_MAX_BYTES`).
+- Files are held as raw `File` objects and **uploaded only after the task is created** (in `handleSubmit`), to the `design-files` bucket under `{uid}/tasks/{taskId}/brief-…`, then inserted into the `files` table (`task_id`, `storage_url`, `file_name`, `file_size`, `uploaded_by`). Cancelling the form never leaves orphaned uploads. A per-file failure warns but doesn't fail the brief.
+- These files surface in the **task detail drawer**, the **claim modal** detail panel (§13), and the **Reference Files** column in All Tasks (§14). `useTasks` joins `files(id, file_name, file_size, storage_url)`.
+
+### 12.5 Combobox per-option icons
+`ComboboxOption` accepts an optional `icon?: React.ReactNode`, rendered before the label in both the trigger and the dropdown rows. Used for the WhatsApp-group icon; reuse it rather than hacking emoji into label strings.
+
+## 13. Pool System — claim flow + done → completed
+
+The task pipeline is now `pool → in_progress → done → completed`. `done` and `completed` are **both terminal-ish**; the distinction is load-bearing:
+- **`done`** = design work finished, but completion details (fabric + mtr) not yet captured (an intermediate "awaiting metadata" state).
+- **`completed`** = fully closed (terminal). Added in migration `0039` (`ALTER TYPE task_status ADD VALUE 'completed'`).
+
+**`qty_completed` may EXCEED `qty`** (designers can log extra designs). The original inline `check (qty_completed >= 0 and qty_completed <= qty)` referenced two columns, so Postgres promoted it to a TABLE-level constraint auto-named **`tasks_check`** (NOT `tasks_qty_completed_check`). Migration `0043` dropped the wrong name; **`0044`** drops the real `tasks_check` and re-asserts only `qty_completed >= 0`. The `QtyTracker` clamp has no upper bound — don't re-add one. (Lesson: an inline column CHECK that references another column is named `<table>_check`, not `<table>_<col>_check`.)
+
+### 13.1 Claiming from the Pool (designers)
+- Designers don't browse the pool table — they see `<PoolSummaryCard>` + a **Claim** flow via `<ClaimTaskModal>`. Admins/coordinators still get the full pool table.
+- `getNextPoolTasks(limit)` returns the top eligible pool tasks (sorted urgent-first, then oldest `requirement_received_at`, then oldest `created_at` — `comparePoolFifo`). The claim modal calls it with `limit=1` and shows **only the single front task** — the designer does **not** choose between tasks (keeps the queue strictly fair, no cherry-picking). They claim the one shown or cancel.
+- The modal shows that task's **full details** (all brief fields + reference files via signed URLs) so the designer can size up the work before committing.
+- The claim form asks for a **planned deadline (required)** and a **fabric (optional)**. Fabric is optional here but required to *complete* later — a short note says so. If provided, it's stored on `tasks.fabric` so the completion modal pre-fills it.
+- `claimPoolTask(taskId, plannedDeadline, fabric?)` claims the **chosen** task: busy-check (blocked if the designer has any `in_progress` task), optimistic lock on `.eq('status','pool')`, regenerates the `task_code` with the designer's letter, sets `assigned_to/at`, `started_at`, `planned_deadline`, optional `fabric`, `status='in_progress'`. On a lost race it surfaces "already claimed by {name} on {datetime}" (`fetchClaimedByMessage`).
+- Both functions live in `useTaskMutations`. Realtime keeps the pool honest across sessions — `tasks` is in the `supabase_realtime` publication (migration `0041`, `REPLICA IDENTITY FULL`).
+
+### 13.2 Completing a task (done → completed)
+- `markTaskDone(taskId)` sets `status='done'`, stamps `completed_at` + `delay_days`, and notifies the designer + admins/coordinators. Marking done does **NOT** auto-open any modal — the task simply lands in Done.
+- The designer then clicks **"Complete"** (per-row CTA on Done, or the prompt in the task detail drawer). The handler (`handleComplete`) is conditional on whether fabric was already chosen at claim time (`tasks.fabric`):
+  - **Fabric already set** → `completeTask` runs immediately, **no popup** (task → `completed`).
+  - **No fabric yet** → `<PostDoneModal>` ("Add Fabric to Complete") opens to capture the **required fabric** (MTR was removed). On save, `completeTask(taskId, fabric, null)` runs.
+- `completeTask(taskId, fabric, mtr?)` moves `done → completed` (optimistic lock on `.eq('status','done')`), stamping `completion_fabric`, `completion_filled_by`, `completion_filled_at` (migration `0040`). A task is only **completed** once fabric is recorded; until then it sits in `done`. The drawer's `CompletionSection` reflects this — "Ready to Complete" (green, fabric present) vs "Completion Details Needed" (warning, no fabric).
+- `<TaskDetailDrawer>` shows a "Completion Details Needed" prompt for `done` tasks (opens PostDoneModal) and a read-only completion panel (fabric / mtr / filled-by name / filled-at) for `completed` tasks. The drawer joins `filler:profiles!completion_filled_by`.
+
+### 13.3 Dashboards & `completed`
+- Treat `completed` as terminal everywhere `done` was. `useTaskAnalytics` has an `isFinished(t)` helper (`done || completed`) used for active-pipeline / urgent / overdue exclusions; `completionDate(t)` anchors on `completed_at` so KPIs/leaderboards count both. On the **dashboards** the pipeline "Done" bar **merges** done + completed (a high-level summary). Home Dashboard (`DashboardView` / `DashboardKpiCards`) follows the same rule. **Concept Dashboard (`useAnalytics.ts`) is unaffected.**
+- On the **board** (`KanbanView`) there is **no Done tab** — just `DASHBOARD_STATUSES = pool, in_progress, completed` (+ a Full Knitting sub-view). A `done` task (design finished, awaiting fabric) **stays in In Progress**, badged a green **"Done"** in the Concept cell, and carries the per-row **"Complete"** CTA. Adding fabric moves it to **Completed**. The designer `StatCluster` shows Active (incl. done) / Completed / Total.
+- The status switcher is a **compact `<TaskPipelineStepper>`** mounted **as the task table's header** (passed to `TaskTableSection` via `headerSlot`) — not a separate top card. It renders as a **single slim row of "glass pills"**: the connected pipeline is **Pool → In Progress → Completed** (joined by chevrons that fill once the upstream stage has items), and **Full Kitting is a standalone side pill divided off to the right** (via the `sideStage` prop) — it's a separate data tab, NOT a pipeline stage. Clicking a pill routes through `handleStageClick` to the same `statusTab` / `kittingView` state. The stepper is purely visual; all filtering/sorting/table logic is unchanged.
+
+## 14. Task-table column visibility
+
+The All Tasks wide table (`KanbanView`) has per-user **column visibility**, DB-backed so it persists across sessions/devices.
+- **Hook:** `useUserPreferences()` (React Query, `user_preferences` table from migration `0040` — `visible_columns` JSONB). Auto-creates the row on first read, optimistic `setVisibleColumns`. Returns `{ visibleColumns, isLoading, setVisibleColumns }`.
+- **Column model** lives in the hook: `ColumnKey`, `ALL_COLUMNS` (key + label), `DEFAULT_COLUMNS`, `REQUIRED_ONE_OF`. Toggleable keys map 1:1 to the **real** `<th>`/`<td>` pairs: `date, designer, concept, description, party_name, fabric, whatsapp_group, message_date, message_time, assigned_by, qty, deadline, completion_timestamp, completed, pending, started_late`. There is **no** Status/Priority column — don't add phantom keys. (`mtr` was removed.)
+- **Always-on columns (NOT toggleable, absent from `ALL_COLUMNS`):** bulk-select checkbox, the sticky **Action** column, and the **Reference** column (`files`) — Reference was made permanent so it's never hidden.
+- **`message_date` / `message_time`** render `whatsapp_received_date` / `whatsapp_received_time` (the brief's Message date/time), via `formatDateOnly` / `formatTimeOnly`.
+- **`deadline`** column is labelled **"Planned Deadline"** (was "Due Date"); the cell renders inline (single line, severity dot + date) to match the other date columns — NOT the shared `<DeadlineCell>` (that's still used in the mobile card).
+- **`started_late`** keeps its legacy key but is labelled **"Completed Late"**: it's now deadline-based — Yes when the task finished AFTER `planned_deadline` (see `isCompletedLate`), not the old cycle-time meaning. No-deadline / not-completed = No.
+- **Menu:** `<ColumnVisibilityMenu>` (the "Columns" button) — checkboxes + "Show All" + "Reset". Saves immediately. Can't hide both identifying columns (`REQUIRED_ONE_OF = [concept, party_name]`).
+- **Wiring:** `KanbanView` gates each toggleable `<th>`/`<td>` with `visibleColumns.includes(key)` (thead + `TaskRow` must stay in lockstep). The table is `w-full` with the **Description** column greedy (`w-full max-w-0` + truncate) so other columns hug their content — no forced `min-w-[2800px]` stretch.
+- **Reference column** (`files`) renders clickable chips (`RefFilesCell`) opening a short-lived signed URL from `design-files`; click `stopPropagation`. The **Concept cell's 📎 chip** is also clickable (opens the reference file via `openDesignFile`), and the **FK badge** is a button that opens the full-knitting file via `openFullKittingFile` (`sample-files` bucket; prefers the DEO image, falls back to `task.full_kitting_image_url`).
+- The **Pool status tab** shows an urgent/normal split so the queue makeup is visible from any tab.
+
+## 15. Salvedge — Designer Access & Workflow
+
+Salvedge tracks challan-based fabric distribution. Coordinators create records and assign designers; designers work on their assigned records.
+
+### 15.1 Role access
+- **Admin / design_coordinator:** Full CRUD — create, edit, delete records, view dashboard analytics. RLS policy `salvedge_admin_or_coordinator_all` uses `is_admin_or_coordinator()`.
+- **Designer:** Read-only view of records assigned to them (`designer_id = auth.uid()`). Can update `completed_qty` inline and mark records as done. Cannot create, edit, or delete records. RLS policies: `salvedge_designer_read` (select, any authenticated), `salvedge_designer_update_own` (update, `designer_id = auth.uid()`).
+- The `/salvedge` route is open to all three roles (`ProtectedRoute allowedRoles`). The sidebar shows "Salvedge" for designers between Concepts and Files.
+
+### 15.2 Designer view behavior
+- `SalvedgeView` filters records client-side: `allRecords.filter(r => r.designer_id === profile?.id)` for designers.
+- Designers see only the **Records** tab (no Dashboard tab). The "Add Record", "Edit", and "Delete" buttons are hidden (`isAdmin` gating).
+- Each row has an inline `completed_qty` input and a "Done" button (enabled when `pending === 0`). These are available to all roles, not gated by `isAdmin`.
+
+### 15.3 Form dialog remount
+- `SalvedgeFormDialog` uses `key={editRecord?.id ?? "new"}` to force React to remount when switching between add/edit modes, ensuring form fields re-initialize with the correct record data.
+
+### 15.4 RLS policies (migration `0048`)
+- `salvedge_admin_or_coordinator_all` — replaced the old `salvedge_admin_all` (which only matched `is_admin()`). Now uses `is_admin_or_coordinator()`.
+- `samples_admin_or_coordinator_all` — same fix applied to the `samples` table for consistency.
+- The migration is idempotent (drops old + new policy names before re-creating). It was renamed from a clashing `0046_salvedge_*` → `0048_salvedge_coordinator_policy.sql`.
+
+## 16. Managed form dropdowns (Settings → Dropdowns)
+
+Several form dropdowns are admin/coordinator-managed lookups (like Fabrics / Concept Categories), instead of hard-coded arrays. **One Settings tab — "Dropdowns"** (`DropdownsTab.tsx`, group "data") manages them all via a two-level picker: context pills (Tasks / Full Knitting / Sampling) → dropdown chips → one `<LookupSection>` editor at a time. Coordinators have access (not admin-only).
+
+### 16.1 Tables (one per concern; all share the lookup shape `id, name, sort_order, is_active`)
+- **`assigned_by_options`** (migration `0045`) — the "Assigned By" roster. **Per-form via a `context` column** (`'task' | 'full_kitting' | 'sampling'`, migration `0047`), with `UNIQUE(name, context)` so the same name can exist per context. Tasks context covers New Brief + Edit Task + Submit Concept.
+- **`received_by_options`** (migration `0049`) — Full Knitting form's "Received By". Single list (no context).
+- **`sampling_dropdowns`** (migration `0051`, synced `0052`) — Sampling form's **Requirement / Sampling Done By / Fusing Operator**, one table scoped by a `field` column (`UNIQUE(name, field)`). Seeded from `scripts/Sampling Dropdowns.csv`.
+- RLS on all three: read = any authed; write = `is_admin_or_coordinator()`. Coordinator write access to `concept_categories` / `fabrics` / `assigned_by_options` was widened in migration `0046`.
+
+### 16.2 Hooks (each falls back to a built-in default list if the table is empty / pre-migration, so pickers are never blank)
+- `useAssignedByOptions(context, { activeOnly })` → `{ options, names, … }`. `ASSIGNED_BY_OTHER` sentinel + `ASSIGNED_BY_CONTEXTS` live here.
+- `useReceivedByOptions({ activeOnly })` → `{ options, names, … }`.
+- `useSamplingDropdowns({ activeOnly })` → `{ rowsByField, names, … }` (grouped by field in one query).
+
+### 16.3 Wiring
+- Forms read the hooks and map `names` → Combobox options. **Assign-by contexts:** New Brief / Edit Task / Submit Concept use `"task"` (the hook default); Full Knitting uses `"full_kitting"`; Sampling uses `"sampling"`. The "Other" free-text escape hatch is preserved everywhere.
+- `<LookupSection>` gained an **`insertExtra`** prop merged into every insert (e.g. `{ context }` or `{ field }`) and its `table` union includes the new tables. The parent owns fetching/filtering; the section owns add/edit/activate/delete/search.
+- **Adding a new managed dropdown:** create the table (mirror an existing migration), add it to `database.ts` + `queryKeys`, a hook (or extend `useSamplingDropdowns`'s field set), the `LookupSection` `table` union, a chip in `DropdownsTab`, and wire the form's Combobox. Don't reintroduce hard-coded option arrays.

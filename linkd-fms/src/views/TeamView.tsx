@@ -308,7 +308,7 @@ export function TeamView() {
               <table className="w-full text-sm">
                 <caption className="sr-only">Team members and roles</caption>
                 <thead className={TABLE_HEAD}>
-                  <tr>
+                  <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
                     <th className={TABLE_TH}>Name</th>
                     {canManage && <th className={TABLE_TH}>Email</th>}
                     <th className={TABLE_TH}>Role</th>
@@ -664,7 +664,7 @@ function AddUserDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add team member</DialogTitle>
         </DialogHeader>
@@ -959,7 +959,7 @@ function EditUserDialog({
 
   return (
     <Dialog open={!!user} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit team member</DialogTitle>
         </DialogHeader>

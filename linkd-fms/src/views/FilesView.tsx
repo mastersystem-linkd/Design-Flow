@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import {
   FolderOpen,
   RefreshCw,
@@ -13,6 +14,7 @@ import {
   Calendar,
   FilterX,
   Filter as FilterIcon,
+  Info,
 } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { useFiles, BUCKET_LABELS, isImageMime } from "@/hooks/useFiles";
@@ -40,14 +42,15 @@ import { TABLE_HEAD, TABLE_TH } from "@/lib/tableStyles";
 // Constants
 // ============================================================================
 
-type BucketFilter = "all" | BucketName | "concepts";
+type BucketFilter = "all" | BucketName | "concepts" | "salvedge" | "full_knitting";
 
 const BUCKET_FILTERS: { value: BucketFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "design-files", label: "Design" },
+  { value: "design-files", label: "Briefs" },
   { value: "concepts", label: "Concepts" },
+  { value: "salvedge", label: "Salvedge" },
   { value: "sample-files", label: "Samples" },
-  { value: "task-files", label: "Tasks" },
+  { value: "full_knitting", label: "Full Knitting" },
 ];
 
 const BUCKET_BADGE_CLASS: Record<BucketName, string> = {
@@ -56,15 +59,34 @@ const BUCKET_BADGE_CLASS: Record<BucketName, string> = {
   "task-files": "bg-warning/10 text-warning ring-warning/20",
 };
 
+// FK detection is set-based — populated from full_kitting_details.image_url
+// at load time, then checked by badge/filter functions via closure.
+let _fkPaths: Set<string> = new Set();
+function isFkFile(f: StorageFile): boolean {
+  return f.bucket === "sample-files" && _fkPaths.has(f.path);
+}
+
 function bucketBadgeLabel(file: StorageFile): string {
   if (file.bucket === "sample-files" && file.path.includes("/concepts/"))
     return "Concept";
+  if (isFkFile(file))
+    return "FK Image";
+  if (file.bucket === "design-files" && file.path.includes("/salvedge/"))
+    return "Salvedge";
+  if (file.bucket === "design-files")
+    return "Brief";
+  if (file.bucket === "sample-files")
+    return "Sample";
   return BUCKET_LABELS[file.bucket].split(" ")[0];
 }
 
 function bucketBadgeClass(file: StorageFile): string {
   if (file.bucket === "sample-files" && file.path.includes("/concepts/"))
     return "bg-violet-500/10 text-violet-400 ring-violet-500/20";
+  if (isFkFile(file))
+    return "bg-orange-500/10 text-orange-500 ring-orange-500/20";
+  if (file.bucket === "design-files" && file.path.includes("/salvedge/"))
+    return "bg-warning/10 text-warning ring-warning/20";
   return BUCKET_BADGE_CLASS[file.bucket];
 }
 
@@ -189,6 +211,160 @@ export function FilesView() {
   const [deleting, setDeleting] = useState<StorageFile | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
+  // ── "Linked To" lookup — maps storage paths to structured source info ──
+  interface LinkedInfo {
+    label: string;
+    details?: { key: string; value: string }[];
+  }
+  const [linkedToMap, setLinkedToMap] = useState<Map<string, LinkedInfo>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next = new Map<string, LinkedInfo>();
+      const designerMap = new Map<string, string>();
+      // 1. Task reference files — files table has storage_url + task_id
+      const { data: dbFiles } = await supabase
+        .from("files")
+        .select("storage_url, file_name, task_id, tasks:task_id ( task_code, concept, description, fabric, whatsapp_group, brief_type, created_at, assigned_to, clients:client_id ( party_name ) )");
+      if (!cancelled && dbFiles) {
+        const assigneeIds = Array.from(new Set(
+          dbFiles.map((f) => (f as unknown as { tasks?: { assigned_to?: string | null } | null }).tasks?.assigned_to).filter(Boolean)
+        )) as string[];
+        if (assigneeIds.length > 0) {
+          const { data: dProfiles } = await supabase.from("profiles").select("id, full_name").in("id", assigneeIds);
+          for (const p of dProfiles ?? []) designerMap.set(p.id, p.full_name);
+        }
+        for (const f of dbFiles) {
+          if (!f.storage_url) continue;
+          const t = (f as unknown as { tasks?: {
+            task_code?: string; concept?: string; description?: string | null;
+            fabric?: string | null; whatsapp_group?: string | null;
+            brief_type?: string | null; created_at?: string;
+            assigned_to?: string | null;
+            clients?: { party_name?: string | null } | null;
+          } | null }).tasks;
+          if (!t) {
+            next.set(f.storage_url, { label: f.file_name ?? "File" });
+            continue;
+          }
+          const partyName = t.clients?.party_name ?? (t.brief_type === "ld" ? "LD Silk Mills" : "");
+          const designer = t.assigned_to ? designerMap.get(t.assigned_to) ?? "" : "";
+          const date = t.created_at ? new Date(t.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "";
+          const details: { key: string; value: string }[] = [];
+          if (date) details.push({ key: "Date", value: date });
+          if (designer) details.push({ key: "Designer", value: designer });
+          if (t.concept) details.push({ key: "Concept", value: t.concept });
+          if (t.description) details.push({ key: "Desc", value: t.description.length > 40 ? t.description.slice(0, 40) + "…" : t.description });
+          if (partyName) details.push({ key: "Party", value: partyName });
+          if (t.fabric) details.push({ key: "Fabric", value: t.fabric });
+          if (t.whatsapp_group) details.push({ key: "Group", value: t.whatsapp_group });
+          details.unshift({ key: "Type", value: "Reference" });
+          next.set(f.storage_url, { label: t.task_code ?? "Task", details });
+        }
+      }
+      // 2. Full Knitting images — full_kitting_details.image_url → task
+      const { data: fkRows } = await supabase
+        .from("full_kitting_details")
+        .select("image_url, task_id, tasks:task_id ( task_code, concept, description, brief_type, created_at, assigned_to, clients:client_id ( party_name ) )")
+        .not("image_url", "is", null);
+      if (!cancelled && fkRows) {
+        const fkAssigneeIds = Array.from(new Set(
+          fkRows.map((r) => (r as unknown as { tasks?: { assigned_to?: string | null } | null }).tasks?.assigned_to).filter(Boolean)
+        )) as string[];
+        if (fkAssigneeIds.length > 0) {
+          const { data: fkProfiles } = await supabase.from("profiles").select("id, full_name").in("id", fkAssigneeIds);
+          for (const p of fkProfiles ?? []) designerMap.set(p.id, p.full_name);
+        }
+        for (const r of fkRows) {
+          if (!r.image_url) continue;
+          const t = (r as unknown as { tasks?: {
+            task_code?: string; concept?: string; description?: string | null;
+            brief_type?: string | null; created_at?: string;
+            assigned_to?: string | null;
+            clients?: { party_name?: string | null } | null;
+          } | null }).tasks;
+          if (!t) continue;
+          const partyName = t.clients?.party_name ?? (t.brief_type === "ld" ? "LD Silk Mills" : "");
+          const designer = t.assigned_to ? designerMap.get(t.assigned_to) ?? "" : "";
+          const date = t.created_at ? new Date(t.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "";
+          const details: { key: string; value: string }[] = [{ key: "Type", value: "FK Image" }];
+          if (date) details.push({ key: "Date", value: date });
+          if (designer) details.push({ key: "Designer", value: designer });
+          if (t.concept) details.push({ key: "Concept", value: t.concept });
+          if (partyName) details.push({ key: "Party", value: partyName });
+          next.set(r.image_url, { label: t.task_code ?? "Task", details });
+        }
+      }
+      // Build FK path set for isFkFile() — includes both full_kitting_details
+      // and tasks.full_kitting_image_url paths
+      const fkPathSet = new Set<string>();
+      if (fkRows) {
+        for (const r of fkRows) { if (r.image_url) fkPathSet.add(r.image_url); }
+      }
+      const { data: taskFkRows } = await supabase
+        .from("tasks")
+        .select("full_kitting_image_url")
+        .not("full_kitting_image_url", "is", null);
+      if (taskFkRows) {
+        for (const r of taskFkRows) { if (r.full_kitting_image_url) fkPathSet.add(r.full_kitting_image_url); }
+      }
+      _fkPaths = fkPathSet;
+
+      // 3. Salvedge attachments — salvedge_records.attachment_url
+      const { data: salvRows } = await supabase
+        .from("salvedge_records")
+        .select("attachment_url, party_name, challan_no, qty, created_at, designer_id")
+        .not("attachment_url", "is", null);
+      if (!cancelled && salvRows) {
+        const dIds = Array.from(new Set(salvRows.map((r) => r.designer_id).filter(Boolean))) as string[];
+        const dMap = new Map<string, string>();
+        if (dIds.length > 0) {
+          const { data: dProfiles } = await supabase.from("profiles").select("id, full_name").in("id", dIds);
+          for (const p of dProfiles ?? []) dMap.set(p.id, p.full_name);
+        }
+        for (const r of salvRows) {
+          if (!r.attachment_url) continue;
+          const date = r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "";
+          const designer = r.designer_id ? dMap.get(r.designer_id) ?? "" : "";
+          next.set(r.attachment_url, {
+            label: r.party_name,
+            details: [
+              { key: "Party", value: r.party_name },
+              { key: "Challan", value: r.challan_no },
+              ...(designer ? [{ key: "Designer", value: designer }] : []),
+              { key: "Qty", value: String(r.qty) },
+              { key: "Date", value: date },
+            ],
+          });
+        }
+      }
+      // 4. Sampling files — samples.photo_url / video_url / signature_url
+      const { data: sampleRows } = await supabase
+        .from("samples")
+        .select("photo_url, video_url, signature_url, party_name, quality, requirement, assigned_by, sampling_done_by, fusing_operator");
+      if (!cancelled && sampleRows) {
+        for (const s of sampleRows) {
+          const urls = [s.photo_url, s.video_url, s.signature_url].filter(Boolean) as string[];
+          if (urls.length === 0) continue;
+          const details: { key: string; value: string }[] = [];
+          if (s.party_name) details.push({ key: "Party", value: s.party_name });
+          if (s.quality) details.push({ key: "Quality", value: s.quality });
+          if (s.requirement) details.push({ key: "Requirement", value: s.requirement });
+          if (s.assigned_by) details.push({ key: "Assigned By", value: s.assigned_by });
+          if (s.sampling_done_by) details.push({ key: "Done By", value: s.sampling_done_by });
+          if (s.fusing_operator) details.push({ key: "Fusing", value: s.fusing_operator });
+          const info: LinkedInfo = { label: s.party_name ?? "Sample", details };
+          for (const url of urls) {
+            if (!next.has(url)) next.set(url, info);
+          }
+        }
+      }
+
+      if (!cancelled) setLinkedToMap(next);
+    })();
+    return () => { cancelled = true; };
+  }, [files]);
+
   // ── Profile lookup map ──
   // `profile_id → {name, role, avatar}` for O(1) row lookup. Built once
   // per profile-list refresh.
@@ -216,9 +392,19 @@ export function FilesView() {
       result = result.filter(
         (f) => f.bucket === "sample-files" && f.path.includes("/concepts/")
       );
+    else if (bucket === "salvedge")
+      result = result.filter(
+        (f) => f.bucket === "design-files" && f.path.includes("/salvedge/")
+      );
+    else if (bucket === "full_knitting")
+      result = result.filter((f) => isFkFile(f));
     else if (bucket === "sample-files")
       result = result.filter(
-        (f) => f.bucket === "sample-files" && !f.path.includes("/concepts/")
+        (f) => f.bucket === "sample-files" && !f.path.includes("/concepts/") && !isFkFile(f)
+      );
+    else if (bucket === "design-files")
+      result = result.filter(
+        (f) => f.bucket === "design-files" && !f.path.includes("/salvedge/")
       );
     else if (bucket !== "all") result = result.filter((f) => f.bucket === bucket);
     if (typeFilter !== "all")
@@ -237,10 +423,16 @@ export function FilesView() {
     }
     if (search.trim()) {
       const q = search.toLowerCase();
-      result = result.filter((f) => f.name.toLowerCase().includes(q));
+      result = result.filter((f) => {
+        if (f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)) return true;
+        const info = linkedToMap.get(f.path);
+        if (!info) return false;
+        if (info.label.toLowerCase().includes(q)) return true;
+        return info.details?.some((d) => d.value.toLowerCase().includes(q)) ?? false;
+      });
     }
     return result;
-  }, [files, bucket, typeFilter, uploaderFilter, fromDate, toDate, search]);
+  }, [files, bucket, typeFilter, uploaderFilter, fromDate, toDate, search, linkedToMap]);
 
   // ── Bucket counts (always over the full file set, ignoring filters,
   //     so the user always sees how many files exist per bucket) ──
@@ -249,13 +441,20 @@ export function FilesView() {
       all: files.length,
       "design-files": 0,
       concepts: 0,
+      salvedge: 0,
+      full_knitting: 0,
       "sample-files": 0,
       "task-files": 0,
     };
     for (const f of files) {
       if (f.bucket === "sample-files" && f.path.includes("/concepts/"))
         counts.concepts++;
+      else if (isFkFile(f))
+        counts.full_knitting++;
+      else if (f.bucket === "design-files" && f.path.includes("/salvedge/"))
+        counts.salvedge++;
       else if (f.bucket === "sample-files") counts["sample-files"]++;
+      else if (f.bucket === "design-files") counts["design-files"]++;
       else counts[f.bucket]++;
     }
     return counts;
@@ -498,7 +697,7 @@ export function FilesView() {
 
       {/* ── Error ── */}
       {error && (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -535,6 +734,7 @@ export function FilesView() {
         <FileTable
           files={filtered}
           profileMap={profileMap}
+          linkedToMap={linkedToMap}
           isAdmin={isAdminUser}
           onDownload={handleDownload}
           onDelete={setDeleting}
@@ -579,6 +779,67 @@ function FilterField({
 // ============================================================================
 // Uploader cell — avatar + name + role badge (compact)
 // ============================================================================
+
+function LinkedToCell({ info }: { info?: { label: string; details?: { key: string; value: string }[] } }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (!info) return <span className="text-[11px] text-muted-foreground">—</span>;
+  if (!info.details || info.details.length === 0) {
+    return <span className="text-xs font-medium text-foreground">{info.label}</span>;
+  }
+
+  const typeDetail = info.details.find((d) => d.key === "Type");
+  const mainDetails = info.details.filter((d) => d.key !== "Type");
+  const preview = mainDetails.slice(0, 2).map((d) => d.value).join(" · ");
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        className="flex items-center gap-1.5 text-left"
+      >
+        {typeDetail && (
+          <span className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+            typeDetail.value === "FK Image"
+              ? "bg-orange-500/10 text-orange-500"
+              : typeDetail.value === "Reference"
+                ? "bg-primary/10 text-primary"
+                : "bg-secondary text-muted-foreground"
+          )}>
+            {typeDetail.value}
+          </span>
+        )}
+        <span className="max-w-[180px] truncate text-xs font-medium text-foreground">{preview}</span>
+        <Info className="h-3 w-3 shrink-0 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-card p-3 shadow-lg">
+          <div className="grid gap-1.5">
+            {mainDetails.map((d) => (
+              <div key={d.key} className="flex items-baseline gap-2">
+                <span className="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{d.key}</span>
+                <span className="min-w-0 text-xs font-medium text-foreground break-words">{d.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function UploaderCell({
   uploader,
@@ -737,6 +998,7 @@ function FileCard({
 function FileTable({
   files,
   profileMap,
+  linkedToMap,
   isAdmin,
   onDownload,
   onDelete,
@@ -746,6 +1008,7 @@ function FileTable({
     string,
     { full_name: string; role: string; avatar_url: string | null }
   >;
+  linkedToMap: Map<string, { label: string; details?: { key: string; value: string }[] }>;
   isAdmin: boolean;
   onDownload: (f: StorageFile) => void;
   onDelete: (f: StorageFile) => void;
@@ -754,11 +1017,12 @@ function FileTable({
     <div className="overflow-x-auto rounded-xl border border-border shadow-sm">
       <table className="w-full border-collapse text-[13px]">
         <thead className={TABLE_HEAD}>
-          <tr>
+          <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
             <th className={TABLE_TH}>Name</th>
             <th className={TABLE_TH}>Type</th>
             <th className={TABLE_TH}>Size</th>
             <th className={TABLE_TH}>Bucket</th>
+            <th className={TABLE_TH}>Linked To</th>
             <th className={TABLE_TH}>Uploaded by</th>
             <th className={TABLE_TH}>Uploaded</th>
             <th className={cn(TABLE_TH, "text-right")}>Actions</th>
@@ -772,9 +1036,9 @@ function FileTable({
             return (
               <tr
                 key={f.id}
-                className="border-b border-border/40 transition-colors hover:bg-secondary/30"
+                className="border-b border-border/40 transition-colors even:bg-background/40 hover:bg-primary/[0.04] [&>td]:border-r [&>td]:border-border/20 [&>td:last-child]:border-r-0"
               >
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5 align-middle">
                   <div className="flex items-center gap-2">
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span
@@ -785,17 +1049,17 @@ function FileTable({
                     </span>
                   </div>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="text-xs uppercase text-muted-foreground">
                     {ext || "—"}
                   </span>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-2.5 align-middle">
                   <span className="text-xs tabular-nums text-muted-foreground">
                     {formatSize(f.size)}
                   </span>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-2.5 align-middle">
                   <span
                     className={cn(
                       "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
@@ -805,10 +1069,13 @@ function FileTable({
                     {bucketBadgeLabel(f)}
                   </span>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-2.5 align-middle">
+                  <LinkedToCell info={linkedToMap.get(f.path)} />
+                </td>
+                <td className="px-4 py-2.5 align-middle">
                   <UploaderCell uploader={uploader} />
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-2.5 align-middle">
                   <span
                     className="text-xs text-muted-foreground"
                     title={format(parseISO(f.created_at), "PP p")}
@@ -818,7 +1085,7 @@ function FileTable({
                     })}
                   </span>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-2.5 align-middle">
                   <div className="flex items-center justify-end gap-1">
                     <button
                       type="button"

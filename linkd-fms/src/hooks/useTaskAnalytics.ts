@@ -198,8 +198,41 @@ function inRange(dateStr: string | null | undefined, start: Date, end: Date): bo
 
 function completionDate(t: TaskWithRelations): string | null {
   if (t.completed_at) return t.completed_at;
+  // 'completed' tasks always carry completed_at (stamped at the done
+  // transition), but fall back to the metadata-capture stamp just in case.
+  if (t.status === "completed") return t.completion_filled_at ?? t.updated_at;
   if (t.status === "done") return t.updated_at;
   return null;
+}
+
+/** Terminal states — design work is finished and the task has left the active
+ *  pipeline. 'done' = awaiting completion details, 'completed' = fully closed.
+ *  Both are excluded from "what's still in front of us" counts. */
+function isFinished(t: TaskWithRelations): boolean {
+  return t.status === "done" || t.status === "completed";
+}
+
+/**
+ * Days a completed task finished AFTER its planned deadline, at day
+ * granularity. Returns 0 when finished on/before the deadline, null when the
+ * task isn't completed or has no deadline. Mirrors the "Completed Late" column
+ * on the All Tasks board (completion date vs the deadline the designer set at
+ * claim) — NOT cycle time / delay_days.
+ */
+function lateDays(t: TaskWithRelations): number | null {
+  if (!t.planned_deadline) return null;
+  const comp = completionDate(t);
+  if (!comp) return null;
+  const c = startOfDay(parseISO(comp)).getTime();
+  const d = startOfDay(parseISO(t.planned_deadline)).getTime();
+  return Math.max(0, Math.round((c - d) / 86_400_000));
+}
+
+/** A completed task that finished after its planned deadline. Tasks with no
+ *  deadline can't be "late" (same rule as the All Tasks "Completed Late"). */
+function isLateCompletion(t: TaskWithRelations): boolean {
+  const ld = lateDays(t);
+  return ld != null && ld > 0;
 }
 
 /**
@@ -247,13 +280,16 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
     const currCreated = tasks.filter((t) => inRange(t.created_at, start, end));
     const prevCreated = tasks.filter((t) => inRange(t.created_at, prevStart, prevEnd));
 
-    const currOnTime = currCompleted.filter((t) => (t.delay_days ?? 999) <= 1).length;
-    const prevOnTime = prevCompleted.filter((t) => (t.delay_days ?? 999) <= 1).length;
+    // On-time / late are measured against the planned deadline (the rule the
+    // All Tasks "Completed Late" column uses), not cycle time.
+    const currOnTime = currCompleted.filter((t) => !isLateCompletion(t)).length;
+    const prevOnTime = prevCompleted.filter((t) => !isLateCompletion(t)).length;
     const currOnTimeRate = currCompleted.length > 0 ? Math.round((currOnTime / currCompleted.length) * 100) : 0;
     const prevOnTimeRate = prevCompleted.length > 0 ? Math.round((prevOnTime / prevCompleted.length) * 100) : 0;
 
-    const currAvg = safeAvg(currCompleted.map((t) => t.delay_days ?? 0));
-    const prevAvg = safeAvg(prevCompleted.map((t) => t.delay_days ?? 0));
+    // Average days late vs deadline (0 when on/under deadline).
+    const currAvg = safeAvg(currCompleted.map((t) => lateDays(t) ?? 0));
+    const prevAvg = safeAvg(prevCompleted.map((t) => lateDays(t) ?? 0));
 
     const currCycle = safeAvg(
       currCompleted.map(cycleDays).filter((n): n is number => n !== null)
@@ -262,8 +298,8 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
       prevCompleted.map(cycleDays).filter((n): n is number => n !== null)
     );
 
-    const currLate = currCompleted.filter((t) => (t.delay_days ?? 0) > 1).length;
-    const prevLate = prevCompleted.filter((t) => (t.delay_days ?? 0) > 1).length;
+    const currLate = currCompleted.filter(isLateCompletion).length;
+    const prevLate = prevCompleted.filter(isLateCompletion).length;
 
     return {
       totalCompleted: { current: currCompleted.length, previous: prevCompleted.length, trend: calcTrend(currCompleted.length, prevCompleted.length) },
@@ -272,9 +308,9 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
       avgCycleDays: { current: currCycle, previous: prevCycle, trend: calcTrend(currCycle, prevCycle) },
       lateCompletions: { current: currLate, previous: prevLate, trend: calcTrend(currLate, prevLate) },
       totalCreated: { current: currCreated.length, previous: prevCreated.length, trend: calcTrend(currCreated.length, prevCreated.length) },
-      activePipeline: tasks.filter((t) => t.status !== "done").length,
-      urgentCount: tasks.filter((t) => t.priority === "urgent" && t.status !== "done").length,
-      overdueCount: tasks.filter((t) => t.status !== "done" && t.planned_deadline && new Date(t.planned_deadline) < new Date()).length,
+      activePipeline: tasks.filter((t) => !isFinished(t)).length,
+      urgentCount: tasks.filter((t) => t.priority === "urgent" && !isFinished(t)).length,
+      overdueCount: tasks.filter((t) => !isFinished(t) && t.planned_deadline && new Date(t.planned_deadline) < new Date()).length,
     };
   }, [tasks, start, end, prevStart, prevEnd]);
 
@@ -293,7 +329,9 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
           t.status === "approved" ||
           t.status === "sampling"
       ).length,
-      done: tasks.filter((t) => t.status === "done").length,
+      // 'done' bar merges the new terminal 'completed' status so finished
+      // work stays in one bucket (matches the board's Done tab grouping).
+      done: tasks.filter((t) => t.status === "done" || t.status === "completed").length,
     } as const;
     return (["pool", "in_progress", "done"] as const).map((s) => ({
       status: s,
@@ -359,11 +397,13 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
       const myTasks = tasks.filter((t) => t.assigned_to === p.id);
       const assigned = myTasks.filter((t) => inRange(t.created_at, start, end) || inRange(completionDate(t), start, end)).length;
       const completed = myTasks.filter((t) => inRange(completionDate(t), start, end));
-      const onTime = completed.filter((t) => (t.delay_days ?? 999) <= 1).length;
-      const avgDays = safeAvg(completed.map((t) => t.delay_days ?? 0));
+      // On-time = finished on/before the planned deadline (deadline-based).
+      const onTime = completed.filter((t) => !isLateCompletion(t)).length;
       const avgCycleDays = safeAvg(
         completed.map(cycleDays).filter((n): n is number => n !== null)
       );
+      // "Avg Days" now reflects the real cycle time (assigned → completed).
+      const avgDays = avgCycleDays;
       const inProgress = myTasks.filter((t) => t.status === "in_progress").length;
 
       const codes = codesByProfile.get(p.id);
@@ -415,7 +455,7 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
   // Counted over non-done tasks so the dashboard reflects "what's in front
   // of us right now", not historical priority trends.
   const priorityMix = useMemo<PriorityMix>(() => {
-    const active = tasks.filter((t) => t.status !== "done");
+    const active = tasks.filter((t) => !isFinished(t));
     const out: PriorityMix = { urgent: 0, high: 0, normal: 0, low: 0 };
     for (const t of active) {
       const p = t.priority as keyof PriorityMix;
@@ -472,7 +512,7 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
         active: 0,
       };
       entry.total++;
-      if (t.status === "done") entry.completed++;
+      if (isFinished(t)) entry.completed++;
       else entry.active++;
       byClient.set(t.client_id, entry);
     }
@@ -503,9 +543,10 @@ export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics
 
       const comp = tasks.filter((t) => inRange(completionDate(t), bStart, bEnd));
       completed.push(comp.length);
-      onTime.push(comp.filter((t) => (t.delay_days ?? 999) <= 1).length);
+      onTime.push(comp.filter((t) => !isLateCompletion(t)).length);
       created.push(tasks.filter((t) => inRange(t.created_at, bStart, bEnd)).length);
-      avgDelay.push(safeAvg(comp.map((t) => t.delay_days ?? 0)));
+      // Cycle-time sparkline (real duration) — pairs with the Avg Cycle tile.
+      avgDelay.push(safeAvg(comp.map(cycleDays).filter((n): n is number => n !== null)));
     }
 
     return { completed, onTime, created, avgDelay };

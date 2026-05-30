@@ -53,7 +53,23 @@ export async function initiateKitting(args: {
     })
     .select()
     .single();
-  return { data, error: error?.message ?? null };
+  if (error) return { data: null, error: error.message };
+
+  // When linked to a task, flag the task itself so the FK badge (red → blue)
+  // and the task-drawer FK preview reflect it. At brief time createTask already
+  // sets these; this is what makes the "added later via ⋮ → Full Knitting" path
+  // light up the badge too. Best-effort — the FK row already exists either way.
+  if (args.taskId) {
+    await supabase
+      .from("tasks")
+      .update({
+        requires_full_kitting: true,
+        full_kitting_image_url: args.imageUrl,
+      })
+      .eq("id", args.taskId);
+  }
+
+  return { data, error: null };
 }
 
 // ───────────────────────────────────────────────────────────────────────────

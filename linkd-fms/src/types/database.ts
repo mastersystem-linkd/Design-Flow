@@ -19,11 +19,24 @@ export type TaskStatus =
   | "full_kitting"
   | "approved"
   | "sampling"
-  | "done";
+  | "done"
+  // Post-'done' state: design finished AND completion fabric/mtr captured.
+  // Added in migration 0039.
+  | "completed";
 
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
 
 export type DesignerStatus = "active" | "inactive";
+
+// Business-segment split on the clients table (migration 0037). 'ld' covers
+// parties in LinkD's own design pipeline; 'job_work' covers external
+// job-work parties. The brief form has separate pickers for each.
+export type ClientGroup = "ld" | "job_work";
+
+// Per-task brief type (migration 0038). 'ld' = internal LinkD work, no
+// external party — task.client_id is NULL. 'job_work' = external client work,
+// task.client_id is required. Enforced by a CHECK constraint in the DB.
+export type BriefType = "ld" | "job_work";
 
 // Concept review status (called MdStatus in DB; ConceptStatus is the alias
 // the views consume).
@@ -131,22 +144,143 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_preferences: {
+        Row: {
+          id: string;
+          user_id: string;
+          /** Ordered list of column keys the user wants visible in tables. */
+          visible_columns: string[];
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          visible_columns?: string[];
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          visible_columns?: string[];
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       clients: {
         Row: {
           id: string;
           party_name: string;
+          /** Business segment — see migration 0037. */
+          client_group: ClientGroup;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           party_name: string;
+          client_group: ClientGroup;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           party_name?: string;
+          client_group?: ClientGroup;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      assigned_by_options: {
+        Row: {
+          id: string;
+          name: string;
+          context: string;
+          sort_order: number | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          context?: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          context?: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      sampling_dropdowns: {
+        Row: {
+          id: string;
+          field: string;
+          name: string;
+          sort_order: number | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          field: string;
+          name: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          field?: string;
+          name?: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      received_by_options: {
+        Row: {
+          id: string;
+          name: string;
+          sort_order: number | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          sort_order?: number | null;
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -376,7 +510,10 @@ export type Database = {
         Row: {
           id: string;
           task_code: string;
-          client_id: string;
+          /** NULL for LD (internal) briefs; required for Job Work briefs. */
+          client_id: string | null;
+          /** 'ld' (internal) or 'job_work' (external). Added 0038. */
+          brief_type: BriefType;
           concept_id: string | null;
           concept: string;
           qty: number;
@@ -388,6 +525,12 @@ export type Database = {
           planned_deadline: string | null;
           due_time: string | null;
           whatsapp_group: string | null;
+          /** Date the brief request arrived on WhatsApp (separate from
+           *  created_at, which is when the coordinator logged it). 0036. */
+          whatsapp_received_date: string | null;
+          /** Time-of-day of the WhatsApp message (paired with the date
+           *  above). Stored as "HH:MM:SS" / "HH:MM". 0036. */
+          whatsapp_received_time: string | null;
           description: string | null;
           started_at: string | null;
           kitted_at: string | null;
@@ -404,6 +547,12 @@ export type Database = {
           assigned_at: string | null;
           completed_at: string | null;
           delay_days: number | null;
+          // Post-done completion fields + requirement timestamp (0040).
+          completion_fabric: string | null;
+          completion_mtr: number | null;
+          completion_filled_by: string | null;
+          completion_filled_at: string | null;
+          requirement_received_at: string | null;
           created_by: string;
           created_at: string;
           updated_at: string;
@@ -412,7 +561,8 @@ export type Database = {
         Insert: {
           id?: string;
           task_code?: string;
-          client_id: string;
+          client_id?: string | null;
+          brief_type: BriefType;
           concept_id?: string | null;
           concept: string;
           qty: number;
@@ -424,6 +574,8 @@ export type Database = {
           planned_deadline?: string | null;
           due_time?: string | null;
           whatsapp_group?: string | null;
+          whatsapp_received_date?: string | null;
+          whatsapp_received_time?: string | null;
           description?: string | null;
           started_at?: string | null;
           kitted_at?: string | null;
@@ -440,6 +592,11 @@ export type Database = {
           assigned_at?: string | null;
           completed_at?: string | null;
           delay_days?: number | null;
+          completion_fabric?: string | null;
+          completion_mtr?: number | null;
+          completion_filled_by?: string | null;
+          completion_filled_at?: string | null;
+          requirement_received_at?: string | null;
           created_by: string;
           created_at?: string;
           updated_at?: string;
@@ -448,7 +605,8 @@ export type Database = {
         Update: {
           id?: string;
           task_code?: string;
-          client_id?: string;
+          client_id?: string | null;
+          brief_type?: BriefType;
           concept_id?: string | null;
           concept?: string;
           qty?: number;
@@ -460,6 +618,8 @@ export type Database = {
           planned_deadline?: string | null;
           due_time?: string | null;
           whatsapp_group?: string | null;
+          whatsapp_received_date?: string | null;
+          whatsapp_received_time?: string | null;
           description?: string | null;
           started_at?: string | null;
           kitted_at?: string | null;
@@ -476,6 +636,11 @@ export type Database = {
           assigned_at?: string | null;
           completed_at?: string | null;
           delay_days?: number | null;
+          completion_fabric?: string | null;
+          completion_mtr?: number | null;
+          completion_filled_by?: string | null;
+          completion_filled_at?: string | null;
+          requirement_received_at?: string | null;
           created_by?: string;
           created_at?: string;
           updated_at?: string;
@@ -834,6 +999,7 @@ export type Database = {
           completion_timestamp: string | null;
           is_completed: boolean;
           additional_comments: string | null;
+          attachment_url: string | null;
           created_by: string | null;
         };
         Insert: {
@@ -849,6 +1015,7 @@ export type Database = {
           completion_timestamp?: string | null;
           is_completed?: boolean;
           additional_comments?: string | null;
+          attachment_url?: string | null;
           created_by?: string | null;
         };
         Update: {
@@ -864,6 +1031,7 @@ export type Database = {
           completion_timestamp?: string | null;
           is_completed?: boolean;
           additional_comments?: string | null;
+          attachment_url?: string | null;
           created_by?: string | null;
         };
         Relationships: [
@@ -1163,6 +1331,11 @@ export type FullKittingDetailUpdate = TablesUpdate<"full_kitting_details">;
 export type NotificationType = Notification["type"];
 export type PackingType = FullKittingDetail["packing_type"];
 
+/** Per-user UI preferences (column visibility). Migration 0040. */
+export type UserPreferences = Tables<"user_preferences">;
+export type UserPreferencesInsert = TablesInsert<"user_preferences">;
+export type UserPreferencesUpdate = TablesUpdate<"user_preferences">;
+
 export type ProfileInsert = TablesInsert<"profiles">;
 export type ClientInsert = TablesInsert<"clients">;
 export type ConceptInsert = TablesInsert<"concepts">;
@@ -1186,6 +1359,8 @@ export interface TaskWithRelations extends Task {
   client: ClientLite | null;
   assignee: ProfileLite | null;
   creator?: ProfileLite | null;
+  /** Who filled the completion details (done → completed). */
+  filler?: ProfileLite | null;
   concept_ref?: ConceptLite | null;
   task_logs?: TaskLog[];
   files?: FileRecord[];

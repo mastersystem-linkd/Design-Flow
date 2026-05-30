@@ -52,7 +52,12 @@ export interface LookupSectionProps {
   /** Small tagline under the title. */
   description: string;
   /** PostgREST table name. The component reads + writes via this. */
-  table: "concept_categories" | "fabrics";
+  table:
+    | "concept_categories"
+    | "fabrics"
+    | "assigned_by_options"
+    | "received_by_options"
+    | "sampling_dropdowns";
   /**
    * Optional placeholder for the "add" form's name input — useful so each
    * section shows a domain-relevant example.
@@ -63,6 +68,9 @@ export interface LookupSectionProps {
   isLoading: boolean;
   error: string | null;
   refetch: () => unknown;
+  /** Extra columns merged into every insert (e.g. { context: "task" } for the
+   *  per-context Assigned By lists). */
+  insertExtra?: Record<string, unknown>;
 }
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -76,6 +84,7 @@ export function LookupSection({
   isLoading,
   error,
   refetch,
+  insertExtra,
 }: LookupSectionProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -123,7 +132,7 @@ export function LookupSection({
       sortNum != null && Number.isFinite(sortNum) ? sortNum : null;
     const { error: err } = await supabase
       .from(table)
-      .insert({ name, sort_order, is_active: true });
+      .insert({ name, sort_order, is_active: true, ...insertExtra });
     setAdding(false);
     if (err) {
       toast.error(err.message);

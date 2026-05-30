@@ -12,6 +12,7 @@ import {
   Palette,
   Paintbrush,
   Users,
+  ListChecks,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/database";
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 import { ConceptCategoriesTab } from "@/components/system/ConceptCategoriesTab";
 import { FabricsTab } from "@/components/system/FabricsTab";
+import { DropdownsTab } from "@/components/system/DropdownsTab";
 import { ClientManagementTab } from "@/components/system/ClientManagementTab";
 import { DesignerCodesTab } from "@/components/system/DesignerCodesTab";
 import { StorageTab } from "@/components/system/StorageTab";
@@ -53,6 +55,7 @@ type TabId =
   | "team"
   | "concepts"
   | "fabrics"
+  | "dropdowns"
   | "clients"
   | "designer-codes"
   | "storage"
@@ -99,7 +102,7 @@ const TABS: TabSpec[] = [
     icon: Lightbulb,
     desc: "Design style lookup data",
     group: "data",
-    canAccess: (role) => role === "admin",
+    canAccess: (role) => isAdminOrCoordinator(role),
   },
   {
     id: "fabrics",
@@ -107,11 +110,19 @@ const TABS: TabSpec[] = [
     icon: Layers,
     desc: "Fabric type lookup data",
     group: "data",
-    canAccess: (role) => role === "admin",
+    canAccess: (role) => isAdminOrCoordinator(role),
+  },
+  {
+    id: "dropdowns",
+    label: "Dropdowns",
+    icon: ListChecks,
+    desc: "Assigned By (per form) + Full Knitting's Received By",
+    group: "data",
+    canAccess: (role) => isAdminOrCoordinator(role),
   },
   {
     id: "clients",
-    label: "Clients",
+    label: "Party Name",
     icon: Building2,
     desc: "Party names & dedup merge",
     group: "data",
@@ -278,6 +289,10 @@ function renderTab(id: TabId, role: UserRole) {
   // against future bugs where the nav filter and the renderer drift apart.
   const adminOnly = (component: React.ReactNode) =>
     isAdminCheck(role) ? component : <AccessRestricted />;
+  // Lookup data (concepts / fabrics / assigned-by) is managed by admins AND
+  // design coordinators.
+  const coordOk = (component: React.ReactNode) =>
+    isAdminOrCoordinator(role) ? component : <AccessRestricted />;
 
   switch (id) {
     case "app-info":
@@ -287,9 +302,11 @@ function renderTab(id: TabId, role: UserRole) {
     case "team":
       return <TeamView />;
     case "concepts":
-      return adminOnly(<ConceptCategoriesTab />);
+      return coordOk(<ConceptCategoriesTab />);
     case "fabrics":
-      return adminOnly(<FabricsTab />);
+      return coordOk(<FabricsTab />);
+    case "dropdowns":
+      return coordOk(<DropdownsTab />);
     case "clients":
       return <ClientManagementTab />;
     case "designer-codes":

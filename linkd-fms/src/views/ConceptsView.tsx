@@ -54,6 +54,7 @@ import { CONCEPT_STATUSES } from "@/types/database";
 import type {
   ConceptStatus,
   ConceptWithRelations,
+  CompletionHistoryEntry,
 } from "@/types/database";
 
 /**
@@ -853,7 +854,14 @@ export function ConceptsView() {
 
                     {/* ── Stage 2 · MD Approval (Idea) ── */}
                     <td className="px-3 py-3 border-l border-border/20">
-                      <StatusPill status={c.md_status} />
+                      <StatusPill
+                        status={c.md_status}
+                        label={
+                          c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0
+                            ? "Re-submitted"
+                            : undefined
+                        }
+                      />
                     </td>
                     <Cell>{fmtDate(c.md_planned_date)}</Cell>
                     <td className="px-3 py-3 border-r border-border/20">
@@ -958,7 +966,7 @@ export function ConceptsView() {
                     >
                       <ConceptRowActionsMenu
                         canEdit={isOwner(c) || isAdmin}
-                        canDelete={isAdmin}
+                        canDelete={isOwner(c) || isAdmin}
                         onView={() => setSelected(c)}
                         onEdit={() => setSelected(c)}
                         onDelete={() => setDeleteTarget(c)}
@@ -997,7 +1005,9 @@ export function ConceptsView() {
                     CONCEPT_STATUS_COLORS[c.md_status]
                   )}
                 >
-                  {CONCEPT_STATUS_LABELS[c.md_status]}
+                  {c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0
+                    ? "Re-submitted"
+                    : CONCEPT_STATUS_LABELS[c.md_status]}
                 </Badge>
               </div>
               <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -1254,16 +1264,21 @@ function StatusPill({ status, label }: { status: ConceptStatus; label?: string }
       dot: "bg-warning",
     },
   };
+  const isResubmit = label === "Re-submitted";
   const s = map[status];
+  const pillCls = isResubmit
+    ? "bg-primary/10 text-primary ring-primary/25 shadow-[0_0_0_3px_rgb(var(--primary)/0.04)]"
+    : s.cls;
+  const dotCls = isResubmit ? "bg-primary animate-pulse" : s.dot;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset transition-shadow",
-        s.cls
+        pillCls
       )}
     >
       <span
-        className={cn("h-1.5 w-1.5 rounded-full", s.dot, status === "pending" && "animate-pulse")}
+        className={cn("h-1.5 w-1.5 rounded-full", dotCls, status === "pending" && !isResubmit && "animate-pulse")}
         aria-hidden
       />
       {label ?? s.label}
@@ -1459,6 +1474,18 @@ function LoadingSkeleton() {
  */
 function HoldCell({ concept }: { concept: ConceptWithRelations }) {
   const count = concept.hold_count ?? 0;
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
   if (count === 0) return <Dash />;
 
   const isOnHold = concept.work_status === "on_hold";
@@ -1472,27 +1499,58 @@ function HoldCell({ concept }: { concept: ConceptWithRelations }) {
     parseIntervalSeconds(concept.total_hold_duration) + currentSliverSec;
   const totalLabel = cumulativeSec > 0 ? formatDuration(cumulativeSec) : null;
 
+  // Extract hold/resume events from completion_history
+  const history: CompletionHistoryEntry[] = Array.isArray(concept.completion_history)
+    ? concept.completion_history
+    : [];
+  const holdEvents = history.filter(
+    (h) => h.type === "held" || h.type === "resumed"
+  );
+
   return (
-    <span
-      className="inline-flex items-center gap-1 text-xs"
-      title={
-        totalLabel
-          ? `${count} hold${count === 1 ? "" : "s"} · ${totalLabel} total${
-              isOnHold ? " (currently on hold)" : ""
-            }`
-          : `${count} hold${count === 1 ? "" : "s"}`
-      }
-    >
-      <span className="font-semibold tabular-nums text-foreground">
-        {count}
-      </span>
-      {totalLabel && (
-        <span className="text-muted-foreground">· {totalLabel}</span>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-colors hover:bg-secondary"
+      >
+        <span className="font-semibold tabular-nums text-foreground">{count}</span>
+        {totalLabel && <span className="text-muted-foreground">· {totalLabel}</span>}
+        {isOnHold && (
+          <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+        )}
+      </button>
+
+      {open && holdEvents.length > 0 && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-card p-3 shadow-lg">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Hold History
+          </p>
+          <div className="max-h-40 space-y-1.5 overflow-y-auto">
+            {holdEvents.map((h, i) => (
+              <div key={i} className={cn(
+                "flex items-baseline gap-2 rounded-md px-2 py-1 text-[11px]",
+                h.type === "held" ? "border-l-2 border-warning bg-warning/5" : "border-l-2 border-success bg-success/5"
+              )}>
+                <span className={cn("shrink-0 font-semibold", h.type === "held" ? "text-warning" : "text-success")}>
+                  {h.type === "held" ? "Held" : "Resumed"}
+                </span>
+                <span className="flex-1 text-muted-foreground">{h.date}</span>
+                {h.feedback && (
+                  <span className="max-w-[120px] truncate text-foreground" title={h.feedback}>{h.feedback}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          {isOnHold && concept.work_held_at && (
+            <p className="mt-2 flex items-center gap-1 text-[10px] text-warning">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+              On hold since {new Date(concept.work_held_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" })}
+            </p>
+          )}
+        </div>
       )}
-      {isOnHold && (
-        <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
-      )}
-    </span>
+    </div>
   );
 }
 

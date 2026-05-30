@@ -8,7 +8,7 @@ This document traces the entire application from the moment a user opens the bro
 
 LinkD FMS is a **textile design workflow management system** for LinkD Prints. It tracks three independent systems:
 
-1. **Task Management (Design Flow)** — Coordinators write design briefs; tasks flow through a pipeline: `pool → in_progress → full_kitting → done`. Assigned tasks skip `todo` and go straight to `in_progress`. Designers claim or are assigned tasks. Full kitting form (file upload + structured data) available at the full_kitting stage.
+1. **Task Management (Design Flow)** — Coordinators write design briefs; tasks flow through a pipeline: `pool → in_progress → done → completed`. Assigned tasks skip `todo` and go straight to `in_progress`. Designers **claim from the pool** by accepting the single next queued task (urgent-first, then FIFO — no cherry-picking) and committing a deadline, or are assigned directly at brief time. `done` is an intermediate "design finished, awaiting completion details (fabric + mtr)" state; `completed` is terminal. Full kitting form (file upload + structured data) handled via the separate DEO workflow.
 2. **Concept Approval** — Designers submit concepts (min 50-char description + file). Admin (MD) reviews. Monthly target: 3 per designer. Concept analytics (tab inside Dashboards) shows approval rates, turnaround speed, designer leaderboard.
 3. **Sampling** — Coordinators log daily sampling records (party, fabric, qty, files). Sampling Hub with stats, filters, charts, batch entry.
 
@@ -436,8 +436,25 @@ Designer:
 
 **Data fetched:** `useTasks()` + `useProfiles()` + `useTaskMutations()`
 
-**Dashboard statuses shown:** Pool, To-Do, In Progress, Full Kitting, Done
+**Status switcher = Pipeline Stepper** (`TaskPipelineStepper.tsx`): a slim single-row of **"glass
+pills"** mounted **as the task table's header** (via `TaskTableSection`'s `headerSlot`) — it replaced
+both the old tab pills and the per-section header. The connected pipeline is **Pool → In Progress →
+Completed** (chevrons fill once the upstream stage has items); **Full Kitting is a standalone side pill
+divided off to the right** (`sideStage` prop) — a separate data tab, NOT a pipeline stage. Clicking a
+pill filters the table (same state as the old tabs). **No Done tab**: a `done` task (design finished,
+awaiting fabric) stays in **In Progress**, badged a green **"Done"** with the **"Complete"** CTA;
+adding fabric moves it to **Completed**. Legacy `todo`/`full_kitting` fold into In Progress.
+(Dashboards still summarise done+completed together in one "Done" pipeline bar.)
 (excluded: `approved` → concepts-only; `sampling` → own page at /sampling)
+
+**Pool tab** shows an urgent/normal split (e.g. "1 urgent · 2 normal") so the queue makeup is
+visible from any tab. Designers see a `<PoolSummaryCard>` + claim flow instead of the table (see §8).
+
+**Column visibility:** the "Columns" toolbar button (`<ColumnVisibilityMenu>`) lets each user
+choose which columns show; the choice is DB-backed per user (`user_preferences.visible_columns`,
+`useUserPreferences`). The bulk-select checkbox and sticky **Action** column are always visible.
+A **Reference Files** column renders clickable chips that open the brief's attached files via
+signed URLs.
 
 **Flow:**
 ```
@@ -455,13 +472,15 @@ Designer:
    │
    └─ Clicking a tab shows a wide sortable table for that status
 
-3. Table (22+ columns, min-width 2800px, horizontal scroll):
+3. Table (w-full; Description column is greedy so others hug content — no forced
+   2800px min-width; horizontal scroll only when needed):
    │
-   ├─ Date/Time, Designer, Concept, Description, Party Name, Fabric, Mtr
-   ├─ WhatsApp Group, Date, Time, Assigned By, QTY
-   ├─ Completion Timestamp, Qty Completed, Pending, Done?
-   ├─ Started Late, Concept Start Date, Full Kitting, FK Image, FK Form
-   └─ Action (sticky right column, 180px)
+   ├─ Date/Time, Designer, Concept (📎 chip + FK badge — both clickable to open
+   │    files), Description, Reference (always-on), Party Name, Fabric
+   ├─ WhatsApp Group, Message Date, Message Time, Assigned By, QTY
+   ├─ Planned Deadline (was "Due Date"), Completion Timestamp, Completed, Pending
+   ├─ Completed Late (key `started_late`; Yes = finished after planned_deadline)
+   └─ Action (sticky right column)
 
 4. Per-section sorting: each status tab has its own sort state
    - Sortable by: deadline (default), code, qty, priority
@@ -469,14 +488,17 @@ Designer:
 
 5. Row actions (context-aware by status):
    ┌──────────────┬────────────────────────────────────────────┐
-   │ Pool         │ "Accept" → assigns to self, in_progress   │
-   │ To-Do        │ "Start" → in_progress                     │
-   │ In Progress  │ "Submit" → full_kitting*                   │
-   │ Full Kitting │ "Completed" → done  OR                     │
-   │              │ "Revise" → in_progress (admin/coordinator) │
-   │ Done         │ —                                          │
+   │ Pool         │ "Accept" → assigns to self, in_progress    │
+   │              │ (designers use the Claim modal instead)    │
+   │ In Progress  │ "Submit" → marks done* (no popup)          │
+   │ Done         │ "Complete" → completes directly if fabric  │
+   │              │ already set (claim); else PostDoneModal     │
+   │              │ ("Add Fabric to Complete") → completed      │
+   │ Completed    │ —                                          │
    └──────────────┴────────────────────────────────────────────┘
-   *Submit checks for files: if 0 files → opens TaskDetailDrawer for upload
+   *Submit checks qty-completed, then marks the task 'done' (no modal). On "Complete":
+    if a fabric was chosen at claim time it completes immediately; otherwise the
+    PostDoneModal asks for the required fabric (MTR removed). Only fabric is needed.
 
 6. Row ⋮ menu: View / Edit (EditTaskDialog) / Full Kitting (KittingStageADialog) /
    Delete (admin only, soft-delete) — role-gated, portal-rendered
@@ -508,33 +530,30 @@ Auto-disabled: when typing in inputs, when Radix dialog/sheet is open
 
 **Purpose:** Create a new task (design brief). Admin + coordinator + designer.
 
-**Data fetched:** `useTaskMutations()` + `useClients()` + `useProfiles()` + `useConceptCategories()` + `useFabrics()`
+**Data fetched:** `useTaskMutations()` + `useClients()` + `useProfiles()` + `useConceptCategories()`
 
-**Form sections:**
+**Form sections** (see CLAUDE.md §12 for the load-bearing rules):
 ```
-1. CLIENT           → Combobox (search-as-you-type) from useClients() + inline "Add new" mode
-2. WHATSAPP GROUP   → Dropdown: "New Creation", "Job Work Concept", "Linkd Design",
-                      "LD-Garments Sublimation Prints" (+ others added later)
-3. THE WORK
-   ├─ Concept       → Combobox from useConceptCategories() (DB-backed, migration 0011)
-   ├─ Description   → Textarea (optional)
-   ├─ Fabric        → Combobox from useFabrics() (DB-backed, migration 0011)
-   ├─ Quantity      → Number input (required, meters)
-   └─ Mtr           → Number input (optional, total fabric needed)
-4. TIMING
-   ├─ Planned deadline → Date input (required)
-   ├─ Due time         → Time input (optional)
-   └─ Concept start    → Date input (optional, defaults to today)
-5. PRIORITY         → Toggle: Normal / Urgent
-6. ASSIGN TO        → Avatar buttons: "Open Pool" (default) or specific designer
-7. ASSIGNED BY      → Text input (defaults to current user's name)
-8. FULL KITTING REQUIREMENTS (collapsible toggle)
-   ├─ Toggle switch
-   ├─ Drag-drop upload zone (100 MB, .jpg/.jpeg/.png/.psd/.gif/.mp4/.mov)
-   ├─ Progress bar
-   ├─ Preview (image thumbnail or file icon)
-   └─ Remarks textarea (1000 char limit)
+1. PARTY NAME        → LD / Job Work toggle (brief_type). LD = internal, no party.
+                       Job Work → required party picker (jobWorkClients). No inline add.
+2. GROUP*            → Dropdown from src/lib/whatsappGroups.ts (WhatsApp icon on flagged
+                       entries). REQUIRED.
+   REFERENCE FILES   → Optional multi-file picker beside Group (any type, 50 MB each).
+                       Uploaded after task creation → files table (see §12.4 in CLAUDE.md).
+3. MESSAGE date*+time*→ When the brief arrived on WhatsApp. BOTH REQUIRED.
+4. DESIGN TYPE*      → Combobox from useConceptCategories() (DB-backed). REQUIRED.
+   QUANTITY*         → Number input. REQUIRED (≥ 1).
+5. DESCRIPTION*      → Textarea. REQUIRED.
+6. ASSIGN TO*        → Dropdown, defaults to "Open Pool" (→ status='pool'); or a designer
+                       (→ status='in_progress'). No blank option.
+   ASSIGNED BY*      → Fixed roster dropdown + "Other" free-text. REQUIRED.
+   PRIORITY          → Toggle: Normal / Urgent
+7. FULL KNITTING REQUIREMENTS (collapsible toggle)
+   ├─ Toggle switch + drag-drop upload (100 MB) + progress + preview + remarks
+   └─ Optional inline 12-section knitting form (skips the DEO queue when filled)
 ```
+(Fabric / Meters / Planned deadline / Due time were removed from the form — designers set
+ their own deadline when claiming. `* = required`.)
 
 **Submit flow:**
 ```
@@ -596,6 +615,8 @@ Show success screen:
 4. FULL KITTING   → (if requires_full_kitting) Image preview + notes + upload
 5. QTY TRACKER    → (if in_progress) Progress bar + stepper (+/-) + "Update" button
                      Auto-advances: qty=total → full_kitting; qty>0 → in_progress
+5b. COMPLETION    → (if done) "Completion Details Needed" prompt + button → PostDoneModal
+                     (if completed) read-only panel: fabric / mtr / filled-by name / filled-at
 6. DESIGN FILES   → Drag-drop upload zone + grid of file tiles (thumbnail + download)
                      Upload to design-files bucket → {uid}/tasks/{task_id}/{filename}
                      Client-side image compression applied before upload
@@ -605,10 +626,9 @@ Show success screen:
                      live updates (INSERT events on task_comments).
 8. ACTION FOOTER  → Context-aware buttons per status:
                      Pool → "Accept Task"
-                     Todo → "Start Working"
-                     In Progress → "Submit for Review" (checks files exist)
-                     Full Kitting → "Approve/Completed" or "Revise" (admin/coordinator)
-                     Done → Completion date display
+                     In Progress → "Submit for Review" / mark done (opens PostDoneModal)
+                     Done → "Complete" (capture fabric + mtr → completed)
+                     Completed → completion summary
 
 DELETE button (admin only) → ConfirmDialog → soft-delete
 ```
@@ -973,8 +993,10 @@ Designer self-view: hides rank pill + admin actions
 ### 6.14 System Admin Hub (`/system` — SystemView.tsx)
 
 **Purpose:** Admin hub with tabbed management interface. Admin + coordinator only.
+Concept Categories / Fabrics / Dropdowns are now **coordinator-accessible** (not
+admin-only) — both nav gating and the per-tab render check use `isAdminOrCoordinator`.
 
-**7 tabs:**
+**Tabs:**
 ```
 1. App Info (AppInfoTab)
    - User counts, table row counts
@@ -990,19 +1012,32 @@ Designer self-view: hides rank pill + admin actions
    - Lookup management for fabrics table
    - Same UI pattern as Categories
 
-4. Clients (ClientManagementTab)
-   - Client CRUD: add, edit name, merge duplicates, delete
-   - Search + pagination
+4. Dropdowns (DropdownsTab)  ← see §16 of CLAUDE.md
+   - Manages every form dropdown roster in one place. Two-level picker:
+     context pills (Tasks / Full Knitting / Sampling) → dropdown chips → one
+     LookupSection editor at a time.
+     • Tasks        → Assigned By (assigned_by_options, context='task')
+     • Full Knitting→ Assigned By + Received By (received_by_options)
+     • Sampling     → Assigned By + Requirement + Sampling Done By + Fusing
+                      Operator (sampling_dropdowns, field-scoped)
 
-5. Designer Codes (DesignerCodesTab)
+5. Clients / Party Name (ClientManagementTab)
+   - Client CRUD: add, edit name, merge duplicates, delete
+   - LD / Job Work pill tabs, search + pagination
+
+6. Designer Codes (DesignerCodesTab)
    - Assign/remove letter codes per designer
    - Shows avatar + name + current codes
 
-6. Storage (StorageTab)
+7. Storage (StorageTab)
    - File counts per bucket
    - On-demand size scan
+   - "Empty bucket" per bucket — permanently deletes every storage object in it
+     (recursive walk + batched .remove(), ConfirmDialog gated). Note: the Danger
+     Zone's "Clear all data" only wipes the `files` TABLE rows (metadata); the
+     actual storage objects are removed here.
 
-7. Danger Zone (DangerZoneTab)
+8. Danger Zone (DangerZoneTab)
    - Two-stage destructive data clearing:
      Stage 1: ConfirmDialog (variant danger/warning)
      Stage 2: modal with "type DELETE" text input
@@ -1067,30 +1102,42 @@ Pool code regeneration:
 
 ```
 Pipeline flow:
-  pool → in_progress → full_kitting → done
+  pool → in_progress → done → completed
 
-  Note: Assigned tasks skip 'todo' and go straight to 'in_progress'.
-  The 'todo' enum value still exists in the DB but is no longer entered by the app.
-  'approved' and 'sampling' statuses exist but are not shown on the kanban dashboard.
+  - 'done'      = design work finished, awaiting completion details (fabric + mtr) — intermediate.
+  - 'completed' = fully closed — terminal (enum value added in migration 0039).
+  - Assigned tasks skip 'todo' and go straight to 'in_progress'.
+  - 'todo' / 'full_kitting' / 'approved' / 'sampling' enum values still exist but are
+    not entered by the app's main flow; the board folds them into In Progress / Done.
 
-Forward transitions (always allowed):
-  pool → in_progress → full_kitting → done
+Pool claim (designers) — see §6.3 + ClaimTaskModal:
+  - getNextPoolTasks(limit) → top pool tasks, sorted urgent-first, then oldest
+    requirement_received_at, then oldest created_at (comparePoolFifo). The claim modal
+    calls it with limit=1 and shows ONLY the single front task — no choice / no cherry-picking.
+  - The claim form shows that task's full details + reference files, and asks planned
+    deadline (required) + fabric (optional; required only at completion).
+    claimPoolTask(taskId, deadline, fabric?) → busy-check (one in_progress task max),
+    optimistic lock on status='pool', regenerates task_code, sets assigned_to/at +
+    started_at + planned_deadline + optional fabric, status='in_progress'. Lost race →
+    "already claimed by {name}" message.
+  - tasks is in the supabase_realtime publication (0041) so claims propagate live.
+
+Forward transitions:
+  pool → in_progress (claim/assign) → done (markTaskDone) → completed (completeTask)
 
 Backward transitions (admin/coordinator ONLY):
-  Any status can move backward (e.g. full_kitting → in_progress for revisions)
-
-Auto-transitions:
-  - assignTask() while pool → auto-moves to in_progress (stamps assigned_at + started_at)
-  - selfAssignTask() from pool → in_progress
-  - updateQtyCompleted() where qty = total → auto-moves to full_kitting
-  - updateQtyCompleted() where qty > 0 from pool/todo → auto-moves to in_progress
+  Any status can move backward (e.g. for revisions)
 
 Completion tracking:
-  - markTaskDone() stamps completed_at + calculates delay_days
+  - markTaskDone()  → status='done', stamps completed_at + delay_days, notifies.
+    Does NOT auto-open the completion modal — the task just lands in Done.
+  - completeTask(taskId, fabric, mtr?) → status='completed', stamps completion_fabric/
+    _filled_by/_filled_at (0040). Optimistic lock on status='done'. Triggered by "Complete":
+    completes directly if fabric was set at claim time, else PostDoneModal asks for the
+    required fabric first. Fabric is required to reach 'completed'.
 
 DB trigger side-effects:
   - status → in_progress: stamps started_at
-  - status → full_kitting: stamps kitted_at
   - Any status change: appends to task_logs (audit trail)
 ```
 
@@ -1219,7 +1266,14 @@ UI surfaces:
 
 ---
 
-## 11. DATABASE SCHEMA (15 tables + internal)
+## 11. DATABASE SCHEMA (tables + internal)
+
+> Managed-dropdown lookup tables (all share `id, name, sort_order, is_active`; admin +
+> coordinator RLS): **`assigned_by_options`** (0045; `context` col added 0047 —
+> task/full_kitting/sampling), **`received_by_options`** (0049), **`sampling_dropdowns`**
+> (0051; field-scoped: requirement/sampling_done_by/fusing_operator). See CLAUDE.md §16.
+> Also `user_preferences` (0040, per-user `visible_columns`).
+
 
 ```
 ┌─────────────────┐     ┌──────────┐     ┌─────────────────┐
@@ -1261,6 +1315,12 @@ UI surfaces:
                                           └─────────────────┘
 ```
 
+### Pool System columns + table (migration 0040):
+- **tasks**: `completion_fabric`, `completion_mtr`, `completion_filled_by` (FK profiles),
+  `completion_filled_at`, `requirement_received_at` (FIFO anchor, indexed for pool ordering).
+- **user_preferences**: `user_id` (UNIQUE FK profiles), `visible_columns` JSONB — backs the
+  per-user All-Tasks column visibility (`useUserPreferences`). RLS: own row + admin read.
+
 ### Auto-generated IDs:
 - **tasks.task_code** → DB: `ORD-YYYY-NNNN` → App overwrites: `DF NN-D{MMYY}-CONC-QM`
 - **concepts.concept_code** → `C-YYYYMMDD-XXXX` (4-char random, no I/O/0/1)
@@ -1268,7 +1328,7 @@ UI surfaces:
 ### Enums:
 ```
 user_role               → admin | design_coordinator | designer | deo
-task_status             → pool | todo | in_progress | full_kitting | approved | sampling | done
+task_status             → pool | todo | in_progress | full_kitting | approved | sampling | done | completed
 task_priority           → low | normal | high | urgent
 md_status (ConceptStatus) → pending | approved | rejected | revision_requested
 designer_status         → active | inactive
@@ -1359,8 +1419,10 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 │ useTheme             │ Light/dark/system toggle (context, localStorage)    │
 │ useTasks             │ List tasks w/ joins + filters (status, mine, etc.)  │
 │ useTaskMutations     │ createTask, updateTaskStatus, assignTask,           │
-│                      │ selfAssignTask, markTaskDone, updateTask, deleteTask│
-│ useTaskDetail        │ One task + files + logs in parallel                 │
+│                      │ selfAssignTask, getNextPoolTasks, claimPoolTask,    │
+│                      │ markTaskDone, completeTask, updateTask, deleteTask  │
+│ useTaskDetail        │ One task + files + logs (+ filler profile) parallel │
+│ useUserPreferences   │ Per-user table column visibility (user_preferences) │
 │ useConcepts          │ List concepts + submitConcept + reviewConcept +     │
 │                      │ finalizeConcept (dual-schema fallback)              │
 │ useClients           │ All clients, ordered by party_name                  │
@@ -1368,6 +1430,11 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 │ useDesignerCodes     │ Designer codes + Map<profile_id, codes[]>           │
 │ useFabrics           │ Fabric lookup (active-only by default)              │
 │ useConceptCategories │ Concept category lookup (active-only by default)    │
+│ useAssignedByOptions │ Managed "Assigned By" roster, per context           │
+│                      │ ('task'/'full_kitting'/'sampling') + fallback list  │
+│ useReceivedByOptions │ Managed "Received By" list (Full Knitting form)     │
+│ useSamplingDropdowns │ Sampling requirement/done-by/fusing, grouped by     │
+│                      │ field (one query) + fallback                        │
 │ useNotifications     │ Notifications + Realtime subscription + sound       │
 │ useConceptReminders  │ Client-side monthly concept target reminders        │
 │ useFullKitting       │ Kitting form CRUD for full_kitting_details          │
@@ -1444,8 +1511,47 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 0035  notify_user + notify_users_batch RPC functions (SECURITY DEFINER) so cross-user
       inserts work regardless of the caller's role; sendNotification* helpers in
       lib/notifications.ts route through these RPCs
+0036  WhatsApp received date/time columns on tasks (whatsapp_received_date,
+      whatsapp_received_time) — captures when the brief arrived on WhatsApp,
+      independent of created_at. Both nullable.
+0037  clients.client_group TEXT ('ld' / 'job_work') — splits clients into two
+      business segments. Same party name may exist in both groups.
+0038  tasks.brief_type TEXT ('ld' / 'job_work') + CHECK constraint ensuring
+      job_work briefs have a client_id. tasks.client_id made nullable so LD
+      briefs can save without a party row.
+0039  task_status += 'completed' (enum value add — standalone, must commit before 0040
+      uses it). The new terminal state; 'done' becomes an intermediate "awaiting
+      completion details" state.
+0040  Pool System columns + user_preferences table:
+      - tasks.completion_fabric / completion_mtr / completion_filled_by / completion_filled_at
+        (captured when done → completed), requirement_received_at (FIFO anchor + pool index).
+      - user_preferences (user_id UNIQUE, visible_columns JSONB) for per-user column visibility.
+0041  tasks added to the supabase_realtime publication + REPLICA IDENTITY FULL, so pool
+      claims/assignments propagate live (~1s) across sessions.
+0042  clients UNIQUE(party_name, client_group) — drops the global party_name unique so a
+      name can exist in both LD and Job Work groups; dedups exact duplicates first.
+0043  Attempt to lift the qty_completed <= qty bound — dropped the WRONG constraint name
+      (tasks_qty_completed_check, which never existed), so the real bound stayed.
+0044  Drops the REAL upper-bound constraint `tasks_check` (an inline multi-column CHECK
+      Postgres auto-named) and re-asserts only qty_completed >= 0 — designers can now log
+      extra designs (qty_completed may exceed qty).
+0045  assigned_by_options table — managed "Assigned By" roster + admin RLS + seed.
+0046  Lookup coordinator access — widens write RLS on concept_categories / fabrics /
+      assigned_by_options from is_admin() → is_admin_or_coordinator().
+0047  assigned_by_options.context ('task' / 'full_kitting' / 'sampling') + UNIQUE(name,
+      context); seeds full_kitting + sampling → per-form Assigned By lists.
+0048  salvedge_records + samples write RLS → is_admin_or_coordinator() (idempotent;
+      renamed from a clashing 0046_salvedge_*).
+0049  received_by_options table — Full Knitting form's "Received By" managed list.
+0050  salvedge_records attachment column (challan attachment_url).
+0051  sampling_dropdowns table (field-scoped: requirement / sampling_done_by /
+      fusing_operator) + RLS; seeded from scripts/Sampling Dropdowns.csv.
+0052  Sync sampling_dropdowns to the updated CSV (drops the removed Requirement /
+      Fusing Operator options; idempotent re-insert).
+0053  concepts delete RLS widened — admins/coordinators OR the owner (submitted_by /
+      designer_id = auth.uid()) can delete. Designers can delete their own concepts.
 
-Next migration: 0036
+Next migration: 0054
 ```
 
 ---
@@ -1513,7 +1619,7 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
 - Error boundary wrapping entire app
 - React Query migration (all hooks use @tanstack/react-query, centralized cache keys)
 - Dual theme (light/dark/system) with FOUC prevention
-- 15-table DB with RLS, triggers, auto-generated IDs (migrations 0001-0035)
+- 16-table DB with RLS, triggers, auto-generated IDs (migrations 0001-0041)
 - 5 storage buckets with signed URL access
 - Client-side image compression (Canvas API, all 6 upload handlers)
 - 4-role architecture (admin / design_coordinator / designer / deo)
@@ -1528,7 +1634,9 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
 **Pages:**
 - Dashboard overview (`/dashboard` via `/home` redirect) — KPIs, alerts, activity, pipeline
 - Task Dashboard (`/task-dashboard`) — landing page with KPIs, heroes, volume charts, workload, leaderboards
-- Kanban board (`/dashboard`) — 5 status tabs, 22+ column tables, sorting, search dimming, row actions, keyboard shortcuts (J/K/Enter/Esc/1-4), CSV export
+- Kanban board (`/dashboard`) — Pool / In Progress / Done tabs (+ Full Knitting sub-view),
+  per-user column visibility, Reference Files column, sorting, search dimming, row actions,
+  keyboard shortcuts (J/K/Enter/Esc/1-4), CSV export
 - Brief creation (`/brief/new`) — full form with Combobox pickers, kitting upload, code gen
 - Concepts (`/concepts`) — role-specific dashboards, designer work board, workflow table, submit/review/finalize with revision history
 - Sampling Hub (`/sampling`) — stats cards, CRUD table, batch entry, charts
@@ -1550,6 +1658,12 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
 - Kitting form (`/kitting/:recordId`) — side-by-side image + 12-field form with draft persistence
 
 **Systems:**
+- Pool claim flow — designers accept the single next queued task (urgent-first, then FIFO —
+  no cherry-picking), preview full details + reference files, commit a deadline; busy-check +
+  optimistic locking + realtime propagation (`getNextPoolTasks` / `claimPoolTask`)
+- done → completed two-step completion (PostDoneModal captures fabric + mtr; completion details
+  shown in the task drawer)
+- Per-user All-Tasks column visibility (`useUserPreferences` + `ColumnVisibilityMenu`, DB-backed)
 - Notification system (DB table + sending helpers + Realtime + Web Audio chime + tab flash)
 - Full kitting workflow (2-stage: coordinator upload → DEO digitize → review)
 - Task comments / discussion threads (CRUD + Realtime)

@@ -39,7 +39,26 @@ export const queryKeys = {
     list: (activeOnly: boolean) =>
       ["categories", "list", { activeOnly }] as const,
   },
+  assignedByOptions: {
+    all: ["assignedByOptions"] as const,
+    list: (context: string, activeOnly: boolean) =>
+      ["assignedByOptions", "list", { context, activeOnly }] as const,
+  },
+  receivedByOptions: {
+    all: ["receivedByOptions"] as const,
+    list: (activeOnly: boolean) =>
+      ["receivedByOptions", "list", { activeOnly }] as const,
+  },
+  samplingDropdowns: {
+    all: ["samplingDropdowns"] as const,
+    list: (activeOnly: boolean) =>
+      ["samplingDropdowns", "list", { activeOnly }] as const,
+  },
   designerCodes: {
     all: ["designerCodes"] as const,
+  },
+  userPreferences: {
+    all: ["userPreferences"] as const,
+    detail: (userId: string) => ["userPreferences", userId] as const,
   },
 } as const;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Menu, LogOut } from "lucide-react";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { NotificationBell } from "@/components/ui/NotificationBell";
@@ -13,65 +13,12 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import type { Profile, UserRole } from "@/types/database";
+import type { Profile } from "@/types/database";
 
 // ============================================================================
-// Page title resolution from current pathname + role
-// ============================================================================
-
-interface RouteTitle {
-  title: string;
-  breadcrumb?: string[];
-}
-
-function getPageTitle(pathname: string, role: UserRole): RouteTitle {
-  if (pathname === ROUTES.home || pathname.startsWith(ROUTES.home + "/")) {
-    return { title: "Dashboard" };
-  }
-  if (pathname === ROUTES.dashboard || pathname.startsWith(ROUTES.dashboard + "/")) {
-    return { title: role === "designer" ? "My Board" : "All Tasks" };
-  }
-  if (pathname.startsWith(ROUTES.briefNew)) {
-    return { title: "New Brief", breadcrumb: ["Dashboard", "New Brief"] };
-  }
-  if (pathname.startsWith(ROUTES.concepts)) {
-    return { title: "Concepts" };
-  }
-  if (pathname.startsWith(ROUTES.analytics)) {
-    return { title: "Concept Dashboard" };
-  }
-  if (pathname.startsWith(ROUTES.taskDashboard)) {
-    return { title: "Dashboards" };
-  }
-  if (pathname.startsWith(ROUTES.system)) {
-    return { title: "Settings & Admin" };
-  }
-  if (pathname.startsWith(ROUTES.salvedge)) {
-    return { title: "Salvedge" };
-  }
-  if (pathname.startsWith(ROUTES.sampling)) {
-    return { title: "Sampling Queue" };
-  }
-  if (pathname.startsWith(ROUTES.team)) {
-    return { title: "Team Management" };
-  }
-  if (pathname.startsWith(ROUTES.scorecards)) {
-    return { title: "Scorecards" };
-  }
-  if (pathname.startsWith(ROUTES.profile)) {
-    return { title: "Profile" };
-  }
-  if (pathname.startsWith(ROUTES.notifications)) {
-    return { title: "Notifications" };
-  }
-  if (pathname.startsWith(ROUTES.files)) {
-    return { title: "Files" };
-  }
-  return { title: "LinkD FMS" };
-}
-
-// ============================================================================
-// TopNav
+// TopNav — thin utility bar (status · notifications · account). The page title
+// is intentionally NOT shown here: every page renders its own in-content
+// heading, so a topnav title would just repeat it and waste space.
 // ============================================================================
 
 export interface TopNavProps {
@@ -80,11 +27,20 @@ export interface TopNavProps {
 }
 
 export function TopNav({ profile, onMobileMenuClick }: TopNavProps) {
-  const location = useLocation();
   const navigate = useNavigate();
   const { signOut } = useAuth();
-  const { title, breadcrumb } = getPageTitle(location.pathname, profile.role);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const dateLabel = now.toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 
   async function handleSignOut() {
     await signOut();
@@ -111,35 +67,26 @@ export function TopNav({ profile, onMobileMenuClick }: TopNavProps) {
           <Menu className="h-5 w-5" />
         </button>
 
-        {/* ----- LEFT: title + breadcrumb ----- */}
-        <div className="flex min-w-0 items-baseline gap-2">
-          {breadcrumb && breadcrumb.length > 1 && (
-            <span className="hidden text-[11px] uppercase tracking-wider text-muted-foreground md:inline">
-              {breadcrumb.slice(0, -1).join(" › ")} ›
-            </span>
-          )}
-          <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">
-            {title}
-          </h1>
+        {/* ----- LEFT: greeting + date (anchors the bar) ----- */}
+        <div className="flex min-w-0 flex-col justify-center leading-tight">
+          <span className="truncate text-sm font-semibold text-foreground">
+            {greeting}, {profile.full_name.split(" ")[0]}
+          </span>
+          <span className="hidden truncate text-xs text-muted-foreground sm:block">
+            {dateLabel}
+          </span>
         </div>
 
         {/* ----- RIGHT: status + user + sign out ----- */}
         <div className="ml-auto flex items-center gap-3">
           <ConnectionDot className="hidden sm:inline-flex" />
           <NotificationBell />
-          <div className="hidden items-center gap-2.5 sm:flex">
-            <span className="text-sm font-medium text-foreground">
-              {profile.full_name.split(" ")[0]}
-            </span>
-            <Avatar className="h-7 w-7 ring-2 ring-border">
-              {profile.avatar_url ? (
-                <AvatarImage src={profile.avatar_url} />
-              ) : null}
-              <AvatarFallback className="text-[10px]">
-                {getInitials(profile.full_name)}
-              </AvatarFallback>
-            </Avatar>
-          </div>
+          <Avatar className="hidden h-7 w-7 ring-2 ring-border sm:inline-flex">
+            {profile.avatar_url ? <AvatarImage src={profile.avatar_url} /> : null}
+            <AvatarFallback className="text-[10px]">
+              {getInitials(profile.full_name)}
+            </AvatarFallback>
+          </Avatar>
           <button
             type="button"
             onClick={() => setConfirmSignOut(true)}

@@ -96,7 +96,7 @@ export function TaskDashboardView() {
   // would still pop, but coordinators see nothing because the drawer
   // gates render on isAdmin).
   const [scorecardDesignerId, setScorecardDesignerId] = useState<string | null>(null);
-  const canOpenScorecard = role === "admin";
+  const canOpenScorecard = isAdminOrCoordinator(role);
 
   // Concept dashboard controls — pushed up from AnalyticsView so they
   // render in the tab row alongside the tab pills.
@@ -259,7 +259,7 @@ export function TaskDashboardView() {
       {/* Inter-section spacing — was sm:space-y-6 which compounded with
            the navbar gap to leave a visibly empty band above the fold.
            space-y-3 / sm:space-y-4 matches every other dashboard. */}
-      <div className="space-y-3 sm:space-y-4">
+      <div className="animate-fade-in space-y-3 sm:space-y-4">
 
       {/* ── Production Studio Banner — mirrors Concept Dashboard's Design Studio banner ── */}
       <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
@@ -397,7 +397,12 @@ export function TaskDashboardView() {
                             t.status === "approved" ||
                             t.status === "sampling"
                         ).length
-                      : mine.filter((t) => t.status === s).length;
+                      : s === "done"
+                        ? mine.filter(
+                            (t) =>
+                              t.status === "done" || t.status === "completed"
+                          ).length
+                        : mine.filter((t) => t.status === s).length;
                   const label = STATUS_LABELS[s] ?? s;
                   const barColor =
                     s === "pool"
@@ -416,7 +421,9 @@ export function TaskDashboardView() {
                         t.status === "approved" ||
                         t.status === "sampling"
                     ).length,
-                    mine.filter((t) => t.status === "done").length
+                    mine.filter(
+                      (t) => t.status === "done" || t.status === "completed"
+                    ).length
                   );
                   return (
                     <div key={s} className="flex items-center gap-3">
@@ -481,16 +488,18 @@ export function TaskDashboardView() {
               />
               <HeroKpiTile
                 icon={Timer}
-                label="Avg Completion"
+                label="Avg Cycle"
                 tone="primary"
-                value={`${a.kpis.avgCompletionDays.current}d`}
-                trend={a.kpis.avgCompletionDays}
+                value={a.kpis.avgCycleDays.current > 0 ? `${a.kpis.avgCycleDays.current}d` : "—"}
+                trend={a.kpis.avgCycleDays.current > 0 ? a.kpis.avgCycleDays : undefined}
                 invertTrend
                 sparklineData={a.sparklines.avgDelay}
                 sub={
-                  a.kpis.avgCycleDays.current > 0
-                    ? `Cycle: ${a.kpis.avgCycleDays.current}d`
-                    : undefined
+                  a.kpis.avgCompletionDays.current > 0
+                    ? `${a.kpis.avgCompletionDays.current}d late avg`
+                    : a.kpis.totalCompleted.current > 0
+                      ? "on schedule"
+                      : undefined
                 }
                 onClick={() =>
                   navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
@@ -546,24 +555,43 @@ export function TaskDashboardView() {
           {/* Charts */}
           <div className="grid gap-3 lg:grid-cols-3">
             {/* Volume chart */}
-            <Card className="lg:col-span-2">
+            <Card className="lg:col-span-2 transition-shadow duration-300 hover:shadow-md">
               <CardContent className="py-4">
-                <div className="mb-4">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    {period === "week" ? "Daily Tasks" : period === "quarter" ? "Monthly Tasks" : "Weekly Tasks"}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">Created vs Completed</p>
+                <div className="mb-4 flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Activity className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {period === "week" ? "Daily Tasks" : period === "quarter" ? "Monthly Tasks" : "Weekly Tasks"}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">Created vs Completed</p>
+                  </div>
                 </div>
                 <div className="h-[220px] sm:h-[280px]">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                    <BarChart data={a.volumeData} barGap={4} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <BarChart data={a.volumeData} barGap={4} barCategoryGap="28%" margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                      <defs>
+                        <linearGradient id="taskCompletedGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="rgb(var(--primary))" stopOpacity={0.95} />
+                          <stop offset="100%" stopColor="rgb(var(--primary))" stopOpacity={0.55} />
+                        </linearGradient>
+                        <linearGradient id="taskCreatedGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="rgb(var(--muted-foreground))" stopOpacity={0.28} />
+                          <stop offset="100%" stopColor="rgb(var(--muted-foreground))" stopOpacity={0.1} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="2 4" stroke="rgb(var(--border))" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} dy={4} />
                       <YAxis allowDecimals={false} tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
-                      <Tooltip contentStyle={{ backgroundColor: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 8, fontSize: 12, color: "rgb(var(--foreground))" }} />
-                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="circle" iconSize={8} />
-                      <Bar dataKey="created" name="Created" fill="rgb(var(--muted))" opacity={0.4} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="completed" name="Completed" fill="rgb(var(--primary))" radius={[4, 4, 0, 0]} />
+                      <Tooltip
+                        cursor={{ fill: "rgb(var(--secondary))", opacity: 0.5, radius: 6 }}
+                        contentStyle={{ backgroundColor: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 10, fontSize: 12, color: "rgb(var(--foreground))", boxShadow: "var(--shadow-dropdown)", padding: "8px 10px" }}
+                        labelStyle={{ fontWeight: 600, marginBottom: 2 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} iconType="circle" iconSize={8} />
+                      <Bar dataKey="created" name="Created" fill="url(#taskCreatedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={700} />
+                      <Bar dataKey="completed" name="Completed" fill="url(#taskCompletedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={900} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -662,6 +690,14 @@ function HeroKpiTile({
     destructive: "bg-destructive/10 text-destructive",
     muted: "bg-secondary text-muted-foreground",
   };
+  // Hover accent bar — slides in along the top of clickable tiles.
+  const toneAccent: Record<HeroTone, string> = {
+    primary: "bg-primary",
+    success: "bg-success",
+    warning: "bg-warning",
+    destructive: "bg-destructive",
+    muted: "bg-muted-foreground/40",
+  };
 
   // Trend pill colours follow the metric's direction (not the tile tone)
   // so "Avg Completion: 5d down 20%" reads as green even though the tile
@@ -703,7 +739,7 @@ function HeroKpiTile({
       <div className="flex items-center justify-between gap-2">
         <div
           className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-transform duration-200 group-hover:scale-110",
             toneIconBg[tone],
             pulse && "animate-pulse"
           )}
@@ -714,7 +750,7 @@ function HeroKpiTile({
       </div>
       <p
         className={cn(
-          "text-lg font-bold leading-none tabular-nums sm:text-xl",
+          "text-xl font-bold leading-none tracking-tight tabular-nums sm:text-2xl",
           toneText[tone]
         )}
       >
@@ -739,8 +775,15 @@ function HeroKpiTile({
     <button
       type="button"
       onClick={onClick}
-      className="group relative h-full text-left transition-colors hover:bg-secondary/40"
+      className="group relative h-full overflow-hidden text-left transition-colors hover:bg-secondary/40"
     >
+      <span
+        aria-hidden
+        className={cn(
+          "absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100",
+          toneAccent[tone]
+        )}
+      />
       {content}
     </button>
   );
@@ -773,7 +816,7 @@ function PipelineWidget({
   }, []);
 
   return (
-    <Card className="h-full">
+    <Card className="h-full transition-shadow duration-300 hover:shadow-md">
       <CardContent className="flex h-full flex-col py-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">Pipeline</h3>
@@ -888,7 +931,12 @@ function MyTasksTable({
   userId: string;
 }) {
   const myTasks = tasks
-    .filter((t) => t.assigned_to === userId && t.status !== "done")
+    .filter(
+      (t) =>
+        t.assigned_to === userId &&
+        t.status !== "done" &&
+        t.status !== "completed"
+    )
     .sort((a, b) => {
       const ad = a.planned_deadline ? new Date(a.planned_deadline).getTime() : Infinity;
       const bd = b.planned_deadline ? new Date(b.planned_deadline).getTime() : Infinity;
@@ -896,7 +944,11 @@ function MyTasksTable({
     });
 
   const recentDone = tasks
-    .filter((t) => t.assigned_to === userId && t.status === "done")
+    .filter(
+      (t) =>
+        t.assigned_to === userId &&
+        (t.status === "done" || t.status === "completed")
+    )
     .sort((a, b) => new Date(b.completed_at ?? b.planned_deadline ?? 0).getTime() - new Date(a.completed_at ?? a.planned_deadline ?? 0).getTime())
     .slice(0, 5);
 
@@ -1183,7 +1235,7 @@ function KittingMixCard({ data }: { data: KittingMix }) {
   const c = 2 * Math.PI * r;
   const dash = total > 0 ? (data.withKitting / total) * c : 0;
   return (
-    <Card className="h-full min-h-[270px]">
+    <Card className="h-full min-h-[270px] transition-shadow duration-300 hover:shadow-md">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Package className="h-3 w-3" />
@@ -1292,7 +1344,7 @@ function PriorityMixCard({ data }: { data: PriorityMix }) {
     { label: "Low", value: data.low, bar: "bg-muted-foreground/40", dot: "bg-muted-foreground/60" },
   ];
   return (
-    <Card className="h-full min-h-[270px]">
+    <Card className="h-full min-h-[270px] transition-shadow duration-300 hover:shadow-md">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Zap className="h-3 w-3" />
@@ -1370,7 +1422,7 @@ function CycleTimeCard({ data }: { data: CycleTimeBucket[] }) {
   const total = data.reduce((s, b) => s + b.count, 0);
   const max = Math.max(1, ...data.map((b) => b.count));
   return (
-    <Card className="h-full min-h-[270px]">
+    <Card className="h-full min-h-[270px] transition-shadow duration-300 hover:shadow-md">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Flame className="h-3 w-3" />
@@ -1440,7 +1492,7 @@ function TopClientsCard({ data }: { data: TopClient[] }) {
   const { clients: allClients } = useClients();
 
   return (
-    <Card className="h-full min-h-[270px]">
+    <Card className="h-full min-h-[270px] transition-shadow duration-300 hover:shadow-md">
       <CardContent className="flex h-full flex-col py-4">
         <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Building2 className="h-3 w-3" />

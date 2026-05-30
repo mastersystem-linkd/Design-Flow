@@ -76,7 +76,7 @@ function computeAvgDelay(tasks: TaskWithRelations[]): number | null {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const completed = tasks.filter(
     (t) =>
-      t.status === "done" &&
+      (t.status === "done" || t.status === "completed") &&
       t.completed_at &&
       new Date(t.completed_at) >= monthStart &&
       t.delay_days != null

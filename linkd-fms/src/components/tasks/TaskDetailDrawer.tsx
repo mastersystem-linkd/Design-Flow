@@ -19,6 +19,15 @@ import {
   MessageSquare,
   Pencil,
   Trash2,
+  Package,
+  CalendarDays,
+  Flag,
+  UserCircle2,
+  Layers,
+  History,
+  ClipboardList,
+  Workflow,
+  FolderOpen,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast, LazyImage } from "@/components/ui";
@@ -32,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { PostDoneModal } from "@/components/tasks/PostDoneModal";
 import {
   Avatar,
   AvatarFallback,
@@ -43,9 +53,7 @@ import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaskDetail, type FileWithUploader, type TaskLogWithUser } from "@/hooks/useTaskDetail";
 import { useTaskMutations, type UpdateTaskFields } from "@/hooks/useTaskMutations";
-import { useTaskComments } from "@/hooks/useTaskComments";
 import { useProfiles } from "@/hooks/useProfiles";
-import { sendNotification } from "@/lib/notifications";
 import {
   STATUS_ORDER,
   STATUS_LABELS,
@@ -96,10 +104,12 @@ export function TaskDetailDrawer({
 }: TaskDetailDrawerProps) {
   const { task, files, logs, isLoading, error, refetch } = useTaskDetail(taskId);
   const { profile, user } = useAuth();
-  const { updateTask, deleteTask, isPending: isMutPending } = useTaskMutations();
+  const { updateTask, deleteTask, completeTask, isPending: isMutPending } =
+    useTaskMutations();
 
   const [editMode, setEditMode] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [postDoneOpen, setPostDoneOpen] = useState(false);
 
   // Edit visible to admin/coordinator OR the designer who owns the task
   const isOwner = !!(task && (task.assigned_to === user?.id || task.created_by === user?.id));
@@ -129,10 +139,27 @@ export function TaskDetailDrawer({
     onChange?.();
   }
 
+  // Complete a 'done' task. If fabric was already chosen at claim time, finish
+  // straight away; otherwise open PostDoneModal to capture fabric first.
+  async function handleComplete() {
+    if (!task) return;
+    if (task.fabric?.trim()) {
+      const { error: compErr } = await completeTask(task.id, task.fabric, null);
+      if (compErr) {
+        toast.error(compErr);
+        return;
+      }
+      toast.success("Task completed! 🎉");
+      handleChanged();
+      return;
+    }
+    setPostDoneOpen(true);
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[90vh] w-[95vw] max-w-[560px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl"
+        className="flex max-h-[90vh] w-[95vw] max-w-[640px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl"
         srTitle={task?.task_code ? `Task ${task.task_code}` : "Task details"}
       >
         {isLoading || !task ? (
@@ -150,7 +177,7 @@ export function TaskDetailDrawer({
 
             <div
               className={cn(
-                "flex-1 space-y-4 overflow-y-auto px-5 py-4",
+                "flex-1 space-y-3 overflow-y-auto px-4 py-3",
                 editMode && "bg-primary/[0.02]"
               )}
             >
@@ -193,10 +220,23 @@ export function TaskDetailDrawer({
                 <BriefDetails task={task} onChanged={handleChanged} />
               )}
 
+              {!editMode && (
+                <CompletionSection
+                  task={task}
+                  canComplete={!!canEdit}
+                  onAddDetails={() => void handleComplete()}
+                />
+              )}
+
               {/* Full Kitting reference — visible to ALL roles. Shows the
                   coordinator-uploaded photo + any DEO progress so designers
                   see the kitting context before they start. */}
               <FullKittingReference task={task} />
+
+              {/* Reference + design files — the brief's attached references and
+                  the designer's uploads, so designers have what they need to
+                  work. (Previously this section was never mounted.) */}
+              <FilesSection task={task} files={files} onUploaded={handleChanged} />
 
               {task.status === "in_progress" && (
                 <QtyTracker
@@ -207,8 +247,6 @@ export function TaskDetailDrawer({
               )}
 
               <ActivityLog logs={logs} />
-
-              <Discussion task={task} />
 
               {/* SamplingRecords removed — sampling is now decoupled from tasks. */}
             </div>
@@ -228,11 +266,128 @@ export function TaskDetailDrawer({
               onConfirm={() => void handleDelete()}
               onCancel={() => setDeleteOpen(false)}
             />
+
+            <PostDoneModal
+              open={postDoneOpen}
+              onOpenChange={setPostDoneOpen}
+              task={task}
+              onCompleted={handleChanged}
+            />
           </>
         )}
       </DialogContent>
     </Dialog>
   );
+}
+
+// ============================================================================
+// Completion details — done → completed
+// ----------------------------------------------------------------------------
+// 'done' = design work finished. If fabric was chosen at claim time, the
+// "Complete" button finishes the task directly; otherwise it opens the
+// PostDoneModal to capture fabric first. 'completed' = fully closed; shows the
+// captured fabric / who-filled-it / when.
+// ============================================================================
+
+function CompletionSection({
+  task,
+  canComplete,
+  onAddDetails,
+}: {
+  task: TaskWithRelations;
+  canComplete: boolean;
+  onAddDetails: () => void;
+}) {
+  if (task.status === "done") {
+    const hasFabric = !!task.fabric?.trim();
+    return (
+      <div
+        className={cn(
+          "rounded-xl border p-4",
+          hasFabric
+            ? "border-success/30 bg-success/10"
+            : "border-warning/30 bg-warning/10"
+        )}
+      >
+        <div className="flex items-start gap-2.5">
+          {hasFabric ? (
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              {hasFabric ? "Ready to Complete" : "Completion Details Needed"}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {hasFabric
+                ? `Fabric: ${task.fabric}. Mark this task completed.`
+                : "Design work is done. Add the fabric to fully close this task."}
+            </p>
+            {canComplete && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={onAddDetails}
+                className="mt-3 gap-1.5"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {hasFabric ? "Complete Task" : "Add Fabric Details"}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (task.status === "completed") {
+    return (
+      <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-success">
+          Completion Details
+        </p>
+        <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div>
+            <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Fabric
+            </dt>
+            <dd className="font-medium text-foreground">
+              {task.completion_fabric || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              MTR
+            </dt>
+            <dd className="font-medium tabular-nums text-foreground">
+              {task.completion_mtr ?? "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Completed by
+            </dt>
+            <dd className="font-medium text-foreground">
+              {task.filler?.full_name ?? "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Completed on
+            </dt>
+            <dd className="font-medium text-foreground">
+              {task.completion_filled_at
+                ? formatDate(task.completion_filled_at)
+                : "—"}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -283,58 +438,88 @@ function DrawerHeader({
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
+  const isUrgent = task.priority === "urgent";
   return (
-    <div className="shrink-0 border-b border-border bg-card/80 px-5 pt-4 pb-3 backdrop-blur">
-      {/* Row 1: code + status + action buttons */}
-      <div className="flex items-center gap-2 pr-8">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-primary">
-          {task.task_code}
-        </span>
-        <Badge className={cn("text-[10px]", STATUS_COLORS[task.status])}>
-          {statusLabelForTask(task)}
-        </Badge>
-        {editMode && (
-          <Badge className="bg-primary/10 text-primary border border-primary/20 text-[10px]">
-            Editing
+    <div className="relative shrink-0 overflow-hidden border-b border-border bg-gradient-to-br from-primary/[0.07] via-card to-card px-5 pt-4 pb-4 backdrop-blur">
+      {/* Warp-line accent (loom thread) — the app's textile signature. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-primary/70 via-warning/40 to-success/50"
+      />
+      {/* Woven dot grid — faint texture behind the title. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, rgb(var(--foreground)) 1px, transparent 1px)",
+          backgroundSize: "14px 14px",
+        }}
+      />
+
+      <div className="relative">
+        {/* Row 1: code + status + action buttons */}
+        <div className="flex items-center gap-2 pr-8">
+          <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wider text-primary">
+            {task.task_code}
+          </span>
+          <Badge className={cn("text-[10px]", STATUS_COLORS[task.status])}>
+            {statusLabelForTask(task)}
           </Badge>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          {!editMode && canEdit && onEdit && (
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
-            >
-              Edit
-            </button>
+          {editMode && (
+            <Badge className="border border-primary/20 bg-primary/10 text-[10px] text-primary">
+              Editing
+            </Badge>
           )}
-          {!editMode && canDelete && onDelete && (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="rounded-md px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10"
-            >
-              Delete
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-1">
+            {!editMode && canEdit && onEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                title="Edit task"
+                aria-label="Edit task"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card/60 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {!editMode && canDelete && onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                title="Delete task"
+                aria-label="Delete task"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card/60 text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Row 2: concept */}
-      <h2 className="mt-2 font-sans text-2xl leading-tight tracking-tight text-foreground">
-        {task.concept}
-      </h2>
-
-      {/* Row 3: client + urgent */}
-      <div className="mt-1 flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">
-          {task.client?.party_name ?? "—"}
-        </span>
-        {task.priority === "urgent" && (
-          <Badge className="bg-destructive px-1.5 py-0 text-[10px] uppercase tracking-wider text-destructive-foreground">
-            Urgent
-          </Badge>
-        )}
+        {/* Row 2: concept */}
+        <div className="mt-2.5 flex items-start gap-2.5">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
+            <Sparkles className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-sans text-2xl font-semibold leading-tight tracking-tight text-foreground">
+              {task.concept}
+            </h2>
+            {/* Row 3: client + urgent */}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">
+                {task.client?.party_name ?? (task.brief_type === "ld" ? "LD Silk Mills" : "—")}
+              </span>
+              {isUrgent && (
+                <Badge className="gap-1 bg-destructive px-1.5 py-0 text-[10px] uppercase tracking-wider text-destructive-foreground">
+                  <Flag className="h-2.5 w-2.5" />
+                  Urgent
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -366,7 +551,8 @@ const STAGE_HINTS: Record<TaskStatus, string> = {
   full_kitting: "Submitted, waiting on admin review",
   approved: "Approved (legacy)",
   sampling: "Sampling (legacy)",
-  done: "Completed",
+  done: "Design done — awaiting completion details",
+  completed: "Fully completed",
 };
 
 function ProgressPipeline({ current }: { current: TaskStatus }) {
@@ -376,12 +562,14 @@ function ProgressPipeline({ current }: { current: TaskStatus }) {
     current === "full_kitting" ||
     current === "todo"
       ? "in_progress"
-      : current;
+      : current === "completed"
+        ? "done"
+        : current;
   const currentIndex = PIPELINE_STAGES.indexOf(effectiveCurrent);
   const lastIndex = PIPELINE_STAGES.length - 1;
 
   return (
-    <Section title="Pipeline">
+    <Section title="Pipeline" icon={<Workflow className="h-3.5 w-3.5" />}>
       {/* Dots + connector lines */}
       <div className="flex items-start">
         {PIPELINE_STAGES.map((s, i) => {
@@ -441,13 +629,16 @@ function ProgressPipeline({ current }: { current: TaskStatus }) {
       </div>
 
       {/* Plain-English description of the current stage */}
-      <p className="mt-3 rounded-md border border-border bg-card/50 px-3 py-2 text-[11px] text-muted-foreground">
-        <span className="font-medium text-foreground">
-          {STATUS_LABELS[effectiveCurrent]}
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[11px] text-muted-foreground">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+        <span>
+          <span className="font-semibold text-foreground">
+            {STATUS_LABELS[effectiveCurrent]}
+          </span>
+          {" — "}
+          {STAGE_HINTS[effectiveCurrent]}
         </span>
-        {" — "}
-        {STAGE_HINTS[effectiveCurrent]}
-      </p>
+      </div>
     </Section>
   );
 }
@@ -839,7 +1030,7 @@ function EditableBriefDetails({
           <p className="text-[10px] uppercase tracking-wider font-medium mb-1">Read-only</p>
           <div className="grid grid-cols-2 gap-1">
             <span>Fabric: {task.fabric}</span>
-            <span>Client: {task.client?.party_name ?? "—"}</span>
+            <span>Client: {task.client?.party_name ?? (task.brief_type === "ld" ? "LD Silk Mills" : "—")}</span>
             <span>Concept: {task.concept}</span>
             <span>Code: {task.task_code}</span>
           </div>
@@ -891,15 +1082,36 @@ function BriefDetails({
   const sev = daysSeverity(days);
   const qtyPct = task.qty > 0 ? Math.min(100, (task.qty_completed / task.qty) * 100) : 0;
   const qtyPartial = task.qty_completed > 0 && task.qty_completed < task.qty;
+  const qtyExtra = task.qty_completed > task.qty ? task.qty_completed - task.qty : 0;
+
+  // Scalar cards (Quantity, Deadline, Priority, Assigned + optional Fabric /
+  // WhatsApp) live in a 2-col grid. To avoid a lonely half-width card on an odd
+  // count, the trailing card spans both columns. Which card is "trailing"
+  // depends on which optionals are present.
+  const hasFabric = !!task.fabric?.trim();
+  const hasWa = !!task.whatsapp_group;
+  const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0);
+  const oddTrailing = scalarCount % 2 === 1;
+  const lastKey = hasWa ? "wa" : hasFabric ? "fabric" : "assigned";
+  const wide = (key: string) => (oddTrailing && key === lastKey ? "col-span-2" : "");
 
   return (
-    <Section title="Brief details">
+    <Section title="Brief details" icon={<ClipboardList className="h-3.5 w-3.5" />}>
       <div className="grid grid-cols-2 gap-2">
-        <InfoCard label="Fabric">{task.fabric}</InfoCard>
-
-        <InfoCard label="Quantity">
+        <InfoCard
+          label="Quantity"
+          icon={<Package className="h-3 w-3" />}
+          tone="primary"
+        >
           <span className="tabular-nums">
-            {qtyPartial ? (
+            {qtyExtra > 0 ? (
+              <>
+                {task.qty_completed} / {task.qty} m
+                <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[10px] font-semibold text-primary">
+                  +{qtyExtra} extra
+                </span>
+              </>
+            ) : qtyPartial ? (
               <>
                 {task.qty_completed} / {task.qty} m completed
               </>
@@ -909,17 +1121,30 @@ function BriefDetails({
               </>
             )}
           </span>
-          {qtyPartial && (
+          {(qtyPartial || qtyExtra > 0) && (
             <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
               <div
-                className="h-full rounded-full bg-success transition-[width] duration-300"
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-300",
+                  qtyExtra > 0 ? "bg-primary" : "bg-success"
+                )}
                 style={{ width: `${qtyPct}%` }}
               />
             </div>
           )}
         </InfoCard>
 
-        <InfoCard label="Deadline">
+        <InfoCard
+          label="Deadline"
+          icon={<CalendarDays className="h-3 w-3" />}
+          tone={
+            sev === "overdue" || sev === "critical"
+              ? "destructive"
+              : sev === "today" || sev === "warning"
+                ? "warning"
+                : "muted"
+          }
+        >
           {task.planned_deadline ? (
             <div className="flex flex-col gap-1">
               <span className="text-foreground">
@@ -942,11 +1167,11 @@ function BriefDetails({
           )}
         </InfoCard>
 
-        <InfoCard label="Due time">
-          {task.due_time ? task.due_time.slice(0, 5) : <span className="text-muted-foreground">—</span>}
-        </InfoCard>
-
-        <InfoCard label="Priority">
+        <InfoCard
+          label="Priority"
+          icon={<Flag className="h-3 w-3" />}
+          tone={task.priority === "urgent" ? "destructive" : "muted"}
+        >
           {task.priority === "urgent" ? (
             <Badge className="bg-destructive px-1.5 py-0 text-[10px] uppercase tracking-wider text-destructive-foreground">
               Urgent
@@ -956,41 +1181,56 @@ function BriefDetails({
           )}
         </InfoCard>
 
-        <InfoCard label="Assigned to">
-          <AssigneeRow
-            task={task}
-            isAdmin={isAdmin}
-            onAssigned={onChanged}
-          />
+        <InfoCard
+          label="Assigned to"
+          icon={<UserCircle2 className="h-3 w-3" />}
+          tone="primary"
+          className={wide("assigned")}
+        >
+          <AssigneeRow task={task} isAdmin={isAdmin} onAssigned={onChanged} />
         </InfoCard>
+
+        {hasFabric && (
+          <InfoCard
+            label="Fabric"
+            icon={<Layers className="h-3 w-3" />}
+            className={wide("fabric")}
+          >
+            {task.fabric}
+          </InfoCard>
+        )}
+
+        {hasWa && (
+          <InfoCard
+            label="WhatsApp group"
+            icon={<MessageSquare className="h-3 w-3" />}
+            className={wide("wa")}
+          >
+            {task.whatsapp_group}
+          </InfoCard>
+        )}
       </div>
 
-      {(task.description || task.notes || task.whatsapp_group) && (
-        <div className="mt-3 space-y-2 border-t border-border pt-3 text-sm">
+      {(task.description || task.notes) && (
+        <div className="mt-2.5 space-y-2.5">
           {task.description && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 Description
               </p>
-              <p className="mt-0.5 whitespace-pre-wrap leading-relaxed text-foreground">
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 {task.description}
               </p>
             </div>
           )}
           {task.notes && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <div className="rounded-xl border border-border bg-card px-3 py-2.5">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 Notes
               </p>
-              <p className="mt-0.5 text-foreground">{task.notes}</p>
-            </div>
-          )}
-          {task.whatsapp_group && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                WhatsApp
+              <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                {task.notes}
               </p>
-              <p className="mt-0.5 text-foreground">{task.whatsapp_group}</p>
             </div>
           )}
         </div>
@@ -999,19 +1239,50 @@ function BriefDetails({
   );
 }
 
+const INFO_TONE: Record<string, string> = {
+  muted: "bg-secondary text-muted-foreground",
+  primary: "bg-primary/10 text-primary",
+  warning: "bg-warning/10 text-warning",
+  success: "bg-success/10 text-success",
+  destructive: "bg-destructive/10 text-destructive",
+};
+
 function InfoCard({
   label,
+  icon,
+  tone = "muted",
+  className,
   children,
 }: {
   label: string;
+  icon?: React.ReactNode;
+  tone?: keyof typeof INFO_TONE;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-md border border-border bg-card px-2.5 py-2">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <div className="mt-0.5 text-sm font-medium text-foreground">{children}</div>
+    <div
+      className={cn(
+        "rounded-xl border border-border bg-card px-3 py-2.5 transition-colors hover:border-primary/20",
+        className
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        {icon && (
+          <span
+            className={cn(
+              "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+              INFO_TONE[tone] ?? INFO_TONE.muted
+            )}
+          >
+            {icon}
+          </span>
+        )}
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+      </div>
+      <div className="mt-1.5 text-sm font-medium text-foreground">{children}</div>
     </div>
   );
 }
@@ -1483,13 +1754,13 @@ function QtyTracker({
   const pending = isPending("updateQty", task.id);
   const dirty = draft !== task.qty_completed;
   const min = task.qty_completed; // cannot reduce
-  const max = task.qty;
-  const valid = Number.isFinite(draft) && draft >= min && draft <= max;
-  const willComplete = draft === task.qty && task.qty > 0;
+  const valid = Number.isFinite(draft) && draft >= min;
+  const willComplete = draft >= task.qty && task.qty > 0 && task.qty_completed < task.qty;
+  const extraCount = draft > task.qty ? draft - task.qty : 0;
 
   function clamp(n: number): number {
     if (!Number.isFinite(n)) return min;
-    return Math.max(min, Math.min(max, Math.round(n)));
+    return Math.max(min, Math.round(n));
   }
 
   function step(delta: number) {
@@ -1527,12 +1798,20 @@ function QtyTracker({
         {/* Big progress bar with overlay */}
         <div className="relative h-7 overflow-hidden rounded-md border border-border bg-secondary">
           <div
-            className="h-full rounded-md bg-success transition-[width] duration-300"
+            className={cn(
+              "h-full rounded-md transition-[width] duration-300",
+              extraCount > 0 ? "bg-primary" : "bg-success"
+            )}
             style={{ width: `${pct}%` }}
             aria-hidden
           />
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] font-medium tabular-nums text-foreground">
+          <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-[11px] font-medium tabular-nums text-foreground">
             {draft} of {task.qty} m
+            {extraCount > 0 && (
+              <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                +{extraCount} extra
+              </span>
+            )}
           </div>
         </div>
 
@@ -1544,7 +1823,6 @@ function QtyTracker({
           <Input
             type="number"
             min={min}
-            max={max}
             step={1}
             value={draft}
             onChange={(e) => setDraft(clamp(Number(e.target.value)))}
@@ -1552,7 +1830,7 @@ function QtyTracker({
             className="h-9 w-24 text-center tabular-nums"
             aria-label="Quantity completed"
           />
-          <StepperButton onClick={() => step(1)} disabled={pending || draft >= max}>
+          <StepperButton onClick={() => step(1)} disabled={pending}>
             <Plus className="h-3.5 w-3.5" />
           </StepperButton>
           <LoadingButton
@@ -1582,9 +1860,13 @@ function QtyTracker({
         variant="warning"
         title="Mark as fully kitted?"
         description={
-          hasFiles || !isConceptTrackTask(task)
-            ? "All meters will be marked completed and the task moves to Full Knitting for review."
-            : "All meters will be marked completed. Make sure you've uploaded the design file before submitting for review."
+          extraCount > 0
+            ? `${draft} designs (${extraCount} extra) will be recorded and the task moves to Full Knitting for review.${
+                !hasFiles && isConceptTrackTask(task) ? " Make sure you've uploaded the design file before submitting." : ""
+              }`
+            : hasFiles || !isConceptTrackTask(task)
+              ? "All meters will be marked completed and the task moves to Full Knitting for review."
+              : "All meters will be marked completed. Make sure you've uploaded the design file before submitting for review."
         }
         itemRef={task.task_code}
         confirmLabel="Yes, update"
@@ -1643,7 +1925,11 @@ function FilesSection({
     !noFiles && (isAdmin || (isInProgress && profile?.id === task.assigned_to));
 
   return (
-    <Section title="Design files" countBadge={files.length}>
+    <Section
+      title="Design files"
+      countBadge={files.length}
+      icon={<FolderOpen className="h-3.5 w-3.5" />}
+    >
       {showFullUploadZone ? (
         <FileUploadZone task={task} variant="full" onUploaded={onUploaded} />
       ) : noFiles ? (
@@ -1827,7 +2113,8 @@ function FileUploadZone({
 
 function FileTile({ file }: { file: FileWithUploader }) {
   const [thumb, setThumb] = useState<string | null>(null);
-  const isImage = /\.(jpe?g|png)$/i.test(file.file_name);
+  const isImage = isImagePath(file.file_name);
+  const ext = fileExt(file.file_name);
 
   useEffect(() => {
     if (!isImage) return;
@@ -1855,8 +2142,8 @@ function FileTile({ file }: { file: FileWithUploader }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
-      <div className="relative h-20 w-full bg-secondary">
+    <div className="group overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/30">
+      <div className="relative h-20 w-full bg-gradient-to-br from-secondary to-secondary/40">
         {isImage && thumb ? (
           <LazyImage
             src={thumb}
@@ -1864,14 +2151,19 @@ function FileTile({ file }: { file: FileWithUploader }) {
             className="h-full w-full"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <FileIcon className="h-6 w-6 text-muted-foreground" />
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+            <FileIcon className="h-6 w-6" />
+            {ext && (
+              <span className="rounded bg-card px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider">
+                {ext}
+              </span>
+            )}
           </div>
         )}
         <button
           type="button"
           onClick={handleDownload}
-          className="absolute right-1 top-1 rounded-md bg-black/80 p-1 text-white hover:bg-primary"
+          className="absolute right-1.5 top-1.5 rounded-lg bg-black/75 p-1.5 text-white backdrop-blur transition-colors hover:bg-primary"
           aria-label={`Download ${file.file_name}`}
         >
           <Download className="h-3 w-3" />
@@ -1952,12 +2244,16 @@ function ActivityLog({ logs }: { logs: TaskLogWithUser[] }) {
   const hidden = Math.max(0, cleaned.length - COMPACT_LIMIT);
 
   return (
-    <Section title="Activity" countBadge={cleaned.length}>
+    <Section
+      title="Activity"
+      countBadge={cleaned.length}
+      icon={<History className="h-3.5 w-3.5" />}
+    >
       {cleaned.length === 0 ? (
         <p className="text-xs italic text-muted-foreground">No activity yet.</p>
       ) : (
         <>
-          <ol className="space-y-3">
+          <ol className="space-y-0">
             {visible.map((l, i) => (
               <LogEntry key={l.id} log={l} isLast={i === visible.length - 1} />
             ))}
@@ -1986,60 +2282,74 @@ function LogEntry({
 }) {
   const when = log.timestamp ? new Date(log.timestamp) : null;
   const isCreation = !log.status_from;
+  const actor = log.changer?.full_name ?? "System";
 
   return (
     <li className="flex gap-3">
+      {/* Timeline rail — consistent node size + connecting line. */}
       <div className="flex flex-col items-center">
-        {isCreation ? (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/30">
-            <Sparkles className="h-3 w-3 text-foreground" />
-          </span>
-        ) : (
-          <span
-            className={cn(
-              "mt-1 h-2 w-2 rounded-full",
-              COLUMN_DOT[log.status_to]
-            )}
-          />
-        )}
-        {!isLast && <span className="w-px flex-1 bg-border" />}
-      </div>
-      <div className="flex-1 pb-3">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span
+          className={cn(
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-2 ring-card",
+            isCreation ? "bg-primary/15 text-primary" : "border border-border bg-card"
+          )}
+        >
           {isCreation ? (
-            <span className="font-semibold text-foreground">Created</span>
+            <Sparkles className="h-3 w-3" />
+          ) : (
+            <span
+              className={cn("h-2.5 w-2.5 rounded-full", COLUMN_DOT[log.status_to])}
+            />
+          )}
+        </span>
+        {!isLast && <span className="mt-1 w-px flex-1 bg-border" />}
+      </div>
+
+      <div className={cn("min-w-0 flex-1", isLast ? "pb-0" : "pb-4")}>
+        {/* Actor + time, justified to fill the row width. */}
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="truncate text-sm font-semibold text-foreground">
+            {actor}
+          </span>
+          {when && (
+            <span
+              className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
+              title={when.toISOString()}
+            >
+              {formatDistanceToNow(when, { addSuffix: true })}
+            </span>
+          )}
+        </div>
+
+        {/* Action line — status transition shown as pills. */}
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          {isCreation ? (
+            <span>created this task</span>
           ) : log.status_from ? (
             <>
-              <span className="text-muted-foreground">
+              <span>moved</span>
+              <span className="rounded-md bg-secondary px-1.5 py-0.5 font-medium text-foreground">
                 {activityStatusLabel(log.status_from)}
               </span>
-              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-              <span className="font-semibold text-foreground">
+              <ArrowRight className="h-3 w-3" />
+              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
                 {activityStatusLabel(log.status_to)}
               </span>
             </>
           ) : (
-            <span className="font-semibold text-foreground">
-              {activityStatusLabel(log.status_to)}
-            </span>
+            <>
+              <span>set to</span>
+              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                {activityStatusLabel(log.status_to)}
+              </span>
+            </>
           )}
         </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          {log.changer && (
-            <span className="font-medium text-foreground">
-              {log.changer.full_name}
-            </span>
-          )}
-          {when && (
-            <span title={when.toISOString()}>
-              · {formatDistanceToNow(when, { addSuffix: true })}
-            </span>
-          )}
-        </div>
+
         {log.note && (
-          <blockquote className="mt-1.5 border-l-2 border-border bg-secondary/40 px-2 py-1 text-xs italic text-foreground">
+          <p className="mt-1.5 rounded-lg bg-secondary/50 px-2.5 py-1.5 text-xs text-foreground">
             {log.note}
-          </blockquote>
+          </p>
         )}
       </div>
     </li>
@@ -2509,15 +2819,22 @@ function DrawerSkeleton({ error }: { error: string | null }) {
 function Section({
   title,
   countBadge,
+  icon,
   children,
 }: {
   title: string;
   countBadge?: number;
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="space-y-2.5">
       <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {icon && (
+          <span className="flex h-4 w-4 items-center justify-center text-primary/70">
+            {icon}
+          </span>
+        )}
         {title}
         {countBadge !== undefined && countBadge > 0 && (
           <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] tabular-nums text-foreground">
@@ -2536,294 +2853,23 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-// ============================================================================
-// Section 9 — Discussion (task_comments)
-// ============================================================================
-
-const COMMENT_MAX = 2000;
-
-function Discussion({ task }: { task: TaskWithRelations }) {
-  const { user } = useAuth();
-  const {
-    comments,
-    isLoading,
-    addComment,
-    editComment,
-    deleteComment,
-  } = useTaskComments(task.id);
-
-  const [draft, setDraft] = useState("");
-  const [posting, setPosting] = useState(false);
-  const listRef = useRef<HTMLOListElement>(null);
-
-  // Scroll the comment list to the bottom whenever a new comment lands.
-  useEffect(() => {
-    if (!listRef.current) return;
-    listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [comments.length]);
-
-  const trimmedLen = draft.trim().length;
-  const canPost = trimmedLen > 0 && trimmedLen <= COMMENT_MAX && !posting;
-
-  async function handlePost() {
-    if (!canPost) return;
-    setPosting(true);
-    const body = draft.trim();
-    const { data, error } = await addComment(body);
-    setPosting(false);
-
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    setDraft("");
-    toast.success("Comment added");
-
-    // Notify the assignee if it's someone other than the commenter.
-    if (
-      data &&
-      task.assigned_to &&
-      task.assigned_to !== user?.id
-    ) {
-      void sendNotification(
-        task.assigned_to,
-        `New comment on ${task.task_code}`,
-        body.length > 100 ? body.slice(0, 100) + "…" : body,
-        "info",
-        `/dashboard?task=${task.id}`
-      );
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Ctrl/Cmd+Enter posts (familiar from Slack / GitHub).
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      void handlePost();
-    }
-  }
-
-  return (
-    <Section title="Discussion" countBadge={comments.length}>
-      {isLoading && comments.length === 0 ? (
-        <p className="text-xs italic text-muted-foreground">Loading…</p>
-      ) : comments.length === 0 ? (
-        <p className="flex items-center gap-2 rounded-lg bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-          No comments yet. Start the discussion.
-        </p>
-      ) : (
-        <ol
-          ref={listRef}
-          className="max-h-[300px] space-y-3 overflow-y-auto pr-1"
-        >
-          {comments.map((c) => (
-            <CommentItem
-              key={c.id}
-              comment={c}
-              isOwn={c.user_id === user?.id}
-              onEdit={editComment}
-              onDelete={deleteComment}
-            />
-          ))}
-        </ol>
-      )}
-
-      {/* Composer */}
-      <div className="mt-3 space-y-1.5">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value.slice(0, COMMENT_MAX))}
-          onKeyDown={handleKeyDown}
-          placeholder="Add a comment…"
-          rows={2}
-          maxLength={COMMENT_MAX}
-          disabled={posting}
-          className="w-full resize-none rounded-md border border-border bg-card px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-        />
-        <div className="flex items-center justify-end gap-2">
-          {trimmedLen > 1500 && (
-            <span
-              className={cn(
-                "text-xs text-muted-foreground tabular-nums",
-                trimmedLen >= COMMENT_MAX && "text-destructive"
-              )}
-            >
-              {trimmedLen}/{COMMENT_MAX}
-            </span>
-          )}
-          <LoadingButton
-            type="button"
-            size="sm"
-            onClick={() => void handlePost()}
-            loading={posting}
-            loadingText="Posting…"
-            disabled={!canPost}
-          >
-            Post
-          </LoadingButton>
-        </div>
-      </div>
-    </Section>
-  );
+/** True when a storage path / filename looks like a browser-renderable image. */
+function isImagePath(path: string): boolean {
+  return /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i.test(path);
 }
 
-function CommentItem({
-  comment,
-  isOwn,
-  onEdit,
-  onDelete,
-}: {
-  comment: import("@/types/database").TaskCommentWithAuthor;
-  isOwn: boolean;
-  onEdit: (id: string, body: string) => Promise<{ error: string | null }>;
-  onDelete: (id: string) => Promise<{ error: string | null }>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(comment.body);
-  const [saving, setSaving] = useState(false);
-  const [confirmDel, setConfirmDel] = useState(false);
+/** Uppercase extension (no dot) for a path, or "" if none. */
+function fileExt(path: string): string {
+  const m = path.match(/\.([a-z0-9]+)$/i);
+  return m ? m[1].toUpperCase() : "";
+}
 
-  const when = comment.created_at
-    ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })
-    : "";
-  const wasEdited =
-    comment.updated_at &&
-    comment.created_at &&
-    new Date(comment.updated_at).getTime() -
-      new Date(comment.created_at).getTime() >
-      1000;
-
-  async function handleSave() {
-    if (!draft.trim() || draft === comment.body) {
-      setEditing(false);
-      setDraft(comment.body);
-      return;
-    }
-    setSaving(true);
-    const { error } = await onEdit(comment.id, draft);
-    setSaving(false);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    setEditing(false);
-    toast.success("Comment updated");
-  }
-
-  async function handleDelete() {
-    const { error } = await onDelete(comment.id);
-    setConfirmDel(false);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    toast.success("Comment deleted");
-  }
-
-  return (
-    <li className="flex gap-2">
-      <Avatar className="h-7 w-7 shrink-0">
-        {comment.author?.avatar_url ? (
-          <AvatarImage src={comment.author.avatar_url} />
-        ) : null}
-        <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
-          {getInitials(comment.author?.full_name ?? "")}
-        </AvatarFallback>
-      </Avatar>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <p className="text-sm font-medium text-foreground">
-            {comment.author?.full_name ?? "Unknown user"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {when}
-            {wasEdited && (
-              <span className="ml-1 italic text-muted-foreground/70">
-                (edited)
-              </span>
-            )}
-          </p>
-        </div>
-
-        {editing ? (
-          <div className="mt-1 space-y-1.5">
-            <textarea
-              value={draft}
-              onChange={(e) =>
-                setDraft(e.target.value.slice(0, COMMENT_MAX))
-              }
-              rows={2}
-              disabled={saving}
-              className="w-full resize-none rounded-md border border-border bg-card px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <LoadingButton
-                type="button"
-                size="sm"
-                onClick={() => void handleSave()}
-                loading={saving}
-                loadingText="Saving…"
-                disabled={!draft.trim()}
-              >
-                Save
-              </LoadingButton>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setEditing(false);
-                  setDraft(comment.body);
-                }}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-foreground">
-              {comment.body}
-            </p>
-            {isOwn && (
-              <div className="mt-1 flex items-center gap-3 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setEditing(true)}
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDel(true)}
-                  className="inline-flex items-center gap-1 text-destructive hover:underline"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  Delete
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <ConfirmDialog
-        open={confirmDel}
-        title="Delete this comment?"
-        description="Other people in this thread won't see it anymore. This action can't be undone."
-        variant="danger"
-        confirmLabel="Delete"
-        onConfirm={() => void handleDelete()}
-        onCancel={() => setConfirmDel(false)}
-      />
-    </li>
-  );
+/** Last path segment, used as a display label for a stored file. */
+function fileLabel(path: string): string {
+  const seg = path.split("/").pop() ?? path;
+  // Strip our timestamp prefixes (e.g. "full-kitting-1717...-name.pdf") for a
+  // cleaner label, falling back to the raw segment.
+  return seg.replace(/^(full-kitting-|brief-)?\d{10,}-/, "") || seg;
 }
 
 // Re-export Profile type for jsdoc-style consumers
@@ -2925,7 +2971,11 @@ function FullKittingReference({ task }: { task: TaskWithRelations }) {
   if (!hasFlag) return null;
 
   return (
-    <Section title="Full Knitting" countBadge={record ? 1 : undefined}>
+    <Section
+      title="Full Knitting"
+      countBadge={record ? 1 : undefined}
+      icon={<Layers className="h-3.5 w-3.5" />}
+    >
       {loading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
       ) : (
@@ -2952,31 +3002,56 @@ function FullKittingReference({ task }: { task: TaskWithRelations }) {
             )}
           </div>
 
-          {/* Form photo preview (signed URL, 1h TTL) */}
+          {/* Form file preview (signed URL, 1h TTL). Images render inline; any
+              other type (PDF, doc, …) renders a file chip so it doesn't show a
+              broken <img>. */}
           {imagePath ? (
             photoUrl ? (
-              <a
-                href={photoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block overflow-hidden rounded-lg border border-border bg-secondary/30"
-                title="Open full size"
-              >
-                <img
-                  src={photoUrl}
-                  alt="Kitting form photo"
-                  className="block max-h-48 w-full object-contain"
-                />
-              </a>
+              isImagePath(imagePath) ? (
+                <a
+                  href={photoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block overflow-hidden rounded-xl border border-border bg-secondary/30"
+                  title="Open full size"
+                >
+                  <img
+                    src={photoUrl}
+                    alt="Kitting form"
+                    className="block max-h-56 w-full object-contain"
+                  />
+                </a>
+              ) : (
+                <a
+                  href={photoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 transition-colors hover:border-primary/30"
+                  title="Open file"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <FileIcon className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {fileLabel(imagePath)}
+                    </span>
+                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      {fileExt(imagePath) || "FILE"} · tap to open
+                    </span>
+                  </span>
+                  <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </a>
+              )
             ) : (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-border bg-secondary/30 text-xs text-muted-foreground">
-                Loading photo…
+              <div className="flex h-32 items-center justify-center rounded-xl border border-border bg-secondary/30 text-xs text-muted-foreground">
+                Loading file…
               </div>
             )
           ) : (
-            <p className="rounded-md border border-border bg-secondary/30 px-3 py-2 text-[11px] text-muted-foreground">
-              The coordinator hasn't uploaded the kitting form photo yet.
-              You'll see it here once they do.
+            <p className="rounded-xl border border-dashed border-border bg-secondary/30 px-3 py-3 text-[11px] text-muted-foreground">
+              The coordinator hasn't uploaded the kitting form yet. You'll see it
+              here once they do.
             </p>
           )}
 

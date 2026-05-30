@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { HardDrive, Folder, FileIcon, RefreshCw, Loader2 } from "lucide-react";
+import {
+  HardDrive,
+  Folder,
+  FileIcon,
+  RefreshCw,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   Card,
@@ -7,6 +14,8 @@ import {
   Badge,
   Button,
   SkeletonCard,
+  ConfirmDialog,
+  toast,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +146,44 @@ export function StorageTab() {
     }
   }
 
+  // ── Empty a bucket (permanently delete every object in it) ──────────────
+  const [confirmBucket, setConfirmBucket] = useState<string | null>(null);
+  const [emptying, setEmptying] = useState<string | null>(null);
+
+  async function emptyBucket(bucket: string) {
+    setConfirmBucket(null);
+    setEmptying(bucket);
+    try {
+      const paths = await collectPaths(bucket);
+      if (paths.length === 0) {
+        toast.info(`${bucket} is already empty.`);
+        return;
+      }
+      let removed = 0;
+      let failed = 0;
+      for (let i = 0; i < paths.length; i += 100) {
+        const batch = paths.slice(i, i + 100);
+        const { error } = await supabase.storage.from(bucket).remove(batch);
+        if (error) failed += batch.length;
+        else removed += batch.length;
+      }
+      if (failed > 0) {
+        toast.warning(
+          `${bucket}: deleted ${removed}, ${failed} couldn't be removed (permissions?).`
+        );
+      } else {
+        toast.success(
+          `${bucket}: deleted ${removed} file${removed === 1 ? "" : "s"}.`
+        );
+      }
+      await loadCounts();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to empty bucket.");
+    } finally {
+      setEmptying(null);
+    }
+  }
+
   const anyCalculating = Object.values(stats).some((s) => s.loadingSize);
 
   return (
@@ -191,10 +238,24 @@ export function StorageTab() {
               meta={b}
               stat={s}
               onCalculate={() => void calculateBucketSize(b.name)}
+              onEmpty={() => setConfirmBucket(b.name)}
+              emptying={emptying === b.name}
             />
           );
         })}
       </div>
+
+      <ConfirmDialog
+        open={!!confirmBucket}
+        title={`Empty "${confirmBucket}"?`}
+        description={`This permanently deletes EVERY file in the ${confirmBucket} bucket. This cannot be undone — the underlying objects are gone for good.`}
+        variant="danger"
+        confirmLabel="Delete all files"
+        onConfirm={() => {
+          if (confirmBucket) void emptyBucket(confirmBucket);
+        }}
+        onCancel={() => setConfirmBucket(null)}
+      />
 
       {/* Tips */}
       <Card className="border-primary/20 bg-primary/[0.04]">
@@ -219,10 +280,14 @@ function BucketCard({
   meta,
   stat,
   onCalculate,
+  onEmpty,
+  emptying,
 }: {
   meta: BucketMeta;
   stat: BucketStat;
   onCalculate: () => void;
+  onEmpty: () => void;
+  emptying: boolean;
 }) {
   if (stat.loadingCount && stat.count === -1) {
     return <SkeletonCard />;
@@ -314,6 +379,29 @@ function BucketCard({
             )}
           </Button>
         )}
+
+        {/* Empty bucket — permanently deletes every object. */}
+        {stat.count > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onEmpty}
+            disabled={emptying}
+            className="w-full gap-1.5 border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive/5"
+          >
+            {emptying ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Emptying…
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-3.5 w-3.5" />
+                Empty bucket
+              </>
+            )}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
@@ -322,6 +410,41 @@ function BucketCard({
 // ----------------------------------------------------------------------------
 // Bucket walker — paginated list, optional size sum
 // ----------------------------------------------------------------------------
+
+// Recursively collect every object path in a bucket (for bulk deletion).
+async function collectPaths(bucket: string): Promise<string[]> {
+  const queue: string[] = [""];
+  const paths: string[] = [];
+  let pages = 0;
+  while (queue.length > 0) {
+    const prefix = queue.shift()!;
+    let offset = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (pages++ > MAX_PAGES) {
+        throw new Error(
+          "Hit the 20k-file safety cap — clear in smaller chunks from the Files page."
+        );
+      }
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .list(prefix, { limit: 100, offset });
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+      for (const entry of data) {
+        const full = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.metadata && typeof entry.metadata.size === "number") {
+          paths.push(full);
+        } else {
+          queue.push(full);
+        }
+      }
+      if (data.length < 100) break;
+      offset += 100;
+    }
+  }
+  return paths;
+}
 
 interface ListResult {
   count: number;

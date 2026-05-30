@@ -30,6 +30,7 @@ const ACTION_VERBS: Record<TaskStatus, string> = {
   approved: "approved",
   sampling: "sent to sampling",
   done: "completed",
+  completed: "fully completed",
 };
 
 // ============================================================================

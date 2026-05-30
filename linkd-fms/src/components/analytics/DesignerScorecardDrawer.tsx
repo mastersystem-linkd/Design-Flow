@@ -940,10 +940,13 @@ function TrendChart({
             contentStyle={{
               backgroundColor: "rgb(var(--card))",
               border: "1px solid rgb(var(--border))",
-              borderRadius: 8,
+              borderRadius: 10,
               fontSize: 12,
               color: "rgb(var(--foreground))",
+              boxShadow: "var(--shadow-dropdown)",
+              padding: "8px 10px",
             }}
+            labelStyle={{ fontWeight: 600, marginBottom: 2 }}
           />
           <Legend
             wrapperStyle={{ fontSize: 11, paddingTop: 4 }}

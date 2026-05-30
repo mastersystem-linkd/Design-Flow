@@ -22,6 +22,7 @@ const BAR_COLORS: Record<TaskStatus, string> = {
   approved: "bg-primary/50",
   sampling: "bg-warning",
   done: "bg-success",
+  completed: "bg-success",
 };
 
 // Simplified visual pipeline (matches Kanban tabs): Pool → In Progress → Done.

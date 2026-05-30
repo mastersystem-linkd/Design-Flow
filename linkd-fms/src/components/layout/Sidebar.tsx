@@ -17,6 +17,8 @@ import {
   FolderOpen,
   ShoppingCart,
   User as UserIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -57,6 +59,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
             { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
             { to: ROUTES.dashboard, label: "My Board", icon: LayoutGrid },
             { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
           ],
         },
@@ -98,6 +101,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
             { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
+            { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
             { to: ROUTES.system, label: "Settings", icon: Settings },
           ],
         },
@@ -133,6 +137,10 @@ export interface SidebarProps {
   mobileOpen: boolean;
   onClose: () => void;
   notificationCount?: number;
+  /** Desktop: pinned-collapsed (slim icon rail) when true. */
+  collapsed?: boolean;
+  /** Toggle the pinned collapse state. */
+  onToggleCollapsed?: () => void;
 }
 
 export function Sidebar({
@@ -140,11 +148,18 @@ export function Sidebar({
   mobileOpen,
   onClose,
   notificationCount = 0,
+  collapsed = false,
+  onToggleCollapsed,
 }: SidebarProps) {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const groups = getNavGroups(profile.role);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  // Desktop hover-to-peek: when pinned-collapsed, hovering temporarily expands
+  // the rail (as an overlay) so the user can switch menus.
+  const [hovered, setHovered] = useState(false);
+  // "Show as a slim icon rail" (desktop only) — collapsed AND not peeking.
+  const railed = collapsed && !hovered;
 
   async function performSignOut() {
     await signOut();
@@ -170,10 +185,19 @@ export function Sidebar({
       />
 
       <aside
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         className={cn(
-          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col bg-sidebar text-white transition-transform duration-200",
+          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col bg-sidebar text-white transition-[transform,width] duration-200",
           "md:translate-x-0",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          // Desktop width: pinned-collapsed → slim rail; hover peeks back to
+          // full width as an overlay (with a shadow so it floats over content).
+          collapsed
+            ? railed
+              ? "md:w-16"
+              : "md:w-[220px] md:shadow-2xl md:shadow-black/50"
+            : "md:w-[220px]"
         )}
         aria-label="Primary navigation"
       >
@@ -181,26 +205,65 @@ export function Sidebar({
         <button
           type="button"
           onClick={handleLogoClick}
-          className="flex w-full flex-col items-start gap-1.5 border-b border-white/[0.06] px-4 py-4 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10"
+          className={cn(
+            "flex w-full items-start gap-1.5 border-b border-white/[0.06] px-4 py-4 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10",
+            railed && "md:items-center md:justify-center md:px-0"
+          )}
           aria-label="Go to home"
         >
-          {/* LinkD wordmark — capped at 120px wide (was 170px). Sits
-               directly on the dark sidebar; the source PNG is transparent
-               so no halo. The smaller size also gives the subtitle room
-               to sit tighter underneath without crowding. */}
-          <img
-            src="/logo.png"
-            alt="LinkD"
-            className="block h-auto w-[100px] max-w-full"
-            draggable={false}
-          />
-          {/* Subtitle — 12px bold full-white, single line. Trimmed 1pt
-               from the prior 13px so it visually balances the smaller
-               wordmark above. */}
-          <span className="pl-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-white whitespace-nowrap">
-            Design Flow System
+          {/* Railed brand mark (desktop, collapsed) — compact "LD" tile. */}
+          <span
+            className={cn(
+              "hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm font-extrabold tracking-tight text-white",
+              railed && "md:flex"
+            )}
+            aria-hidden
+          >
+            LD
+          </span>
+          {/* Full wordmark + subtitle (hidden on the slim rail). */}
+          <span
+            className={cn(
+              "flex flex-col items-start gap-1.5",
+              railed && "md:hidden"
+            )}
+          >
+            <img
+              src="/logo.png"
+              alt="LinkD"
+              className="block h-auto w-[100px] max-w-full"
+              draggable={false}
+            />
+            <span className="pl-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-white whitespace-nowrap">
+              Design Flow System
+            </span>
           </span>
         </button>
+
+        {/* ============ Collapse / pin toggle (desktop only) ============ */}
+        {onToggleCollapsed && (
+          <div className="hidden px-3 pt-2 md:block">
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              title={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
+              aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg pl-4 pr-3 py-2 text-[13px] font-medium text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white",
+                railed && "md:justify-center md:px-0"
+              )}
+            >
+              {collapsed ? (
+                <PanelLeftOpen className="h-[18px] w-[18px] shrink-0" />
+              ) : (
+                <PanelLeftClose className="h-[18px] w-[18px] shrink-0" />
+              )}
+              <span className={cn("flex-1 truncate text-left", railed && "md:hidden")}>
+                {collapsed ? "Pin open" : "Collapse"}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* ============ Nav groups ============ */}
         <nav className="flex-1 overflow-y-auto px-3 py-3">
@@ -210,13 +273,23 @@ export function Sidebar({
                 <div className="my-2 h-px bg-white/[0.06]" aria-hidden />
               )}
               {group.label && (
-                <p className="mb-1.5 mt-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/30">
+                <p
+                  className={cn(
+                    "mb-1.5 mt-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/30",
+                    railed && "md:hidden"
+                  )}
+                >
                   {group.label}
                 </p>
               )}
               <ul className="space-y-0.5">
                 {group.items.map((item) => (
-                  <NavRow key={item.to} item={item} onNavigate={onClose} />
+                  <NavRow
+                    key={item.to}
+                    item={item}
+                    onNavigate={onClose}
+                    collapsed={railed}
+                  />
                 ))}
               </ul>
             </div>
@@ -233,13 +306,20 @@ export function Sidebar({
                 count: notificationCount,
               }}
               onNavigate={onClose}
+              collapsed={railed}
             />
           </ul>
         </nav>
 
         {/* ============ Theme toggle ============ */}
         <div className="px-3 pb-1">
-          <ThemeToggle className="w-full justify-start text-white/50 hover:text-white" />
+          <ThemeToggle
+            className={cn(
+              "w-full justify-start text-white/50 hover:text-white",
+              railed && "md:justify-center"
+            )}
+            labelClassName={cn(railed && "md:hidden")}
+          />
         </div>
 
         {/* ============ User profile block ============ */}
@@ -247,10 +327,14 @@ export function Sidebar({
           <DropdownMenu.Trigger asChild>
             <button
               type="button"
-              className="flex w-full items-center gap-3 border-t border-white/[0.06] px-4 py-3 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10"
+              className={cn(
+                "flex w-full items-center gap-3 border-t border-white/[0.06] px-4 py-3 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10",
+                railed && "md:justify-center md:px-0"
+              )}
               aria-label={`Account menu for ${profile.full_name}`}
+              title={railed ? profile.full_name : undefined}
             >
-              <Avatar className="h-8 w-8">
+              <Avatar className="h-8 w-8 shrink-0">
                 {profile.avatar_url ? (
                   <AvatarImage src={profile.avatar_url} />
                 ) : null}
@@ -260,7 +344,12 @@ export function Sidebar({
                   {getInitials(profile.full_name)}
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1 leading-tight">
+              <div
+                className={cn(
+                  "min-w-0 flex-1 leading-tight",
+                  railed && "md:hidden"
+                )}
+              >
                 <div className="truncate text-sm font-medium text-white">
                   {profile.full_name}
                 </div>
@@ -268,7 +357,13 @@ export function Sidebar({
                   {ROLE_LABELS[profile.role]}
                 </div>
               </div>
-              <ChevronUp className="h-3.5 w-3.5 shrink-0 text-white/30" aria-hidden />
+              <ChevronUp
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-white/30",
+                  railed && "md:hidden"
+                )}
+                aria-hidden
+              />
             </button>
           </DropdownMenu.Trigger>
 
@@ -326,12 +421,16 @@ function NavRow({
   item,
   onNavigate,
   isComingSoon,
+  collapsed,
 }: {
   item: NavItem;
   onNavigate: () => void;
   isComingSoon?: boolean;
+  /** Slim icon-rail mode (desktop, collapsed): hide label, center icon. */
+  collapsed?: boolean;
 }) {
   const Icon = item.icon;
+  const hasCount = !!item.count && item.count > 0;
   return (
     <li>
       <NavLink
@@ -343,17 +442,31 @@ function NavRow({
             isActive
               ? "bg-[rgba(129,140,248,0.15)] text-[#A5B4FC] before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-r-full before:bg-[#6366F1]"
               : "text-white/60 hover:bg-white/[0.07] hover:text-white",
+            collapsed && "md:justify-center md:px-0",
             isComingSoon && "pointer-events-none opacity-40"
           )
         }
         aria-disabled={isComingSoon || undefined}
-        title={isComingSoon ? "Coming soon" : undefined}
+        title={isComingSoon ? "Coming soon" : collapsed ? item.label : undefined}
       >
-        <Icon className="h-[18px] w-[18px] shrink-0" />
-        <span className="flex-1 truncate">{item.label}</span>
-        {!!item.count && item.count > 0 && (
-          <span className="rounded-full bg-destructive px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-destructive-foreground">
-            {item.count > 99 ? "99+" : item.count}
+        <span className="relative shrink-0">
+          <Icon className="h-[18px] w-[18px]" />
+          {/* On the slim rail, a count shows as a small dot on the icon. */}
+          {hasCount && collapsed && (
+            <span className="absolute -right-1 -top-1 hidden h-2 w-2 rounded-full bg-destructive ring-2 ring-sidebar md:block" />
+          )}
+        </span>
+        <span className={cn("flex-1 truncate", collapsed && "md:hidden")}>
+          {item.label}
+        </span>
+        {hasCount && (
+          <span
+            className={cn(
+              "rounded-full bg-destructive px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-destructive-foreground",
+              collapsed && "md:hidden"
+            )}
+          >
+            {item.count! > 99 ? "99+" : item.count}
           </span>
         )}
       </NavLink>

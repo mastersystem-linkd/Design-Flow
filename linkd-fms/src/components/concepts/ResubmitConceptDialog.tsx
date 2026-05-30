@@ -23,13 +23,10 @@
  */
 
 import { useRef, useState } from "react";
-import { Upload, X, RotateCcw, AlertCircle, FileText } from "lucide-react";
+import { Upload, X, RotateCcw, AlertCircle, FileText, Paperclip, MessageSquare, Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/LoadingButton";
@@ -199,183 +196,139 @@ export function ResubmitConceptDialog({
       }}
     >
       <DialogContent
-        className="sm:max-w-lg"
+        className="max-w-[620px] max-h-[90vh] overflow-y-auto p-0"
+        srTitle="Re-submit revised concept"
         onPointerDownOutside={(e) => uploading && e.preventDefault()}
         onInteractOutside={(e) => uploading && e.preventDefault()}
         onEscapeKeyDown={(e) => uploading && e.preventDefault()}
       >
-        <DialogHeader>
-          <DialogTitle>Re-submit revised concept</DialogTitle>
-          <DialogDescription>
-            Upload your revised file(s). The original files stay in the
-            audit trail; the new version becomes the hero preview for
-            Ma'am's review.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Show the MD feedback so designer can reference it while picking
-              files. Same info shown in the drawer, just re-affirmed here. */}
-          {concept?.md_notes && (
-            <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
-              <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
-                <AlertCircle className="h-3 w-3" />
-                Ma'am's feedback
-              </p>
-              <p className="text-xs italic text-foreground">
-                "{concept.md_notes}"
-              </p>
-            </div>
-          )}
-
-          {/* Drag-and-drop file picker */}
-          <div className="space-y-1.5">
-            <Label htmlFor="resubmit-files">
-              Revised file(s) <span className="text-destructive">*</span>
-            </Label>
-            <div
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragActive(false);
-                addFiles(Array.from(e.dataTransfer.files));
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragActive(true);
-              }}
-              onDragLeave={() => setDragActive(false)}
-              className={cn(
-                "rounded-md border-2 border-dashed p-6 text-center transition-colors",
-                dragActive
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-card"
-              )}
-            >
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card">
-                  <Upload className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <p className="text-xs text-foreground">
-                  Drag &amp; drop or click to add files
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  Up to {MAX_SIZE_MB} MB each · JPG / PNG / PSD / PDF / MP4
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => inputRef.current?.click()}
-                  disabled={uploading}
-                  className="mt-1"
-                >
-                  Choose files
-                </Button>
-              </div>
-              <input
-                ref={inputRef}
-                id="resubmit-files"
-                type="file"
-                multiple
-                onChange={handlePick}
-                className="hidden"
-                disabled={uploading}
-              />
+        {/* Header */}
+        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+              <RotateCcw className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Re-submit Revised Concept</h2>
+              <p className="text-[10px] text-muted-foreground">Upload revised files — originals stay in the audit trail.</p>
             </div>
           </div>
+        </div>
 
-          {/* Picked-file list */}
-          {files.length > 0 && (
-            <ul className="max-h-32 space-y-1.5 overflow-y-auto">
-              {files.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2.5 py-1.5"
-                >
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-xs text-foreground">
-                    {f.name}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {(f.size / 1024 / 1024).toFixed(2)} MB
-                  </span>
-                  {!uploading && (
-                    <button
-                      type="button"
-                      onClick={() => removeFile(i)}
-                      className="ml-auto text-muted-foreground hover:text-destructive"
-                      aria-label={`Remove ${f.name}`}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+        <div className="space-y-2 px-4 py-3 sm:px-5">
+          {/* Ma'am's feedback */}
+          {concept?.md_notes && (
+            <section className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-warning/15 text-warning">
+                  <AlertCircle className="h-3 w-3" />
+                </span>
+                <h3 className="text-[13px] font-semibold tracking-tight text-warning">Ma'am's Feedback</h3>
+              </div>
+              <p className="text-xs italic leading-relaxed text-foreground">"{concept.md_notes}"</p>
+            </section>
           )}
 
-          {/* Optional changes notes */}
-          <div className="space-y-1.5">
-            <Label htmlFor="resubmit-notes">
-              What did you change?{" "}
-              <span className="text-[10px] font-normal text-muted-foreground">
-                (optional)
+          {/* Revised files */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Paperclip className="h-3 w-3" />
+                </span>
+                <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+                  Revised Files <span className="text-destructive">*</span>
+                  {files.length > 0 && <span className="ml-1 text-[10px] font-normal text-muted-foreground">{files.length} attached</span>}
+                </h3>
+              </div>
+              {files.length > 0 && (
+                <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline disabled:opacity-50">
+                  <Upload className="h-3 w-3" /> Add more
+                </button>
+              )}
+            </div>
+            <input ref={inputRef} id="resubmit-files" type="file" multiple onChange={handlePick} className="hidden" disabled={uploading} />
+
+            {files.length > 0 ? (
+              <div className="space-y-1">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-2 py-1">
+                    <FileText className="h-3 w-3 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">{f.name}</span>
+                    <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                    {!uploading && (
+                      <button type="button" onClick={() => removeFile(i)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive" aria-label={`Remove ${f.name}`}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                onDrop={(e) => { e.preventDefault(); setDragActive(false); addFiles(Array.from(e.dataTransfer.files)); }}
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onClick={() => inputRef.current?.click()}
+                className={cn(
+                  "flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border border-dashed transition-colors",
+                  dragActive ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/40 hover:bg-secondary/30"
+                )}
+              >
+                <Upload className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">Drag & drop or click to upload</span>
+                <span className="text-[10px] text-muted-foreground">Up to {MAX_SIZE_MB} MB each · any file type</span>
+              </div>
+            )}
+
+            {uploading && (
+              <div className="mt-1.5 space-y-0.5">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-secondary">
+                  <div className="h-full bg-primary transition-[width] duration-200 ease-out" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+                </div>
+                <p className="text-[10px] text-muted-foreground">Uploading… {Math.round(progress)}%</p>
+              </div>
+            )}
+          </section>
+
+          {/* Notes */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <MessageSquare className="h-3 w-3" />
               </span>
-            </Label>
+              <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+                What did you change? <span className="text-[10px] font-normal text-muted-foreground">(optional)</span>
+              </h3>
+            </div>
             <textarea
               id="resubmit-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Darkened the blues, replaced the floral motif, tightened the layout…"
-              rows={3}
+              placeholder="Darkened the blues, replaced the floral motif…"
+              rows={2}
               maxLength={500}
               disabled={uploading}
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
-            <p className="text-right text-[10px] text-muted-foreground">
-              {notes.length} / 500
-            </p>
+            <p className="mt-0.5 text-right text-[10px] text-muted-foreground">{notes.length} / 500</p>
+          </section>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+            <Button variant="ghost" onClick={() => { reset(); onOpenChange(false); }} disabled={uploading}>Cancel</Button>
+            <LoadingButton
+              loading={uploading}
+              loadingText="Re-submitting…"
+              onClick={handleSubmit}
+              disabled={files.length === 0 || uploading}
+              className="gap-1.5 px-6 shadow-sm shadow-primary/20"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Re-submit for Review
+            </LoadingButton>
           </div>
-
-          {/* Upload progress */}
-          {uploading && (
-            <div className="space-y-1">
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full bg-primary transition-[width] duration-200 ease-out"
-                  style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Uploading… {Math.round(progress)}%
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              reset();
-              onOpenChange(false);
-            }}
-            disabled={uploading}
-          >
-            Cancel
-          </Button>
-          <LoadingButton
-            size="sm"
-            loading={uploading}
-            loadingText="Re-submitting…"
-            onClick={handleSubmit}
-            disabled={files.length === 0 || uploading}
-            className="gap-1.5 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:cursor-not-allowed"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Re-submit for review
-          </LoadingButton>
         </div>
       </DialogContent>
     </Dialog>

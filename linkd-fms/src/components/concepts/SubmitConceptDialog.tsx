@@ -5,6 +5,10 @@ import {
   Upload,
   X,
   RotateCcw,
+  Sparkles,
+  Building2,
+  CalendarDays,
+  Paperclip,
 } from "lucide-react";
 import { toast } from "@/components/ui";
 import { Combobox } from "@/components/ui/Combobox";
@@ -24,7 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ASSIGNED_BY_OPTIONS } from "@/lib/constants";
+import { useAssignedByOptions } from "@/hooks/useAssignedByOptions";
 import { cn } from "@/lib/utils";
 import type { SubmitConceptInput } from "@/hooks/useConcepts";
 
@@ -57,7 +61,8 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
   // stays for any future role-conditional UI.
   void profile;
 
-  const { clients } = useClients();
+  const { jobWorkClients } = useClients();
+  const { names: assignedByNames } = useAssignedByOptions();
 
   // ---------- form state ----------
   // Text fields live in a single draft object so we can persist the whole
@@ -110,23 +115,24 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
     }
   }, [open]);
 
-  // Auto-pick LD SILK MILLS when the client list arrives and nothing is set.
+  // Auto-pick LD SILK MILLS when dialog opens and nothing is set.
+  // First try to match a real client row; if none exists, set the ID to
+  // the sentinel "ld_silk_mills" so the Combobox displays the label and
+  // submit sends client_id: null (the brief-form convention for LD).
   useEffect(() => {
     if (
       open &&
       !defaultClientAppliedRef.current &&
       !clientId &&
-      clients.length > 0
+      jobWorkClients.length > 0
     ) {
-      const match = clients.find(
+      const match = jobWorkClients.find(
         (c) => c.party_name.trim().toUpperCase() === DEFAULT_PARTY_NAME
       );
-      if (match) {
-        setField("clientId", match.id);
-        defaultClientAppliedRef.current = true;
-      }
+      setField("clientId", match ? match.id : "ld_silk_mills");
+      defaultClientAppliedRef.current = true;
     }
-  }, [open, clients, clientId]);
+  }, [open, jobWorkClients, clientId]);
 
   // Restore start date to today if a draft came back empty.
   useEffect(() => {
@@ -136,20 +142,15 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
     }
   }, [open, startDate]);
 
-  // Pin LD SILK MILLS to the top of the Party list; alpha-sort the rest.
+  // Pin LD Silk Mills to the top; add it as a virtual entry if not in the DB.
   const clientOptions = useMemo(() => {
-    const sorted = [...clients].sort((a, b) =>
+    const sorted = [...jobWorkClients].sort((a, b) =>
       a.party_name.localeCompare(b.party_name)
     );
-    const def = sorted.findIndex(
-      (c) => c.party_name.trim().toUpperCase() === DEFAULT_PARTY_NAME
-    );
-    if (def > 0) {
-      const [m] = sorted.splice(def, 1);
-      if (m) sorted.unshift(m);
-    }
-    return sorted.map((c) => ({ value: c.id, label: c.party_name }));
-  }, [clients]);
+    const opts = sorted.map((c) => ({ value: c.id, label: c.party_name }));
+    opts.unshift({ value: "ld_silk_mills", label: "LD Silk Mills" });
+    return opts;
+  }, [jobWorkClients]);
 
   /**
    * Selected files awaiting upload. Each entry pairs the raw File with an
@@ -352,7 +353,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       files: uploadedPaths,
       start_date: startDate || null,
       designer_id: user.id,
-      client_id: clientId || null,
+      client_id: clientId && clientId !== "ld_silk_mills" ? clientId : null,
       assigned_by: assignedBy || null,
       priority: "normal",
       designs_count: designsCountNum,
@@ -388,14 +389,19 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
         onOpenChange(o);
       }}
     >
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Submit a concept</DialogTitle>
-          <DialogDescription>
-            Same shape as a brief — captures who started it, for which party,
-            and the supporting file.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-w-[700px] max-h-[92vh] overflow-y-auto p-0" srTitle="Submit a concept">
+        {/* Header */}
+        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+              <Sparkles className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Submit a Concept</h2>
+              <p className="text-[10px] text-muted-foreground">Captures who started it, for which party, and the supporting files.</p>
+            </div>
+          </div>
+        </div>
 
         {/*
           Resume-draft chooser. Renders INSTEAD of the form when we restored
@@ -404,8 +410,8 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
           appears below.
         */}
         {showResumePrompt ? (
-          <div className="px-6 py-6">
-            <div className="rounded-xl border border-primary/30 bg-primary/[0.04] p-5">
+          <div className="px-4 py-4 sm:px-5">
+            <div className="rounded-lg border border-primary/30 bg-primary/[0.04] p-4">
               <h3 className="text-base font-semibold text-foreground">
                 Resume your draft?
               </h3>
@@ -465,244 +471,124 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
             </div>
           </div>
         ) : (
-        <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 gap-4 px-6 py-5 sm:grid-cols-2">
-            {/* Concept name (title) */}
-            <div className="sm:col-span-2 space-y-1.5">
-              <Label htmlFor="concept-title">
-                Concept <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="concept-title"
-                value={title}
-                onChange={(e) => setField("title", e.target.value)}
-                placeholder="e.g. Botanical chintz SS24"
-                required
-                disabled={uploading}
-              />
+        <form onSubmit={handleSubmit} className="space-y-2 px-4 py-3 sm:px-5" noValidate>
+          {/* Concept & Description */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-3 w-3" /></span>
+              <h3 className="text-[13px] font-semibold tracking-tight text-foreground">Concept Details</h3>
             </div>
-
-            {/* Description — required, no word-count minimum */}
-            <div className="sm:col-span-2 space-y-1.5">
-              <Label htmlFor="concept-description">
-                Description <span className="text-destructive">*</span>
-              </Label>
-              <textarea
-                id="concept-description"
-                value={description}
-                onChange={(e) => setField("description", e.target.value)}
-                placeholder="Mood, palette, references…"
-                rows={3}
-                disabled={uploading}
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              />
-            </div>
-
-            {/* Start Date — defaults to today */}
-            <div className="space-y-1.5">
-              <Label htmlFor="concept-start-date">Start date</Label>
-              <Input
-                id="concept-start-date"
-                type="date"
-                value={startDate}
-                onChange={(e) => setField("startDate", e.target.value)}
-                disabled={uploading}
-              />
-            </div>
-
-            {/* Number of designs — denominator for "X of Y approved" at
-                final review. Required so MD always has a count to compare
-                approved_designs_count against. */}
-            <div className="space-y-1.5">
-              <Label htmlFor="concept-designs-count">
-                Number of designs <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="concept-designs-count"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                step={1}
-                value={designsCount}
-                onChange={(e) => setField("designsCount", e.target.value)}
-                placeholder="How many designs?"
-                disabled={uploading}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                How many designs are in this concept? Ma'am will see "X of {designsCount || "Y"} approved" at final review.
-              </p>
-            </div>
-
-            {/* Party Name — searchable; default LD SILK MILLS. Full-width
-                now that the Designer picker is gone (the concept's designer
-                is always the submitter). */}
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="concept-client">Party name</Label>
-              <Combobox
-                id="concept-client"
-                value={clientId}
-                onChange={(v) => setField("clientId", v)}
-                options={clientOptions}
-                placeholder="Search party…"
-                searchPlaceholder="Search party…"
-                emptyMessage="No parties match"
-                clearable
-                disabled={uploading}
-              />
-            </div>
-
-            {/* Assigned By — searchable */}
-            <div className="sm:col-span-2 space-y-1.5">
-              <Label htmlFor="concept-assigned-by">Assigned by</Label>
-              <Combobox
-                id="concept-assigned-by"
-                value={assignedBy}
-                onChange={(v) => setField("assignedBy", v)}
-                options={ASSIGNED_BY_OPTIONS.map((name) => ({
-                  value: name,
-                  label: name,
-                }))}
-                placeholder="— Select assignee —"
-                searchPlaceholder="Search…"
-                emptyMessage="No matches"
-                clearable
-                disabled={uploading}
-              />
-            </div>
-
-            {/* File upload — supports multiple files; each ≤ 100 MB */}
-            <div className="sm:col-span-2 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label>
-                  Files <span className="text-destructive">*</span>
-                  {pending.length > 0 && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      {pending.length} attached
-                    </span>
-                  )}
-                </Label>
-                {pending.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={pickFile}
-                    disabled={uploading}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-50"
-                  >
-                    <Upload className="h-3 w-3" />
-                    Add more
-                  </button>
-                )}
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Concept <span className="text-destructive">*</span></Label>
+                <Input value={title} onChange={(e) => setField("title", e.target.value)} placeholder="e.g. Botanical chintz SS24" disabled={uploading} />
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={ACCEPT}
-                multiple
-                onChange={handleFileChange}
-                className="hidden"
-              />
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description <span className="text-destructive">*</span></Label>
+                <textarea value={description} onChange={(e) => setField("description", e.target.value)} placeholder="Mood, palette, references…" rows={2} disabled={uploading}
+                  className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" />
+              </div>
+            </div>
+          </section>
 
-              {pending.length > 0 ? (
-                <>
-                  <ul className="space-y-2">
-                    {pending.map((p, i) => {
-                      const isImg = p.file.type.startsWith("image/");
-                      return (
-                        <li
-                          key={`${p.file.name}-${i}`}
-                          className="flex items-center gap-3 overflow-hidden rounded-md border border-border bg-card p-2"
-                        >
-                          {isImg && p.objectUrl ? (
-                            <img
-                              src={p.objectUrl}
-                              alt={`Preview of ${p.file.name}`}
-                              className="h-12 w-12 shrink-0 rounded object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border bg-card">
-                              <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-foreground">
-                              {p.file.name}
-                              {i === 0 && (
-                                <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                  Primary
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-muted-foreground">
-                              {(p.file.size / 1024 / 1024).toFixed(2)} MB
-                              {p.file.type && <> · {p.file.type}</>}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removePending(i)}
-                            disabled={uploading}
-                            className="rounded-full bg-black/80 p-1 text-white transition-colors hover:bg-destructive disabled:opacity-50"
-                            aria-label={`Remove ${p.file.name}`}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {uploading && (
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full bg-primary transition-[width] duration-200 ease-out"
-                        style={{
-                          width: `${Math.min(100, Math.max(0, progress))}%`,
-                        }}
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={pickFile}
-                  disabled={uploading}
-                  className={cn(
-                    "flex h-32 w-full flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-card transition-colors hover:border-primary hover:bg-secondary/30",
-                    uploading && "opacity-50"
-                  )}
-                >
-                  <Upload className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">
-                    Click to upload one or more files
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    All file types · max 100 MB each
-                  </span>
+          {/* Date, Designs Count, Party, Assigned By */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Building2 className="h-3 w-3" /></span>
+              <h3 className="text-[13px] font-semibold tracking-tight text-foreground">Party & Assignment</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Start Date</Label>
+                <Input type="date" value={startDate} onChange={(e) => setField("startDate", e.target.value)} disabled={uploading} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">No. of Designs <span className="text-destructive">*</span></Label>
+                <Input type="number" inputMode="numeric" min={1} step={1} value={designsCount} onChange={(e) => setField("designsCount", e.target.value)} placeholder="e.g. 10" disabled={uploading} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Party Name</Label>
+                <Combobox value={clientId} onChange={(v) => setField("clientId", v)} options={clientOptions} placeholder="Search party…" clearable disabled={uploading} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Assigned By</Label>
+                <Combobox value={assignedBy} onChange={(v) => setField("assignedBy", v)} options={assignedByNames.map((n) => ({ value: n, label: n }))} placeholder="Select" clearable disabled={uploading} />
+              </div>
+            </div>
+          </section>
+
+          {/* Files */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Paperclip className="h-3 w-3" /></span>
+                <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+                  Files <span className="text-destructive">*</span>
+                  {pending.length > 0 && <span className="ml-1 text-[10px] font-normal text-muted-foreground">{pending.length} attached</span>}
+                </h3>
+              </div>
+              {pending.length > 0 && (
+                <button type="button" onClick={pickFile} disabled={uploading} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline disabled:opacity-50">
+                  <Upload className="h-3 w-3" /> Add more
                 </button>
               )}
             </div>
+            <input ref={fileInputRef} type="file" accept={ACCEPT} multiple onChange={handleFileChange} className="hidden" />
 
-            {error && (
-              <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {error}
+            {pending.length > 0 ? (
+              <div className="space-y-1.5">
+                {pending.map((p, i) => {
+                  const isImg = p.file.type.startsWith("image/");
+                  return (
+                    <div key={`${p.file.name}-${i}`} className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5">
+                      {isImg && p.objectUrl ? (
+                        <img src={p.objectUrl} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-border bg-secondary/40">
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium text-foreground">
+                          {p.file.name}
+                          {i === 0 && <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">Primary</span>}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">{(p.file.size / 1024 / 1024).toFixed(1)} MB</p>
+                      </div>
+                      <button type="button" onClick={() => removePending(i)} disabled={uploading} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-50" aria-label={`Remove ${p.file.name}`}>
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {uploading && (
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full bg-primary transition-[width] duration-200 ease-out" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+                  </div>
+                )}
               </div>
+            ) : (
+              <button type="button" onClick={pickFile} disabled={uploading}
+                className={cn("flex h-20 w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-card transition-colors hover:border-primary/40 hover:bg-secondary/30", uploading && "opacity-50")}>
+                <Upload className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">Click to upload files</span>
+                <span className="text-[10px] text-muted-foreground">All file types · max 100 MB each</span>
+              </button>
             )}
-          </div>
+          </section>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={uploading}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={uploading} className="gap-2">
+          {error && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
+          )}
+
+          {/* Footer */}
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={uploading}>Cancel</Button>
+            <Button type="submit" disabled={uploading} className="gap-2 px-6 shadow-sm shadow-primary/20">
               {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {uploading ? "Submitting…" : "Submit concept"}
+              {uploading ? "Submitting…" : "Submit Concept"}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
         )}
       </DialogContent>

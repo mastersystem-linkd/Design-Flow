@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, Check, X as XIcon, GitMerge, Pencil, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useClients } from "@/hooks/useClients";
+import { useClients, CLIENT_GROUP_LABEL } from "@/hooks/useClients";
 import {
   Card,
   CardContent,
@@ -17,7 +17,7 @@ import {
   toast,
 } from "@/components/ui";
 import { cn, formatDate } from "@/lib/utils";
-import type { Client } from "@/types/database";
+import type { Client, ClientGroup } from "@/types/database";
 
 const PAGE_SIZE = 25;
 
@@ -45,6 +45,9 @@ export function ClientManagementTab() {
   // Filter chip — "all" = full list, "duplicates" = only rows that share a
   // normalised name with at least one other row.
   const [filter, setFilter] = useState<"all" | "duplicates">("all");
+  // Active business segment — LD vs Job Work. Rows + counts + add-form all
+  // scope to the selected group.
+  const [group, setGroup] = useState<ClientGroup>("ld");
 
   // Add form
   const [addOpen, setAddOpen] = useState(false);
@@ -69,13 +72,31 @@ export function ClientManagementTab() {
   // Reset to page 0 whenever any filter changes.
   useEffect(() => {
     setPage(0);
-  }, [debouncedQuery, filter]);
+  }, [debouncedQuery, filter, group]);
+
+  // Scope every downstream calculation to the active group. Counts shown on
+  // the tabs use the full list (so the user can see how many sit in the
+  // other segment).
+  const groupedClients = useMemo(
+    () => clients.filter((c) => c.client_group === group),
+    [clients, group]
+  );
+  const ldCount = useMemo(
+    () => clients.filter((c) => c.client_group === "ld").length,
+    [clients]
+  );
+  const jobWorkCount = useMemo(
+    () => clients.filter((c) => c.client_group === "job_work").length,
+    [clients]
+  );
 
   // Pre-compute the set of duplicate ids so the "duplicates only" filter
-  // is O(1) per row. Same normalisation rule as duplicateGroups below.
+  // is O(1) per row. Duplicates are scoped to the active group — names that
+  // exist in both LD and Job Work are NOT flagged here (that's expected:
+  // the same party can give you both kinds of work).
   const duplicateIdSet = useMemo(() => {
     const byNorm = new Map<string, string[]>();
-    for (const c of clients) {
+    for (const c of groupedClients) {
       const key = c.party_name.toLowerCase().replace(/\s+/g, " ").trim();
       const arr = byNorm.get(key) ?? [];
       arr.push(c.id);
@@ -86,12 +107,12 @@ export function ClientManagementTab() {
       if (arr.length > 1) for (const id of arr) ids.add(id);
     }
     return ids;
-  }, [clients]);
+  }, [groupedClients]);
 
   // Filtered list (in-memory — useClients() pulls all rows once and React
   // Query caches them, so this is essentially free).
   const filtered = useMemo(() => {
-    let list = clients;
+    let list = groupedClients;
     if (filter === "duplicates") {
       list = list.filter((c) => duplicateIdSet.has(c.id));
     }
@@ -100,7 +121,7 @@ export function ClientManagementTab() {
       list = list.filter((c) => c.party_name.toLowerCase().includes(q));
     }
     return list;
-  }, [clients, debouncedQuery, filter, duplicateIdSet]);
+  }, [groupedClients, debouncedQuery, filter, duplicateIdSet]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const from = page * PAGE_SIZE;
@@ -108,10 +129,12 @@ export function ClientManagementTab() {
   const visible = filtered.slice(from, to);
 
   // Duplicate detection — group by normalised name (lowercase + collapsed
-  // whitespace). Anything with 2+ entries is a candidate.
+  // whitespace) WITHIN the active business segment. We don't merge across
+  // groups because the same party may legitimately appear in both LD and
+  // Job Work.
   const duplicateGroups = useMemo(() => {
     const map = new Map<string, Client[]>();
-    for (const c of clients) {
+    for (const c of groupedClients) {
       const key = c.party_name.toLowerCase().replace(/\s+/g, " ").trim();
       const bucket = map.get(key) ?? [];
       bucket.push(c);
@@ -130,7 +153,7 @@ export function ClientManagementTab() {
         };
       })
       .sort((a, b) => b.duplicates.length - a.duplicates.length);
-  }, [clients]);
+  }, [groupedClients]);
 
   const reload = () => void refetch();
 
@@ -142,23 +165,26 @@ export function ClientManagementTab() {
       return;
     }
     // Quick duplicate check before insert — saves a 23505 round-trip.
-    const exists = clients.find(
+    // Scoped to the active group: the same name in the *other* segment is OK.
+    const exists = groupedClients.find(
       (c) => c.party_name.toLowerCase().trim() === name.toLowerCase()
     );
     if (exists) {
-      toast.error(`Client "${exists.party_name}" already exists`);
+      toast.error(
+        `"${exists.party_name}" already exists in ${CLIENT_GROUP_LABEL[group]}`
+      );
       return;
     }
     setAdding(true);
     const { error: err } = await supabase
       .from("clients")
-      .insert({ party_name: name });
+      .insert({ party_name: name, client_group: group });
     setAdding(false);
     if (err) {
       toast.error(err.message);
       return;
     }
-    toast.success("Client added");
+    toast.success(`Added to ${CLIENT_GROUP_LABEL[group]}`);
     setNewName("");
     setAddOpen(false);
     reload();
@@ -258,13 +284,13 @@ export function ClientManagementTab() {
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-semibold text-foreground">Clients</h3>
+                <h3 className="text-base font-semibold text-foreground">Party Name</h3>
                 <Badge variant="secondary" className="tabular-nums">
-                  {clients.length.toLocaleString()}
+                  {(group === "ld" ? ldCount : jobWorkCount).toLocaleString()}
                 </Badge>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Customers / parties referenced by briefs and samples.
+                Party names referenced by briefs and samples — split by business segment.
               </p>
             </div>
             <Button
@@ -274,9 +300,27 @@ export function ClientManagementTab() {
               className="gap-1.5"
             >
               <Plus className="h-3.5 w-3.5" />
-              Add Client
+              Add to {CLIENT_GROUP_LABEL[group]}
             </Button>
           </header>
+
+          {/* Segment tabs — LD vs Job Work. Counts pull from the full list
+              so the user can see how many sit in the *other* tab before
+              switching. */}
+          <div className="flex items-center gap-1 border-b border-border bg-secondary/30 px-5 py-2">
+            <GroupTab
+              active={group === "ld"}
+              onClick={() => setGroup("ld")}
+              label="LD"
+              count={ldCount}
+            />
+            <GroupTab
+              active={group === "job_work"}
+              onClick={() => setGroup("job_work")}
+              label="Job Work"
+              count={jobWorkCount}
+            />
+          </div>
 
           {addOpen && (
             <div className="grid grid-cols-1 gap-2 border-b border-border bg-secondary/40 px-5 py-3 sm:grid-cols-[1fr_auto]">
@@ -319,7 +363,7 @@ export function ClientManagementTab() {
               <SearchInput
                 value={query}
                 onChange={setQuery}
-                placeholder="Search clients by name…"
+                placeholder="Search party names…"
               />
             </div>
             <div className="flex items-center gap-1">
@@ -327,7 +371,7 @@ export function ClientManagementTab() {
                 active={filter === "all"}
                 onClick={() => setFilter("all")}
                 label="All"
-                count={clients.length}
+                count={groupedClients.length}
               />
               <ClientFilterChip
                 active={filter === "duplicates"}
@@ -355,11 +399,11 @@ export function ClientManagementTab() {
           ) : filtered.length === 0 ? (
             <div className="p-5">
               <EmptyState
-                title="No clients found"
+                title={`No ${CLIENT_GROUP_LABEL[group]} party names found`}
                 description={
                   debouncedQuery
                     ? "Try a different search term."
-                    : "Click Add Client to create one."
+                    : `Click Add to ${CLIENT_GROUP_LABEL[group]} to create one.`
                 }
               />
             </div>
@@ -563,6 +607,45 @@ interface DuplicateGroup {
 // ----------------------------------------------------------------------------
 // Client filter chip — mirrors the LookupSection chip style for consistency
 // ----------------------------------------------------------------------------
+
+/** Segment pill — used for the LD / Job Work strip at the top of the
+ *  Party Name panel. Visually heavier than ClientFilterChip because it
+ *  controls the entire scope of the page, not a sub-filter. */
+function GroupTab({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+        active
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+      )}
+    >
+      {label}
+      <span
+        className={cn(
+          "rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums",
+          active ? "bg-white/20" : "bg-secondary"
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
 
 function ClientFilterChip({
   active,

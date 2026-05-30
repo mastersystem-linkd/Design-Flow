@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Plus, Pencil, Trash2, Package, RefreshCw, CheckCircle2,
   Palette, Layers, AlertCircle, BarChart3, TrendingUp, Clock,
   Users, Building2, LayoutDashboard, Table2,
+  Upload, Paperclip, X, ClipboardList,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
@@ -10,6 +11,8 @@ import {
 } from "recharts";
 import { useSalvedge } from "@/hooks/useSalvedge";
 import { useClients } from "@/hooks/useClients";
+import { Combobox } from "@/components/ui/Combobox";
+import { supabase } from "@/lib/supabase";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -40,7 +43,7 @@ export function SalvedgeView() {
   const isDesigner = role === "designer";
 
   const { records: allRecords, isLoading, refetch, createRecord, updateRecord, deleteRecord } = useSalvedge();
-  const { clients } = useClients();
+  const { clients, ldClients, jobWorkClients } = useClients();
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
 
   // Designers only see records assigned to them
@@ -393,10 +396,6 @@ export function SalvedgeView() {
       {/* ── RECORDS TAB ── */}
       {activeTab === "records" && (
         <section className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="border-b border-border bg-card/50 px-4 py-2.5">
-            <h2 className="text-sm font-semibold text-foreground">Salvedge Records</h2>
-          </div>
-
           {isLoading ? (
             <div className="p-4"><SkeletonText lines={4} /></div>
           ) : records.length === 0 ? (
@@ -411,7 +410,7 @@ export function SalvedgeView() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-sm">
                 <thead className={TABLE_HEAD}>
-                  <tr>
+                  <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
                     <th className={TABLE_TH}>Date/Time</th>
                     <th className={TABLE_TH}>Designer</th>
                     <th className={TABLE_TH}>Challan No.</th>
@@ -421,6 +420,7 @@ export function SalvedgeView() {
                     <th className={TABLE_TH}>Pending</th>
                     <th className={TABLE_TH}>Done?</th>
                     <th className={TABLE_TH}>Completion</th>
+                    <th className={TABLE_TH}>Attachment</th>
                     <th className={TABLE_TH}>Comments</th>
                     <th className={cn(TABLE_TH, "text-right")}>Actions</th>
                   </tr>
@@ -446,11 +446,13 @@ export function SalvedgeView() {
 
       {/* Form dialog */}
       <SalvedgeFormDialog
+        key={editRecord?.id ?? "new"}
         open={formOpen}
         onOpenChange={(o) => { if (!o) setEditRecord(null); setFormOpen(o); }}
         editRecord={editRecord}
         designers={designers}
-        clients={clients}
+        ldClients={ldClients}
+        jobWorkClients={jobWorkClients}
         onCreate={createRecord}
         onUpdate={updateRecord}
       />
@@ -472,30 +474,54 @@ export function SalvedgeView() {
 // Form Dialog
 // ============================================================================
 
+type PartyGroup = "ld" | "job_work";
+const REF_BUCKET = "design-files";
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
 function SalvedgeFormDialog({
-  open, onOpenChange, editRecord, designers, clients, onCreate, onUpdate,
+  open, onOpenChange, editRecord, designers, ldClients, jobWorkClients, onCreate, onUpdate,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   editRecord: SalvedgeRecord | null;
   designers: { id: string; full_name: string }[];
-  clients: { id: string; party_name: string }[];
+  ldClients: { id: string; party_name: string }[];
+  jobWorkClients: { id: string; party_name: string }[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onCreate: (data: any) => Promise<{ error: string | null }>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onUpdate: (id: string, data: any) => Promise<{ error: string | null }>;
 }) {
   const isEdit = !!editRecord;
+  const { user } = useAuth();
 
+  const [partyGroup, setPartyGroup] = useState<PartyGroup>("ld");
   const [designerId, setDesignerId] = useState(editRecord?.designer_id ?? "");
   const [challanNo, setChallanNo] = useState(editRecord?.challan_no ?? "");
   const [partyName, setPartyName] = useState(editRecord?.party_name ?? "");
   const [qty, setQty] = useState(editRecord?.qty != null ? String(editRecord.qty) : "");
   const [comments, setComments] = useState(editRecord?.additional_comments ?? "");
+  const [files, setFiles] = useState<File[]>([]);
+  const [existingAttachment, setExistingAttachment] = useState<string | null>(editRecord?.attachment_url ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const activeClients = partyGroup === "ld" ? ldClients : jobWorkClients;
   const qtyNum = Number(qty) || 0;
+
+  function onFilesPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    const accepted: File[] = [];
+    for (const f of picked) {
+      if (f.size > MAX_FILE_BYTES) { toast.error(`"${f.name}" exceeds 50 MB limit.`); }
+      else accepted.push(f);
+    }
+    if (accepted.length) setFiles((prev) => [...prev, ...accepted]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function removeFile(idx: number) { setFiles((prev) => prev.filter((_, i) => i !== idx)); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -505,86 +531,171 @@ function SalvedgeFormDialog({
     setSaving(true);
     setError(null);
 
-    const data = {
+    // Upload file first so we can store the path in the record
+    let uploadedPath: string | null = existingAttachment;
+    if (files.length > 0 && user) {
+      const f = files[0];
+      const ext = f.name.split(".").pop() ?? "bin";
+      const safeName = partyName.trim().replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
+      const safeChallan = challanNo.trim().replace(/[^a-zA-Z0-9-]/g, "_").slice(0, 20);
+      const path = `${user.id}/salvedge/${safeName}_${safeChallan}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from(REF_BUCKET).upload(path, f);
+      if (upErr) {
+        toast.error(`File upload failed: ${upErr.message}`);
+      } else {
+        uploadedPath = path;
+      }
+    }
+
+    const payload = {
       designer_id: designerId || null,
       challan_no: challanNo.trim() || "—",
-      party_name: partyName.trim(),
+      party_name: partyGroup === "ld" && !partyName.trim() ? "LD Silk Mills" : partyName.trim(),
       qty: qtyNum,
       additional_comments: comments.trim() || null,
+      attachment_url: uploadedPath,
     };
 
     const { error: e2 } = isEdit
-      ? await onUpdate(editRecord.id, data)
-      : await onCreate(data);
+      ? await onUpdate(editRecord.id, payload)
+      : await onCreate(payload);
+
+    if (e2) { setSaving(false); setError(e2); return; }
 
     setSaving(false);
-    if (e2) { setError(e2); return; }
     toast.success(isEdit ? "Record updated" : "Record added");
     onOpenChange(false);
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Record" : "Add Salvedge Record"}</DialogTitle>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-4">
-          {/* Designer */}
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Designer</Label>
-            <select value={designerId} onChange={(e) => setDesignerId(e.target.value)} disabled={saving}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50">
-              <option value="">— Select designer —</option>
-              {designers.map((d) => <option key={d.id} value={d.id}>{d.full_name}</option>)}
-            </select>
+      <DialogContent className="max-w-[680px] max-h-[92vh] overflow-y-auto p-0" srTitle={isEdit ? "Edit Record" : "Add Salvedge Record"}>
+        {/* Header */}
+        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+              <ClipboardList className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+                {isEdit ? "Edit Record" : "Add Salvedge Record"}
+              </h1>
+              <p className="text-[10px] text-muted-foreground">Fill in the details below</p>
+            </div>
           </div>
+        </div>
 
-          {/* Challan No */}
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Challan No.
-            </Label>
-            <Input value={challanNo} onChange={(e) => setChallanNo(e.target.value)} placeholder="e.g. CHL-001" disabled={saving} />
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-2 px-4 py-3 sm:px-5" noValidate>
+          {/* Party Name section */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Building2 className="h-3 w-3" />
+              </span>
+              <h2 className="text-[13px] font-semibold tracking-tight text-foreground">
+                Party Name <span className="text-destructive">*</span>
+              </h2>
+            </div>
+            <div className="flex w-full rounded-md border border-border bg-card p-0.5 mb-2">
+              <button type="button" onClick={() => { setPartyGroup("ld"); setPartyName(""); }} disabled={saving}
+                className={cn("flex-1 rounded-[5px] px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50",
+                  partyGroup === "ld" ? "bg-primary text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                )} aria-pressed={partyGroup === "ld"}>
+                LD<span className="ml-1 text-[10px] font-normal opacity-70">· internal</span>
+              </button>
+              <button type="button" onClick={() => { setPartyGroup("job_work"); setPartyName(""); }} disabled={saving}
+                className={cn("flex-1 rounded-[5px] px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50",
+                  partyGroup === "job_work" ? "bg-primary text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                )} aria-pressed={partyGroup === "job_work"}>
+                Job Work<span className="ml-1 text-[10px] font-normal opacity-70">· external</span>
+              </button>
+            </div>
+            <Combobox
+              value={partyName}
+              onChange={setPartyName}
+              options={activeClients.map((c) => ({ value: c.party_name, label: c.party_name }))}
+              placeholder={partyGroup === "ld" ? "Search LD parties…" : "Search Job Work parties…"}
+              disabled={saving}
+              clearable
+            />
+          </section>
 
-          {/* Party Name */}
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Party Name <span className="text-destructive">*</span>
-            </Label>
-            <select value={partyName} onChange={(e) => setPartyName(e.target.value)} disabled={saving}
-              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50">
-              <option value="">— Choose party —</option>
-              {clients.map((c) => <option key={c.id} value={c.party_name}>{c.party_name}</option>)}
-            </select>
-          </div>
+          {/* Designer + Challan side by side */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Designer</Label>
+                <Combobox
+                  value={designerId}
+                  onChange={setDesignerId}
+                  options={designers.map((d) => ({ value: d.id, label: d.full_name }))}
+                  placeholder="Select designer"
+                  disabled={saving}
+                  clearable
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Challan No.</Label>
+                <Input value={challanNo} onChange={(e) => setChallanNo(e.target.value)} placeholder="e.g. CHL-001" disabled={saving} />
+              </div>
+            </div>
+          </section>
 
-          {/* QTY */}
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              QTY <span className="text-destructive">*</span>
-            </Label>
-            <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} disabled={saving} />
-          </div>
+          {/* Qty + Files side by side */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Quantity <span className="text-destructive">*</span>
+                </Label>
+                <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} disabled={saving} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Attachments <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
+                </Label>
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={saving}
+                  className="flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-card text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-50">
+                  <Upload className="h-3.5 w-3.5" /> Add files
+                </button>
+                <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf,*/*" onChange={onFilesPick} className="hidden" />
+                <p className="text-[10px] text-muted-foreground">Any file · 50 MB each · on mobile tap to use camera</p>
+              </div>
+            </div>
+            {files.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {files.map((f, i) => (
+                  <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] text-foreground">
+                    <Paperclip className="h-3 w-3 text-primary" />
+                    <span className="max-w-[120px] truncate">{f.name}</span>
+                    <button type="button" onClick={() => removeFile(i)} className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-destructive">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Comments */}
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Additional Comments</Label>
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Additional Comments</Label>
             <textarea value={comments} onChange={(e) => setComments(e.target.value)} rows={2} disabled={saving}
               placeholder="Optional notes…"
-              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" />
-          </div>
+              className="mt-1 w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" />
+          </section>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
+          )}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-            <LoadingButton type="submit" loading={saving} loadingText="Saving…">
-              {isEdit ? "Save" : "Add Record"}
+          {/* Footer */}
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <LoadingButton type="submit" loading={saving} loadingText="Saving…" className="gap-2 px-6 shadow-sm shadow-primary/20">
+              {isEdit ? "Save Changes" : "Add Record"}
             </LoadingButton>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -652,13 +763,13 @@ function SalvedgeRow({
       <td className={cn(TABLE_TD, "whitespace-nowrap text-[12px] text-muted-foreground")}>
         {formatDate(r.created_at)}
       </td>
-      <td className="whitespace-nowrap px-3 py-3 text-foreground">{designerName}</td>
-      <td className="whitespace-nowrap px-3 py-3 text-sm text-foreground">{r.challan_no}</td>
-      <td className="whitespace-nowrap px-3 py-3 text-foreground">{r.party_name}</td>
-      <td className="px-3 py-3 tabular-nums text-foreground">{r.qty}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-foreground">{designerName}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-sm text-foreground">{r.challan_no}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-foreground">{r.party_name}</td>
+      <td className="px-3 py-1.5 tabular-nums text-foreground">{r.qty}</td>
 
       {/* Completed — editable inline */}
-      <td className="px-3 py-3">
+      <td className="px-3 py-1.5">
         {r.is_completed ? (
           <span className="tabular-nums text-success">{r.completed_qty}</span>
         ) : (
@@ -679,7 +790,7 @@ function SalvedgeRow({
       </td>
 
       {/* Pending */}
-      <td className="px-3 py-3 tabular-nums">
+      <td className="px-3 py-1.5 tabular-nums">
         {r.is_completed ? (
           <span className="text-success">0</span>
         ) : pendingCalc > 0 ? (
@@ -690,7 +801,7 @@ function SalvedgeRow({
       </td>
 
       {/* Done checkbox / button */}
-      <td className="px-3 py-3 text-center">
+      <td className="px-3 py-1.5 text-center">
         {r.is_completed ? (
           <CheckCircle2 className="mx-auto h-4 w-4 text-success" />
         ) : canMarkDone ? (
@@ -707,17 +818,20 @@ function SalvedgeRow({
         )}
       </td>
 
-      <td className="whitespace-nowrap px-3 py-3 text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-muted-foreground">
         {r.completion_timestamp ? formatDate(r.completion_timestamp) : "—"}
       </td>
-      <td className="px-3 py-3 text-[12px] text-muted-foreground">
+      <td className="px-3 py-1.5 align-middle">
+        <AttachmentCell path={r.attachment_url} />
+      </td>
+      <td className="px-3 py-1.5 text-[12px] text-muted-foreground">
         <span className="block max-w-[200px] truncate" title={r.additional_comments ?? ""}>
           {r.additional_comments || "—"}
         </span>
       </td>
 
       {/* Actions */}
-      <td className="px-3 py-3 text-right">
+      <td className="px-3 py-1.5 text-right">
         {isAdmin ? (
           <div className="flex items-center justify-end gap-1">
             <button type="button" onClick={onEdit}
@@ -734,6 +848,31 @@ function SalvedgeRow({
         )}
       </td>
     </tr>
+  );
+}
+
+function AttachmentCell({ path }: { path: string | null }) {
+  const [opening, setOpening] = useState(false);
+  if (!path) return <span className="text-[11px] text-muted-foreground">—</span>;
+  async function open() {
+    setOpening(true);
+    const { data, error } = await supabase.storage.from(REF_BUCKET).createSignedUrl(path!, 300);
+    setOpening(false);
+    if (error || !data) { toast.error("Could not open file."); return; }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }
+  const name = path.split("/").pop() ?? "file";
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={opening}
+      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"
+      title={name}
+    >
+      <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
+      <span className="max-w-[80px] truncate">{name}</span>
+    </button>
   );
 }
 

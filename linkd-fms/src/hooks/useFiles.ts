@@ -81,10 +81,11 @@ async function listAllInBucket(bucket: BucketName): Promise<StorageFile[]> {
               toStorageFile(child, bucket, `${item.name}/${child.name}`)
             );
           } else {
-            // One more level deep (e.g. user/concepts/*)
+            // One more level deep (e.g. user/concepts/* or user/tasks/*)
+            const gcPath = `${item.name}/${child.name}`;
             const { data: grandchildren } = await supabase.storage
               .from(bucket)
-              .list(`${item.name}/${child.name}`, {
+              .list(gcPath, {
                 limit: 200,
                 sortBy: { column: "created_at", order: "desc" },
               });
@@ -92,12 +93,26 @@ async function listAllInBucket(bucket: BucketName): Promise<StorageFile[]> {
               for (const gc of grandchildren) {
                 if (gc.id) {
                   results.push(
-                    toStorageFile(
-                      gc,
-                      bucket,
-                      `${item.name}/${child.name}/${gc.name}`
-                    )
+                    toStorageFile(gc, bucket, `${gcPath}/${gc.name}`)
                   );
+                } else {
+                  // 4th level (e.g. user/tasks/{taskId}/brief-*)
+                  const ggPath = `${gcPath}/${gc.name}`;
+                  const { data: ggChildren } = await supabase.storage
+                    .from(bucket)
+                    .list(ggPath, {
+                      limit: 200,
+                      sortBy: { column: "created_at", order: "desc" },
+                    });
+                  if (ggChildren) {
+                    for (const gg of ggChildren) {
+                      if (gg.id) {
+                        results.push(
+                          toStorageFile(gg, bucket, `${ggPath}/${gg.name}`)
+                        );
+                      }
+                    }
+                  }
                 }
               }
             }

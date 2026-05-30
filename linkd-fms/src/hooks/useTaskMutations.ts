@@ -9,6 +9,7 @@ import type {
   TaskStatus,
   TaskPriority,
   UserRole,
+  BriefType,
 } from "@/types/database";
 
 // ============================================================================
@@ -25,7 +26,10 @@ export type MutationResult<T> = {
  * are derived/auto-assigned. `status` is derived from `assigned_to`.
  */
 export interface CreateTaskInput {
-  client_id: string;
+  /** Required when brief_type='job_work'; ignored / NULL when 'ld'. */
+  client_id?: string | null;
+  /** 'ld' = internal LinkD work (no party), 'job_work' = external client. */
+  brief_type: BriefType;
   concept: string;
   qty: number;
   fabric: string;
@@ -34,6 +38,10 @@ export interface CreateTaskInput {
   planned_deadline?: string | null;
   due_time?: string | null;
   whatsapp_group?: string | null;
+  /** When the brief request arrived on WhatsApp. Independent of created_at. */
+  whatsapp_received_date?: string | null;
+  /** Time-of-day of the WhatsApp message ("HH:MM"). */
+  whatsapp_received_time?: string | null;
   description?: string | null;
   notes?: string | null;
   concept_id?: string | null;
@@ -56,13 +64,45 @@ export interface UseTaskMutations {
     newQty: number
   ) => Promise<MutationResult<Task>>;
   assignTask: (taskId: string, designerId: string) => Promise<MutationResult<Task>>;
-  /** Designer self-assigns from Pool. Only if status=pool AND started_at IS NULL. */
+  /** Designer self-assigns a SPECIFIC Pool task. Only if status=pool AND
+   *  started_at IS NULL. Legacy per-row claim — the FIFO flow below supersedes
+   *  it for designers, but admins/manual paths may still use it. */
   selfAssignTask: (taskId: string) => Promise<MutationResult<Task>>;
+  /** Designer claims a SPECIFIC eligible Pool task (chosen from the top of the
+   *  FIFO queue) and commits a planned deadline. Blocked if the designer has
+   *  any in_progress task. Optimistically locked on status='pool' so two
+   *  designers can't grab the same row. Moves the task pool → 'in_progress'. */
+  claimPoolTask: (
+    taskId: string,
+    plannedDeadline: string,
+    /** Optional fabric chosen up-front. Stored on the task so it pre-fills the
+     *  completion modal later. Fabric is only *required* at completion time. */
+    fabric?: string | null
+  ) => Promise<MutationResult<Task>>;
+  /** Read-only peek used by the claim modal: returns the top `limit` eligible
+   *  Pool tasks (FIFO + urgent-first) so the designer can pick one, whether the
+   *  caller is busy, and the live pool count. Does NOT mutate anything. */
+  getNextPoolTasks: (limit?: number) => Promise<{
+    tasks: PoolTaskPreview[];
+    isBusy: boolean;
+    poolCount: number;
+  }>;
   /**
-   * Mark a task as done with delay_days calculation.
-   * Returns the updated task; caller decides whether to open the kitting modal.
+   * Mark a task as done with delay_days calculation. 'done' is now an
+   * INTERMEDIATE state — design work finished, awaiting completion details
+   * (fabric + mtr). Caller opens the PostDoneModal next.
    */
   markTaskDone: (taskId: string) => Promise<MutationResult<Task>>;
+  /**
+   * Close out a 'done' task with completion fabric + optional mtr, moving it
+   * to the terminal 'completed' status. Fabric is required. Optimistically
+   * locked on status='done' so it can't double-fire or skip the done step.
+   */
+  completeTask: (
+    taskId: string,
+    fabric: string,
+    mtr?: number | null
+  ) => Promise<MutationResult<Task>>;
   /** General field update (concept, description, fabric, qty, deadline, etc.) */
   updateTask: (
     taskId: string,
@@ -76,6 +116,7 @@ export interface UseTaskMutations {
 
 /** Fields the edit dialog can update. All optional — only changed values sent. */
 export interface UpdateTaskFields {
+  brief_type?: BriefType;
   concept?: string;
   description?: string | null;
   fabric?: string;
@@ -86,9 +127,11 @@ export interface UpdateTaskFields {
   planned_deadline?: string | null;
   due_time?: string | null;
   whatsapp_group?: string | null;
+  whatsapp_received_date?: string | null;
+  whatsapp_received_time?: string | null;
   assigned_to?: string | null;
   assigned_by?: string | null;
-  client_id?: string;
+  client_id?: string | null;
   notes?: string | null;
   concept_start_date?: string | null;
   requires_full_kitting?: boolean;
@@ -103,8 +146,40 @@ export type TaskMutationOp =
   | "updateTask"
   | "assign"
   | "selfAssign"
+  | "claimNext"
   | "markDone"
+  | "complete"
   | "delete";
+
+/** A pool task with just enough joined data for the claim-preview modal.
+ *  We only pull `party_name` from the client (no id) — keep it narrow. */
+export interface PoolTaskPreview extends Task {
+  client: { party_name: string } | null;
+}
+
+/** Priority sort weight for FIFO claim ordering (lower = claimed first).
+ *  Defined once so claimPoolTask and getNextPoolTasks sort identically. */
+const POOL_PRIORITY_ORDER: Record<string, number> = {
+  urgent: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+};
+
+/** FIFO comparator: urgent-first, then oldest requirement_received_at, then
+ *  oldest created_at. Shared by the claim + preview paths. */
+function comparePoolFifo(
+  a: { priority: string; requirement_received_at: string | null; created_at: string },
+  b: { priority: string; requirement_received_at: string | null; created_at: string }
+): number {
+  const pa = POOL_PRIORITY_ORDER[a.priority] ?? 2;
+  const pb = POOL_PRIORITY_ORDER[b.priority] ?? 2;
+  if (pa !== pb) return pa - pb;
+  const ra = new Date(a.requirement_received_at || a.created_at).getTime();
+  const rb = new Date(b.requirement_received_at || b.created_at).getTime();
+  if (ra !== rb) return ra - rb;
+  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+}
 
 // ============================================================================
 // Status transition rules
@@ -190,6 +265,40 @@ function buildTaskCode({
   const con = abbrev4(concept);
   const q = Math.max(0, Math.round(qty));
   return `DF ${formatSeqShort(seq)}-${d}${currentMonthYear()}-${con}-${q}M`;
+}
+
+/**
+ * Build a "already claimed by X on <datetime>" message for a task that lost a
+ * claim race. Reads the current assignee + assigned_at fresh so the message
+ * reflects who actually won. Falls back gracefully when data is missing.
+ */
+async function fetchClaimedByMessage(taskId: string): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from("tasks")
+      .select(
+        "assigned_at, assignee:profiles!tasks_assigned_to_fkey(full_name)"
+      )
+      .eq("id", taskId)
+      .maybeSingle();
+    const name =
+      (data as { assignee?: { full_name?: string } } | null)?.assignee
+        ?.full_name ?? "another designer";
+    const when = data?.assigned_at
+      ? new Date(data.assigned_at).toLocaleString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
+    return when
+      ? `This task was already claimed by ${name} on ${when}.`
+      : `This task was already claimed by ${name}.`;
+  } catch {
+    return "This task was just claimed by someone else. Try again.";
+  }
 }
 
 async function fetchDesignerLetter(
@@ -289,15 +398,16 @@ export function useTaskMutations(): UseTaskMutations {
       if (!profile) {
         return { data: null, error: "Not authenticated" };
       }
-      if (!input.client_id?.trim()) {
-        return { data: null, error: "client_id is required" };
+      // client_id is required only for Job Work briefs — LD briefs are
+      // internal and intentionally carry no party (client_id is null).
+      if (input.brief_type === "job_work" && !input.client_id?.trim()) {
+        return { data: null, error: "Pick a Job Work party." };
       }
       if (!input.concept?.trim()) {
         return { data: null, error: "concept is required" };
       }
-      if (!input.fabric?.trim()) {
-        return { data: null, error: "fabric is required" };
-      }
+      // fabric was removed from the brief form; the column is free-text and
+      // accepts an empty string, so we no longer guard on it here.
       if (!Number.isFinite(input.qty) || input.qty <= 0) {
         return { data: null, error: "qty must be a positive number" };
       }
@@ -325,7 +435,9 @@ export function useTaskMutations(): UseTaskMutations {
         requiresFullKitting && fullKittingImageUrl ? profile.id : null;
 
       const row: TaskInsert = {
-        client_id: input.client_id,
+        // brief_type drives whether client_id is required (DB CHECK enforces it).
+        brief_type: input.brief_type,
+        client_id: input.brief_type === "job_work" ? input.client_id ?? null : null,
         concept_id: input.concept_id ?? null,
         concept: input.concept,
         qty: input.qty,
@@ -340,6 +452,8 @@ export function useTaskMutations(): UseTaskMutations {
         planned_deadline: input.planned_deadline ?? null,
         due_time: input.due_time ?? null,
         whatsapp_group: input.whatsapp_group ?? null,
+        whatsapp_received_date: input.whatsapp_received_date ?? null,
+        whatsapp_received_time: input.whatsapp_received_time ?? null,
         description: input.description ?? null,
         notes: input.notes ?? null,
         mtr: input.mtr ?? null,
@@ -479,12 +593,6 @@ export function useTaskMutations(): UseTaskMutations {
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
         if (!current) return { data: null, error: "Task not found" };
-        if (newQty > current.qty) {
-          return {
-            data: null,
-            error: `qty_completed (${newQty}) cannot exceed total qty (${current.qty})`,
-          };
-        }
 
         // Decide whether to auto-advance status.
         const update: { qty_completed: number; status?: TaskStatus } = {
@@ -492,8 +600,8 @@ export function useTaskMutations(): UseTaskMutations {
         };
         const currentStatus = current.status as TaskStatus;
 
-        if (newQty === current.qty) {
-          // Finished kitting → move to full_kitting (if not already past it).
+        if (newQty >= current.qty && current.qty > 0) {
+          // Finished kitting (or extra) → move to full_kitting (if not already past it).
           if (
             STATUS_ORDER.indexOf(currentStatus) <
             STATUS_ORDER.indexOf("full_kitting")
@@ -543,6 +651,11 @@ export function useTaskMutations(): UseTaskMutations {
         if (fetchErr) return { data: null, error: fetchErr.message };
         if (!current) return { data: null, error: "Task not found" };
 
+        // Was this an "accept from pool" action? If so we'll optimistically
+        // lock on status='pool' below so a concurrent designer claim can't be
+        // silently overwritten.
+        const acceptingFromPool = current.status === "pool";
+
         const update: {
           assigned_to: string;
           status?: TaskStatus;
@@ -553,7 +666,7 @@ export function useTaskMutations(): UseTaskMutations {
         } = {
           assigned_to: designerId,
         };
-        if (current.status === "pool") {
+        if (acceptingFromPool) {
           const nowIso = new Date().toISOString();
           update.status = "in_progress";
           update.assigned_at = nowIso;
@@ -579,13 +692,19 @@ export function useTaskMutations(): UseTaskMutations {
           });
         }
 
-        const { data, error } = await supabase
-          .from("tasks")
-          .update(update)
-          .eq("id", taskId)
-          .select("*")
-          .single();
+        let q = supabase.from("tasks").update(update).eq("id", taskId);
+        // Optimistic lock: only claim if the task is STILL in the pool. Skips
+        // the guard for ordinary reassignments (where status isn't 'pool').
+        if (acceptingFromPool) q = q.eq("status", "pool");
+        const { data, error } = await q.select("*").maybeSingle();
         if (error) return { data: null, error: error.message };
+        if (!data) {
+          // Pool-accept lost the race — someone claimed it first.
+          const msg = acceptingFromPool
+            ? await fetchClaimedByMessage(taskId)
+            : "Couldn't update this task. Refresh and try again.";
+          return { data: null, error: msg };
+        }
 
         // Notify assigned designer
         if (data && designerId !== profile.id) {
@@ -705,6 +824,162 @@ export function useTaskMutations(): UseTaskMutations {
   );
 
   // --------------------------------------------------------------------
+  // getNextPoolTasks — read-only peek for the claim modal (top N choices)
+  // --------------------------------------------------------------------
+  const getNextPoolTasks = useCallback<UseTaskMutations["getNextPoolTasks"]>(
+    async (limit = 3) => {
+      if (!profile) return { tasks: [], isBusy: false, poolCount: 0 };
+
+      // Busy = the designer already has work in flight.
+      const { count: busyCount } = await supabase
+        .from("tasks")
+        .select("*", { count: "exact", head: true })
+        .eq("assigned_to", profile.id)
+        .eq("status", "in_progress");
+      const isBusy = (busyCount ?? 0) > 0;
+
+      // Live pool count (unclaimed).
+      const { count: poolCount } = await supabase
+        .from("tasks")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pool")
+        .is("assigned_to", null);
+      const total = poolCount ?? 0;
+
+      if (isBusy || total === 0) {
+        return { tasks: [], isBusy, poolCount: total };
+      }
+
+      // Pull the pool (typically small) and FIFO-sort client-side. We only
+      // join party_name — the design type lives in tasks.concept (text).
+      const { data: poolTasks } = await supabase
+        .from("tasks")
+        .select("*, client:clients(party_name)")
+        .eq("status", "pool")
+        .is("assigned_to", null);
+
+      if (!poolTasks || poolTasks.length === 0) {
+        return { tasks: [], isBusy: false, poolCount: 0 };
+      }
+
+      const sorted = [...(poolTasks as unknown as PoolTaskPreview[])].sort(
+        comparePoolFifo
+      );
+      // Urgent-first, then oldest — the designer picks one of the top `limit`.
+      return {
+        tasks: sorted.slice(0, Math.max(1, limit)),
+        isBusy: false,
+        poolCount: sorted.length,
+      };
+    },
+    [profile]
+  );
+
+  // --------------------------------------------------------------------
+  // claimPoolTask — claim a SPECIFIC pool task with busy-check + deadline
+  // --------------------------------------------------------------------
+  const claimPoolTask = useCallback<UseTaskMutations["claimPoolTask"]>(
+    async (taskId, plannedDeadline, fabric) => {
+      if (!profile) return { data: null, error: "Not authenticated" };
+      if (!plannedDeadline) {
+        return { data: null, error: "Pick a planned deadline first." };
+      }
+      const fab = (fabric ?? "").trim();
+
+      const key = "claimNext";
+      setOpPending(key, true);
+      try {
+        // STEP A — busy check
+        const { count: busyCount } = await supabase
+          .from("tasks")
+          .select("*", { count: "exact", head: true })
+          .eq("assigned_to", profile.id)
+          .eq("status", "in_progress");
+        if ((busyCount ?? 0) > 0) {
+          return {
+            data: null,
+            error:
+              "Complete your current in-progress tasks before claiming new ones.",
+          };
+        }
+
+        // STEP B — fetch the chosen task; it must still be unclaimed.
+        const { data: target, error: targetError } = await supabase
+          .from("tasks")
+          .select("*")
+          .eq("id", taskId)
+          .maybeSingle();
+        if (targetError) return { data: null, error: targetError.message };
+        if (!target || target.status !== "pool" || target.assigned_to) {
+          // Someone grabbed it between the modal load and this click.
+          const msg = await fetchClaimedByMessage(taskId);
+          return { data: null, error: msg };
+        }
+        const chosen = target as Task;
+
+        // STEP C — assign (optimistic lock on status='pool')
+        const designerLetter = await fetchDesignerLetter(profile.id);
+        const newCode = buildTaskCode({
+          designerLetter,
+          seq: extractSeq(chosen.task_code),
+          concept: chosen.concept,
+          qty: chosen.qty,
+        });
+
+        const nowIso = new Date().toISOString();
+        const { data: claimed, error: claimError } = await supabase
+          .from("tasks")
+          .update({
+            assigned_to: profile.id,
+            assigned_at: nowIso,
+            started_at: nowIso,
+            started_late: computeStartedLate(chosen.concept_start_date, nowIso),
+            assigned_by: profile.full_name || "Self",
+            planned_deadline: plannedDeadline,
+            // pool → 'in_progress' directly. Claiming IS starting — there is
+            // no separate Pending stage. The busy-check above therefore caps
+            // a designer at one active task at a time.
+            status: "in_progress" as const,
+            task_code: newCode,
+            // Pre-fill fabric if the designer chose one at claim time. It's not
+            // required here — the completion step enforces it.
+            ...(fab ? { fabric: fab } : {}),
+          })
+          .eq("id", chosen.id)
+          .eq("status", "pool") // only if still unclaimed
+          .select("*")
+          .maybeSingle();
+
+        if (claimError) return { data: null, error: claimError.message };
+        if (!claimed) {
+          // Lost the race — the row left 'pool' between our read and write.
+          // Surface who grabbed it (and when) instead of a generic message.
+          const msg = await fetchClaimedByMessage(chosen.id);
+          return { data: null, error: msg };
+        }
+
+        // STEP D — notify coordinators (best-effort)
+        try {
+          void sendNotificationToRole(
+            ["admin", "design_coordinator"],
+            "Task Claimed from Pool",
+            `${profile.full_name} claimed ${claimed.task_code}`,
+            "info",
+            "/dashboard"
+          );
+        } catch {
+          // non-critical
+        }
+
+        return { data: claimed, error: null };
+      } finally {
+        setOpPending(key, false);
+      }
+    },
+    [profile, setOpPending]
+  );
+
+  // --------------------------------------------------------------------
   // markTaskDone — Calculates delay_days and stamps completed_at
   // --------------------------------------------------------------------
   const markTaskDone = useCallback<UseTaskMutations["markTaskDone"]>(
@@ -764,6 +1039,63 @@ export function useTaskMutations(): UseTaskMutations {
           "success",
           "/dashboard"
         );
+
+        return { data, error: null };
+      } finally {
+        setOpPending(key, false);
+      }
+    },
+    [profile, setOpPending]
+  );
+
+  // --------------------------------------------------------------------
+  // completeTask — done → completed with fabric + mtr
+  // --------------------------------------------------------------------
+  const completeTask = useCallback<UseTaskMutations["completeTask"]>(
+    async (taskId, fabric, mtr) => {
+      if (!profile) return { data: null, error: "Not authenticated" };
+      const fab = (fabric ?? "").trim();
+      if (!fab) {
+        return { data: null, error: "Fabric is required to complete this task." };
+      }
+
+      const key = `complete:${taskId}`;
+      setOpPending(key, true);
+      try {
+        const { data, error } = await supabase
+          .from("tasks")
+          .update({
+            status: "completed" as const,
+            completion_fabric: fab,
+            completion_mtr: mtr ?? null,
+            completion_filled_by: profile.id,
+            completion_filled_at: new Date().toISOString(),
+          })
+          .eq("id", taskId)
+          .eq("status", "done") // only valid from the 'done' intermediate state
+          .select("*")
+          .maybeSingle();
+
+        if (error) return { data: null, error: error.message };
+        if (!data) {
+          return {
+            data: null,
+            error: "This task isn't in the Done state (it may already be completed).",
+          };
+        }
+
+        // Notify coordinators that a task is fully closed out.
+        try {
+          void sendNotificationToRole(
+            ["admin", "design_coordinator"],
+            "Task Fully Completed",
+            `${profile.full_name} completed ${data.task_code} (fabric: ${fab})`,
+            "success",
+            "/dashboard"
+          );
+        } catch {
+          // non-critical
+        }
 
         return { data, error: null };
       } finally {
@@ -856,7 +1188,10 @@ export function useTaskMutations(): UseTaskMutations {
     updateQtyCompleted,
     assignTask,
     selfAssignTask,
+    claimPoolTask,
+    getNextPoolTasks,
     markTaskDone,
+    completeTask,
     updateTask,
     deleteTask,
     pending,

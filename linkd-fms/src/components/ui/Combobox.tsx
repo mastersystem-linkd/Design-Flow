@@ -33,6 +33,10 @@ export interface ComboboxOption<TValue extends string = string> {
   label: string;
   /** Optional secondary line shown under the label (e.g. role, code). */
   hint?: string;
+  /** Optional leading icon rendered before the label (in both the trigger
+   *  and the open option list). Use a small element sized ~14px so it
+   *  aligns with the text baseline. */
+  icon?: React.ReactNode;
   /** When true, item renders disabled and can't be selected. */
   disabled?: boolean;
 }
@@ -151,8 +155,10 @@ export function Combobox<TValue extends string = string>({
   }, [activeIndex, open]);
 
   // Find the selected option once — used to render the trigger label.
+  // If the value exists but isn't in the options list, synthesize a display entry
+  // so the trigger shows the raw value instead of the placeholder.
   const selected = useMemo(
-    () => options.find((o) => o.value === value) ?? null,
+    () => options.find((o) => o.value === value) ?? (value ? { value, label: value } : null),
     [options, value]
   );
 
@@ -212,11 +218,14 @@ export function Combobox<TValue extends string = string>({
       >
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-left",
+            "flex min-w-0 flex-1 items-center gap-1.5 text-left",
             selected ? "text-foreground" : "text-muted-foreground"
           )}
         >
-          {selected ? selected.label : placeholder}
+          {selected?.icon}
+          <span className="min-w-0 flex-1 truncate">
+            {selected ? selected.label : placeholder}
+          </span>
         </span>
         <div className="flex shrink-0 items-center gap-1">
           {clearable && selected && !disabled && (
@@ -385,6 +394,7 @@ function ComboboxRow<TValue extends string = string>({
         option.disabled && "cursor-not-allowed opacity-50"
       )}
     >
+      {option.icon && <span className="shrink-0">{option.icon}</span>}
       <div className="min-w-0 flex-1">
         <p className="truncate text-foreground">
           <Highlight text={option.label} query={query} />

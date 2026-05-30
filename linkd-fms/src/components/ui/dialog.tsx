@@ -48,7 +48,10 @@ const DialogContent = React.forwardRef<
       // can still pass their own `aria-describedby` to override.
       aria-describedby={undefined}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 border border-border bg-card shadow-lg duration-200 sm:rounded-lg",
+        // `w-[calc(100%-2rem)]` keeps a 1rem gutter on phones so dialogs never
+        // touch the screen edges; `max-w-lg` still caps width on desktop and
+        // any caller's `max-w-*` / `w-[…vw]` overrides via tailwind-merge.
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 rounded-lg border border-border bg-card shadow-lg duration-200",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",

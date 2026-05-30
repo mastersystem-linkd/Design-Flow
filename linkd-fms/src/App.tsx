@@ -141,8 +141,8 @@ export default function App() {
           <Route path={ROUTES.taskDashboard} element={<TaskDashboardView />} />
         </Route>
 
-        {/* /scorecards — Designer performance scorecards (admin only) */}
-        <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
+        {/* /scorecards — Designer performance scorecards (admin + coordinator) */}
+        <Route element={<ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />}>
           <Route path={ROUTES.scorecards} element={<ScorecardsView />} />
         </Route>
 
@@ -168,11 +168,9 @@ export default function App() {
           <Route path={ROUTES.system} element={<SystemView />} />
         </Route>
 
-        {/* /salvedge — admin + design_coordinator only. Designers no longer
-            see Salvedge in the sidebar; a direct URL visit lands on the
-            inline access-restricted panel. */}
+        {/* /salvedge — all roles. Designers see only records assigned to them. */}
         <Route
-          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />}
+          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
         >
           <Route path={ROUTES.salvedge} element={<SalvedgeView />} />
         </Route>

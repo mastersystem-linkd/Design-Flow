@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   RotateCcw,
@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/avatar";
 import { ConceptImage } from "@/components/ui/ConceptImage";
 import { useAuth } from "@/hooks/useAuth";
+import { VoiceFeedback } from "@/components/ui/VoiceFeedback";
+import { MarkDoneDialog } from "@/components/concepts/MarkDoneDialog";
 import {
   CONCEPT_STATUS_LABELS,
   CONCEPT_STATUS_COLORS,
@@ -62,6 +64,7 @@ import {
   ThumbsUp,
   PencilLine,
   AlertTriangle,
+  ChevronDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -197,7 +200,7 @@ interface Props {
     reason?: string | null
   ) => Promise<MutationResult<Concept>>;
   onResume?: (id: string) => Promise<MutationResult<Concept>>;
-  onMarkDone?: (id: string) => Promise<MutationResult<Concept>>;
+  onMarkDone?: (id: string, options?: { newFiles?: string[]; notes?: string }) => Promise<MutationResult<Concept>>;
   onApproveDesign?: (
     id: string,
     approvedDesignsCount?: number | null
@@ -233,11 +236,13 @@ export function ConceptDetailDrawer({
 }: Props) {
   const { profile } = useAuth();
   const [reviewNotes, setReviewNotes] = useState("");
+  const [reviewAudioUrl, setReviewAudioUrl] = useState<string | null>(null);
   const [finalNotes, setFinalNotes] = useState("");
   const [approvedCount, setApprovedCount] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   // Work-status lifecycle dialogs
   const [holdOpen, setHoldOpen] = useState(false);
+  const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [holdReason, setHoldReason] = useState("");
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestFeedback, setSuggestFeedback] = useState("");
@@ -255,8 +260,10 @@ export function ConceptDetailDrawer({
     profile?.id === concept.submitted_by ||
     profile?.id === concept.designer_id;
   const canReview = isAdmin && concept.md_status === "pending";
-  const canRequestRevisionReview =
-    isAdmin && concept.md_status === "revision_requested";
+  // Admin can only re-review AFTER the designer re-submits (status flips
+  // back to "pending"). While status is "revision_requested" the ball is
+  // with the designer — hide the review buttons so admins don't double-click.
+  const canRequestRevisionReview = false;
   const canFinalize =
     isMine &&
     concept.md_status === "approved" &&
@@ -271,14 +278,18 @@ export function ConceptDetailDrawer({
   // Handlers
   async function handleReview(status: ReviewInput["status"]) {
     setBusy(status);
+    const feedbackText = reviewAudioUrl
+      ? `${reviewNotes || ""}\n\n🎙 Voice feedback: ${reviewAudioUrl}`.trim()
+      : reviewNotes || null;
     const { error } = await onReview(concept!.id, {
       status,
-      notes: reviewNotes || null,
+      notes: feedbackText,
     });
     setBusy(null);
     if (error) return void toast.error(error);
     toast.success(`Marked as ${CONCEPT_STATUS_LABELS[status]}`);
     setReviewNotes("");
+    setReviewAudioUrl(null);
     onOpenChange(false);
   }
 
@@ -373,13 +384,17 @@ export function ConceptDetailDrawer({
     toast.success("Resumed — back to work");
   }
 
-  async function handleMarkDone() {
+  function handleMarkDone() {
     if (!onMarkDone || busy !== null) return;
-    setBusy("mark_done");
-    const { error } = await onMarkDone(concept!.id);
-    setBusy(null);
-    if (error) return void toast.error(error);
-    toast.success("Marked done — sent to Ma'am for review");
+    setMarkDoneOpen(true);
+  }
+
+  async function handleMarkDoneSubmit(
+    conceptId: string,
+    options?: { newFiles?: string[]; notes?: string }
+  ) {
+    if (!onMarkDone) return { data: null, error: "Not available" };
+    return onMarkDone(conceptId, options);
   }
 
   async function handleApproveDesign() {
@@ -450,7 +465,7 @@ export function ConceptDetailDrawer({
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[90vh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+        className="flex max-h-[95vh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
@@ -458,15 +473,15 @@ export function ConceptDetailDrawer({
         {/* ── Header (sticky, shows code + status pills + title + pipeline) ──
              The Dialog primitive renders its own X close button at top-right;
              we add right padding to keep the title from colliding with it. */}
-        <div className="shrink-0 border-b border-border bg-card px-6 pb-4 pr-12 pt-5">
-          <DialogHeader className="space-y-1.5 border-0 p-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[11px] tracking-wider text-muted-foreground">
+        <div className="shrink-0 border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-5 pb-3 pr-12 pt-4">
+          <DialogHeader className="space-y-1 border-0 p-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge className="border border-primary/20 bg-primary/10 font-mono text-[9px] font-medium text-primary">
                 {concept.concept_code}
-              </span>
+              </Badge>
               <Badge
                 className={cn(
-                  "text-[10px]",
+                  "text-[9px]",
                   CONCEPT_STATUS_COLORS[concept.md_status]
                 )}
               >
@@ -475,7 +490,7 @@ export function ConceptDetailDrawer({
               {showWorkActions && (
                 <Badge
                   className={cn(
-                    "text-[10px]",
+                    "text-[9px]",
                     WORK_STATUS_COLORS[concept.work_status]
                   )}
                 >
@@ -483,27 +498,27 @@ export function ConceptDetailDrawer({
                 </Badge>
               )}
               {concept.priority === "urgent" && (
-                <Badge className="bg-destructive/15 text-destructive text-[10px] ring-1 ring-inset ring-destructive/30">
+                <Badge className="bg-destructive/15 text-destructive text-[9px] ring-1 ring-inset ring-destructive/30">
                   Urgent
                 </Badge>
               )}
             </div>
-            <DialogTitle className="text-lg leading-tight">
+            <DialogTitle className="text-base font-semibold leading-tight tracking-tight">
               {concept.title}
             </DialogTitle>
           </DialogHeader>
 
           {/* ── Pipeline progress bar ── */}
-          <div className="mt-4 flex items-center gap-1">
+          <div className="mt-3 flex items-center gap-0.5">
             {(["creation", "approval", "completion", "final"] as StageKey[]).map(
               (stage, i) => {
                 const status = getStageStatus(concept, stage);
                 const cfg = STAGES[stage];
                 return (
-                  <div key={stage} className="flex flex-1 items-center gap-1">
+                  <div key={stage} className="flex flex-1 items-center gap-0.5">
                     <div
                       className={cn(
-                        "h-1.5 flex-1 rounded-full transition-all",
+                        "h-1 flex-1 rounded-full transition-all",
                         status === "done" && cfg.bgColor,
                         status === "active" &&
                           `${cfg.bgColor} animate-pulse opacity-70`,
@@ -512,14 +527,14 @@ export function ConceptDetailDrawer({
                       )}
                     />
                     {i < 3 && (
-                      <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/30" />
+                      <ArrowRight className="h-2.5 w-2.5 shrink-0 text-muted-foreground/30" />
                     )}
                   </div>
                 );
               }
             )}
           </div>
-          <div className="mt-1.5 flex text-[9px] uppercase tracking-wider text-muted-foreground">
+          <div className="mt-1 flex text-[8px] uppercase tracking-wider text-muted-foreground">
             {(["creation", "approval", "completion", "final"] as StageKey[]).map(
               (stage) => (
                 <span key={stage} className="flex-1 text-center">
@@ -568,11 +583,11 @@ export function ConceptDetailDrawer({
         )}
 
         {/* ── Body ── */}
-        <div className="space-y-0 pb-8">
+        <div className="space-y-0 pb-4">
           {/* ═══════ STAGE 1: Concept Creation ═══════ */}
           <StageSection stage="creation" concept={concept}>
             {/* Details grid */}
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               <DetailItem
                 icon={<User className="h-3.5 w-3.5" />}
                 label="Designer"
@@ -660,7 +675,7 @@ export function ConceptDetailDrawer({
           {/* ═══════ STAGE 2: MD Approval ═══════ */}
           <StageSection stage="approval" concept={concept}>
             {/* Timeline info */}
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               <DetailItem
                 icon={<Clock className="h-3.5 w-3.5" />}
                 label="Planned Review"
@@ -774,26 +789,36 @@ export function ConceptDetailDrawer({
                 </div>
               )}
 
+            {/* ── Admin: waiting for designer to revise ── */}
+            {isAdmin && concept.md_status === "revision_requested" && (
+              <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
+                  <Clock className="h-3.5 w-3.5" />
+                  Waiting for designer to revise and re-submit
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  The review buttons will reappear once the designer uploads the revised files.
+                </p>
+              </div>
+            )}
+
             {/* ── Action: Review (pending concepts) ── */}
-            {(canReview || canRequestRevisionReview) && (
+            {canReview && (
               <div className="mt-3 space-y-3 rounded-lg border border-border bg-card p-4">
                 <p className="text-xs font-medium text-foreground">
-                  {canReview
-                    ? "This concept is awaiting your review."
-                    : "This concept was revised. Review again."}
+                  This concept is awaiting your review.
                 </p>
                 <div className="space-y-1.5">
-                  <Label htmlFor="review-notes" className="text-xs">
-                    Feedback (optional)
+                  <Label className="text-xs">
+                    Feedback <span className="font-normal text-muted-foreground">(type or record voice)</span>
                   </Label>
-                  <textarea
-                    id="review-notes"
+                  <VoiceFeedback
                     value={reviewNotes}
-                    onChange={(e) => setReviewNotes(e.target.value)}
-                    rows={2}
-                    placeholder="Reason or kudos…"
+                    onChange={setReviewNotes}
+                    onAudioUrl={setReviewAudioUrl}
+                    placeholder="Type feedback or tap 🎤 to record voice…"
                     disabled={busy !== null}
-                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    rows={2}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -845,7 +870,7 @@ export function ConceptDetailDrawer({
 
           {/* ═══════ STAGE 3: Designer Completion ═══════ */}
           <StageSection stage="completion" concept={concept}>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               <DetailItem
                 icon={<Clock className="h-3.5 w-3.5" />}
                 label="Planned Completion"
@@ -1158,7 +1183,7 @@ export function ConceptDetailDrawer({
                   </span>
                 </div>
                 {(concept.approved_designs_count != null || concept.final_approval_notes) && (
-                  <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
                     {concept.approved_designs_count != null && (
                       <DetailItem
                         icon={<Palette className="h-3.5 w-3.5" />}
@@ -1330,95 +1355,92 @@ export function ConceptDetailDrawer({
       </DialogContent>
     </Dialog>
 
+    {/* ────── Mark Done dialog (designer — upload files + notes) ────── */}
+    <MarkDoneDialog
+      concept={concept}
+      open={markDoneOpen}
+      onOpenChange={setMarkDoneOpen}
+      onMarkDone={handleMarkDoneSubmit}
+    />
+
     {/* ────── Hold dialog (designer) ────── */}
     <Dialog open={holdOpen} onOpenChange={setHoldOpen}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Hold this concept?</DialogTitle>
-          <DialogDescription>
-            You can resume anytime. The hold duration will be tracked so
-            Ma'am sees what actually delayed the work.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2 pt-2">
-          <Label htmlFor="hold-reason" className="text-xs">
-            Reason (optional)
-          </Label>
-          <textarea
-            id="hold-reason"
-            value={holdReason}
-            onChange={(e) => setHoldReason(e.target.value)}
-            placeholder="e.g. Urgent job-work brief came in"
-            rows={3}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
+      <DialogContent className="max-w-[480px] p-0" srTitle="Hold concept">
+        <div className="relative overflow-hidden border-b border-warning/20 bg-gradient-to-br from-warning/10 via-warning/[0.04] to-card px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-warning text-white shadow-sm shadow-warning/20">
+              <Pause className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">Hold this concept?</h2>
+              <p className="text-[10px] text-muted-foreground">Resume anytime — hold duration is tracked.</p>
+            </div>
+          </div>
         </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setHoldOpen(false)}
-            disabled={busy === "hold"}
-          >
-            Cancel
-          </Button>
-          <LoadingButton
-            size="sm"
-            loading={busy === "hold"}
-            loadingText="Holding…"
-            onClick={handleHoldSubmit}
-            className="gap-1.5"
-          >
-            <Pause className="h-3.5 w-3.5" />
-            Hold concept
-          </LoadingButton>
+        <div className="space-y-2 px-4 py-3">
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-warning/30">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-warning/10 text-warning">
+                <AlertTriangle className="h-3 w-3" />
+              </span>
+              <h3 className="text-[13px] font-semibold tracking-tight text-foreground">Reason <span className="text-[10px] font-normal text-muted-foreground">(optional)</span></h3>
+            </div>
+            <textarea
+              value={holdReason}
+              onChange={(e) => setHoldReason(e.target.value)}
+              placeholder="e.g. Urgent job-work brief came in"
+              rows={2}
+              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </section>
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+            <Button variant="ghost" onClick={() => setHoldOpen(false)} disabled={busy === "hold"}>Cancel</Button>
+            <LoadingButton loading={busy === "hold"} loadingText="Holding…" onClick={handleHoldSubmit} className="gap-1.5 px-6 bg-warning hover:bg-warning/90 shadow-sm shadow-warning/20">
+              <Pause className="h-3.5 w-3.5" />
+              Hold Concept
+            </LoadingButton>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
 
     {/* ────── Suggest changes dialog (admin) ────── */}
     <Dialog open={suggestOpen} onOpenChange={setSuggestOpen}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Suggest changes</DialogTitle>
-          <DialogDescription>
-            Describe what should change. The designer will see this feedback
-            on their board and can reference it while reworking.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2 pt-2">
-          <Label htmlFor="suggest-feedback" className="text-xs">
-            Feedback <span className="text-destructive">*</span>
-          </Label>
-          <textarea
-            id="suggest-feedback"
-            value={suggestFeedback}
-            onChange={(e) => setSuggestFeedback(e.target.value)}
-            placeholder="What should the designer change?"
-            rows={4}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
+      <DialogContent className="max-w-[520px] p-0" srTitle="Suggest changes">
+        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+              <Send className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">Suggest Changes</h2>
+              <p className="text-[10px] text-muted-foreground">Designer will see this feedback while reworking.</p>
+            </div>
+          </div>
         </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSuggestOpen(false)}
-            disabled={busy === "suggest_changes"}
-          >
-            Cancel
-          </Button>
-          <LoadingButton
-            size="sm"
-            loading={busy === "suggest_changes"}
-            loadingText="Sending…"
-            disabled={!suggestFeedback.trim()}
-            onClick={handleSuggestChangesSubmit}
-            className="gap-1.5"
-          >
-            <Send className="h-3.5 w-3.5" />
-            Send feedback
-          </LoadingButton>
+        <div className="space-y-2 px-4 py-3">
+          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <PencilLine className="h-3 w-3" />
+              </span>
+              <h3 className="text-[13px] font-semibold tracking-tight text-foreground">Feedback <span className="text-destructive">*</span></h3>
+            </div>
+            <VoiceFeedback
+              value={suggestFeedback}
+              onChange={setSuggestFeedback}
+              placeholder="What should the designer change?"
+              disabled={busy === "suggest_changes"}
+              rows={3}
+            />
+          </section>
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+            <Button variant="ghost" onClick={() => setSuggestOpen(false)} disabled={busy === "suggest_changes"}>Cancel</Button>
+            <LoadingButton loading={busy === "suggest_changes"} loadingText="Sending…" disabled={!suggestFeedback.trim()} onClick={handleSuggestChangesSubmit} className="gap-1.5 px-6 shadow-sm shadow-primary/20">
+              <Send className="h-3.5 w-3.5" />
+              Send Feedback
+            </LoadingButton>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -1848,83 +1870,95 @@ function StageSection({
   const isBlocked = status === "blocked";
   const isUpcoming = status === "upcoming";
 
-  return (
-    <div
-      className={cn(
-        "relative border-b border-border px-6 py-5",
-        last && "border-b-0",
-        isUpcoming && "opacity-50"
-      )}
-    >
-      {/* Left accent bar */}
-      <div
-        className={cn(
-          "absolute left-0 top-0 bottom-0 w-1",
-          isDone && cfg.bgColor,
-          isActive && `${cfg.bgColor} opacity-60`,
-          isBlocked && "bg-destructive",
-          isUpcoming && "bg-border"
-        )}
-      />
+  // Completed stages auto-collapse; active/blocked/upcoming start expanded.
+  const [expanded, setExpanded] = useState(!isDone);
+  // Re-sync when concept status changes (e.g. admin approves → stage flips to done).
+  useEffect(() => { setExpanded(!isDone); }, [isDone]);
 
-      {/* Stage header */}
-      <div className="mb-3 flex items-center gap-2">
+  const stageNum = stage === "creation" ? "1" : stage === "approval" ? "2" : stage === "completion" ? "3" : "4";
+
+  return (
+    <div className={cn("px-4 py-1.5", isUpcoming && "opacity-40")}>
+      <div
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest("a, button, input, textarea, select, [role='button']")) return;
+          setExpanded((prev) => !prev);
+        }}
+        className={cn(
+          "cursor-pointer rounded-lg border bg-card shadow-sm transition-colors",
+          isDone && "border-success/30",
+          isActive && "border-primary/30",
+          isBlocked && "border-destructive/30",
+          isUpcoming && "border-border"
+        )}
+      >
+        {/* Stage header */}
         <div
           className={cn(
-            "flex h-5 w-5 items-center justify-center rounded-full",
-            isDone && `${cfg.bgColor} text-white`,
-            isActive && `${cfg.bgColor}/15 ${cfg.color}`,
-            isBlocked && "bg-destructive/15 text-destructive",
-            isUpcoming && "bg-border text-muted-foreground"
+            "flex w-full items-center gap-2 px-3 py-2 transition-colors",
+            expanded ? "" : "rounded-lg",
+            isDone && "hover:bg-success/5",
+            isActive && "hover:bg-primary/5"
           )}
         >
-          {isDone ? (
-            <Check className="h-3 w-3" />
-          ) : isBlocked ? (
-            <X className="h-3 w-3" />
-          ) : (
-            <span className="text-[9px] font-bold">
-              {stage === "creation"
-                ? "1"
-                : stage === "approval"
-                  ? "2"
-                  : stage === "completion"
-                    ? "3"
-                    : "4"}
+          <div
+            className={cn(
+              "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+              isDone && `${cfg.bgColor} text-white`,
+              isActive && `${cfg.bgColor}/15 ${cfg.color}`,
+              isBlocked && "bg-destructive/15 text-destructive",
+              isUpcoming && "bg-secondary text-muted-foreground"
+            )}
+          >
+            {isDone ? (
+              <Check className="h-3 w-3" />
+            ) : isBlocked ? (
+              <X className="h-3 w-3" />
+            ) : (
+              <span className="text-[9px] font-bold">{stageNum}</span>
+            )}
+          </div>
+          <h3
+            className={cn(
+              "flex-1 text-[13px] font-semibold tracking-tight",
+              isDone && cfg.color,
+              isActive && cfg.color,
+              isBlocked && "text-destructive",
+              isUpcoming && "text-muted-foreground"
+            )}
+          >
+            {cfg.label}
+          </h3>
+          {isDone && (
+            <span className="rounded bg-success/10 px-1.5 py-0.5 text-[9px] font-semibold text-success">Complete</span>
+          )}
+          {isActive && (
+            <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-semibold", `${cfg.bgColor}/10 ${cfg.color}`)}>
+              In Progress
             </span>
           )}
-        </div>
-        <h3
-          className={cn(
-            "text-xs font-semibold uppercase tracking-wider",
-            isDone && cfg.color,
-            isActive && cfg.color,
-            isBlocked && "text-destructive",
-            isUpcoming && "text-muted-foreground"
+          {isBlocked && (
+            <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] font-semibold text-destructive">Blocked</span>
           )}
-        >
-          {cfg.label}
-        </h3>
-        {isDone && (
-          <span className="ml-auto text-[10px] font-medium text-success">
-            Complete
-          </span>
-        )}
-        {isActive && (
-          <span
-            className={cn("ml-auto text-[10px] font-medium", cfg.color)}
-          >
-            In Progress
-          </span>
-        )}
-        {isBlocked && (
-          <span className="ml-auto text-[10px] font-medium text-destructive">
-            Blocked
-          </span>
-        )}
-      </div>
+          <ChevronDown className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+            expanded && "rotate-180"
+          )} />
+        </div>
 
-      {children}
+        {/* Collapsible content */}
+        <div className={cn(
+          "grid overflow-hidden transition-all duration-200 ease-out",
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        )}>
+          <div className="min-h-0">
+            <div className="px-3 pb-2">
+              {children}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

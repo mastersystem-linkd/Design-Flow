@@ -35,6 +35,7 @@ const TASK_SELECT = `
   client:clients!tasks_client_id_fkey(id, party_name),
   assignee:profiles!tasks_assigned_to_fkey(id, full_name, role, avatar_url),
   creator:profiles!tasks_created_by_fkey(id, full_name, role, avatar_url),
+  filler:profiles!completion_filled_by(id, full_name, role, avatar_url),
   files(id, file_name)
 `;
 

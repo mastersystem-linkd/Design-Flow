@@ -9,6 +9,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent } from "@/components/ui";
+import {
+  CHART_THEME,
+  CHART_GRID_PROPS,
+  CHART_AXIS_PROPS,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+} from "@/lib/chartConfig";
 import type { ApprovalSpeedItem } from "@/hooks/useAnalytics";
 
 export function ConceptTurnaround({ data }: { data: ApprovalSpeedItem[] }) {
@@ -35,52 +42,39 @@ export function ConceptTurnaround({ data }: { data: ApprovalSpeedItem[] }) {
           <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <AreaChart data={data}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgb(var(--border))"
-                  vertical={false}
-                />
-                <ReferenceArea y1={0} y2={24} fill="rgb(var(--success))" fillOpacity={0.06} />
-                <ReferenceArea y1={24} y2={48} fill="rgb(var(--warning))" fillOpacity={0.06} />
-                <ReferenceArea y1={48} y2={maxHours} fill="rgb(var(--destructive))" fillOpacity={0.06} />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
+                <defs>
+                  <linearGradient id="turnaroundArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgb(var(--primary))" stopOpacity={0.28} />
+                    <stop offset="100%" stopColor="rgb(var(--primary))" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...CHART_GRID_PROPS} />
+                <ReferenceArea y1={0} y2={24} fill={CHART_THEME.success} fillOpacity={0.06} />
+                <ReferenceArea y1={24} y2={48} fill={CHART_THEME.warning} fillOpacity={0.06} />
+                <ReferenceArea y1={48} y2={maxHours} fill={CHART_THEME.destructive} fillOpacity={0.06} />
+                <XAxis dataKey="month" {...CHART_AXIS_PROPS} dy={4} />
                 <YAxis
-                  tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
                   width={35}
+                  {...CHART_AXIS_PROPS}
                   label={{
                     value: "hrs",
                     position: "insideTopLeft",
-                    style: {
-                      fill: "rgb(var(--muted-foreground))",
-                      fontSize: 10,
-                    },
+                    style: { fill: CHART_THEME.mutedForeground, fontSize: 10 },
                   }}
                 />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: "rgb(var(--card))",
-                    border: "1px solid rgb(var(--border))",
-                    borderRadius: 8,
-                    fontSize: 12,
-                    color: "rgb(var(--foreground))",
-                  }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                   formatter={(value) => [`${value}h`, "Average"]}
                 />
                 <Area
                   type="monotone"
                   dataKey="avgHours"
-                  stroke="rgb(var(--primary))"
+                  stroke={CHART_THEME.primary}
                   strokeWidth={2}
-                  fill="rgb(var(--primary))"
-                  fillOpacity={0.05}
-                  dot={{ r: 4, fill: "rgb(var(--primary))", stroke: "rgb(var(--card))", strokeWidth: 2 }}
+                  fill="url(#turnaroundArea)"
+                  dot={{ r: 4, fill: CHART_THEME.primary, stroke: CHART_THEME.card, strokeWidth: 2 }}
+                  activeDot={{ r: 5 }}
                 />
               </AreaChart>
             </ResponsiveContainer>
