@@ -3,7 +3,92 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const Dialog = DialogPrimitive.Root;
+// ============================================================================
+// Mobile back-gesture handling
+// ============================================================================
+//
+// Without this, opening a dialog doesn't add a history entry, so the
+// browser's swipe-back gesture (and Android's hardware back button) pops
+// the previous URL — taking the user back to /task-dashboard instead of
+// just closing the form they were filling in.
+//
+// What we do instead:
+//   1. When a dialog opens, push a marker entry onto history.pushState.
+//      No URL change, just a stack frame we can detect later.
+//   2. Register a `close()` callback on a module-level LIFO stack.
+//   3. A single shared popstate listener (installed once) pops the top of
+//      the stack and calls it — so the top-most open dialog closes,
+//      and nested dialogs unwind one back gesture at a time.
+//   4. When a dialog closes programmatically (X / Esc / outside click),
+//      we check whether the current history state still carries our
+//      marker; if so, we history.back() to remove it. That way the
+//      forward URL stack stays clean and the NEXT back gesture takes
+//      the user where they actually expect.
+//
+// Markers are unique per open (timestamp + random suffix) so the
+// "is our marker still the current state?" check is race-free across
+// rapidly opened/closed dialogs.
+// ============================================================================
+
+const dialogCloseStack: Array<() => void> = [];
+let popstateListenerInstalled = false;
+
+function installPopstateListener(): void {
+  if (popstateListenerInstalled || typeof window === "undefined") return;
+  popstateListenerInstalled = true;
+  window.addEventListener("popstate", () => {
+    const top = dialogCloseStack.pop();
+    if (top) top();
+  });
+}
+
+function useDialogBackButton(open: boolean, close: () => void): void {
+  // Keep `close` fresh via ref so we don't tear down and re-push the
+  // history marker on every parent re-render.
+  const closeRef = React.useRef(close);
+  closeRef.current = close;
+
+  React.useEffect(() => {
+    if (!open || typeof window === "undefined") return;
+
+    installPopstateListener();
+
+    const marker = `dlg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.history.pushState({ dialogMarker: marker }, "");
+
+    const handler = (): void => closeRef.current();
+    dialogCloseStack.push(handler);
+
+    return () => {
+      const idx = dialogCloseStack.lastIndexOf(handler);
+      if (idx >= 0) dialogCloseStack.splice(idx, 1);
+
+      // Programmatic close (X / Esc / outside click): the marker is still
+      // the top of history because no popstate fired. Pop it so future
+      // back gestures don't first hit a phantom entry.
+      const state = window.history.state as { dialogMarker?: string } | null;
+      if (state?.dialogMarker === marker) {
+        window.history.back();
+      }
+    };
+  }, [open]);
+}
+
+// Wrap Radix's Root so every Dialog in the app gets the back-gesture
+// handling for free. Both `open` and `onOpenChange` are passed through
+// unchanged — only the close path additionally fires when the user
+// swipes back / hits the hardware back button.
+function Dialog({
+  open,
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  useDialogBackButton(!!open, () => onOpenChange?.(false));
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} {...props} />
+  );
+}
+
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogClose = DialogPrimitive.Close;
 
