@@ -328,7 +328,17 @@ export function ConceptsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlTab]);
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [selected, setSelected] = useState<ConceptWithRelations | null>(null);
+  // Track the selected concept by id, not by snapshot. We then derive the
+  // live concept object from the `concepts` array on each render — so after
+  // any mutation invalidates the cache, the drawer reflects the new state
+  // (e.g. Hold → On Hold + Resume button) WITHOUT needing the user to close
+  // and reopen the dialog. The previous `useState<ConceptWithRelations>`
+  // snapshot pattern silently held stale rows for the whole open session.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedConcept = useMemo(
+    () => (selectedId ? concepts.find((c) => c.id === selectedId) ?? null : null),
+    [selectedId, concepts]
+  );
   const [exportOpen, setExportOpen] = useState(false);
   // Inline row-level action state removed — all lifecycle transitions now
   // happen inside the centered detail modal (one click on any row opens
@@ -837,7 +847,7 @@ export function ConceptsView() {
                   <tr
                     key={c.id}
                     className="group relative border-b border-border/40 cursor-pointer transition-colors duration-150 ease-out hover:bg-secondary/40 even:bg-secondary/[0.04]"
-                    onClick={() => setSelected(c)}
+                    onClick={() => setSelectedId(c.id)}
                   >
                     {/* # — zero-padded monospace for visual alignment */}
                     <td className="sticky left-0 z-10 border-r border-border/40 bg-card px-2 py-3 text-center font-mono text-[11px] tabular-nums text-muted-foreground/60 transition-colors group-hover:bg-secondary/40 group-hover:text-muted-foreground">
@@ -880,8 +890,8 @@ export function ConceptsView() {
                       <ConceptRowActionsMenu
                         canEdit={isOwner(c) || isAdmin}
                         canDelete={isOwner(c) || isAdmin}
-                        onView={() => setSelected(c)}
-                        onEdit={() => setSelected(c)}
+                        onView={() => setSelectedId(c.id)}
+                        onEdit={() => setSelectedId(c.id)}
                         onDelete={() => setDeleteTarget(c)}
                       />
                     </td>
@@ -898,7 +908,7 @@ export function ConceptsView() {
           {visible.map((c) => (
             <li
               key={c.id}
-              onClick={() => setSelected(c)}
+              onClick={() => setSelectedId(c.id)}
               className={cn(
                 "rounded-xl border border-border border-l-[3px] bg-card p-3.5 shadow-sm cursor-pointer transition-colors hover:bg-card/80 active:scale-[0.99]",
                 c.md_status === "approved" ? "border-l-success"
@@ -957,9 +967,9 @@ export function ConceptsView() {
         onSubmit={submitConcept}
       />
       <ConceptDetailDrawer
-        concept={selected}
-        open={!!selected}
-        onOpenChange={(o) => !o && setSelected(null)}
+        concept={selectedConcept}
+        open={!!selectedConcept}
+        onOpenChange={(o) => !o && setSelectedId(null)}
         onReview={reviewConcept}
         onFinalize={finalizeConcept}
         onFinalApprove={finalApproveConcept}

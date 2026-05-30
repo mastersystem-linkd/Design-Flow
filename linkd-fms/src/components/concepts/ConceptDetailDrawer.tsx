@@ -460,17 +460,19 @@ export function ConceptDetailDrawer({
     toast.success("Working on the requested changes");
   }
 
-  // Work-status capability gates. Designer can only act on their own concept;
-  // admin can act on the design-review queue. `isMine` already includes both
-  // submitted_by and designer_id, which is the right surface area here.
+  // Work-status capability gates. Designer can act on their own concept;
+  // admin / coordinator can act on behalf of the designer (e.g. unsticking a
+  // held concept while the designer is unavailable). `isMine` covers both
+  // submitted_by and designer_id; `isAdmin` here = admin OR coordinator.
   const ws = concept.work_status;
   const showWorkActions = concept.md_status === "approved";
-  const canStart = !!onStart && isMine && ws === "not_started";
-  const canHold = !!onHold && isMine && ws === "in_progress";
-  const canResume = !!onResume && isMine && ws === "on_hold";
-  const canMarkDone = !!onMarkDone && isMine && ws === "in_progress";
+  const canDriveWork = isMine || isAdmin;
+  const canStart = !!onStart && canDriveWork && ws === "not_started";
+  const canHold = !!onHold && canDriveWork && ws === "in_progress";
+  const canResume = !!onResume && canDriveWork && ws === "on_hold";
+  const canMarkDone = !!onMarkDone && canDriveWork && ws === "in_progress";
   const canStartChanges =
-    !!onStartChanges && isMine && ws === "changes_requested";
+    !!onStartChanges && canDriveWork && ws === "changes_requested";
   const canReviewDesign = isAdmin && ws === "in_revision";
 
   return (
@@ -1062,9 +1064,12 @@ export function ConceptDetailDrawer({
 
                 {/* Inline lifecycle actions — single decisive surface so
                      the user always knows the next step. Each button is
-                     gated by both work_status AND ownership; admins watching
-                     someone else's row see status only, no buttons. */}
-                {isMine && (
+                     gated by both work_status AND ownership; admins and
+                     coordinators can drive the lifecycle on behalf of the
+                     designer (matches canDriveWork = isMine || isAdmin
+                     above), so a held concept never gets stuck just
+                     because the designer is offline. */}
+                {canDriveWork && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     {/* Start working — fallback for legacy not_started rows.
                          New approvals auto-start so this rarely shows in
@@ -2031,15 +2036,10 @@ function HistoryEntry({
             On time
           </p>
         )}
-        {entry.feedback && (
-          <p
-            className={cn(
-              "mt-1.5 rounded-md border-l-2 px-2.5 py-1.5 text-xs italic text-foreground/85",
-              tone.feedback
-            )}
-          >
-            “{entry.feedback}”
-          </p>
+        {entry.feedback != null && entry.feedback.length > 0 && (
+          <div className={cn("mt-1.5 rounded-md border-l-2 px-2.5 py-1.5", tone.feedback)}>
+            <FeedbackDisplay text={String(entry.feedback)} />
+          </div>
         )}
       </div>
     </div>

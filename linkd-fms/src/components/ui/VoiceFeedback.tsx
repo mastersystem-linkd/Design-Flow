@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/Toaster";
+import { callAdminApi } from "@/lib/adminApi";
 
 const BUCKET = "sample-files";
 
@@ -182,14 +183,54 @@ export function VoiceFeedback({
     onAudioUrl?.(null);
   }
 
-  // Expose upload for parent to call before submit
+  // Auto-upload + server-side transcribe when recording stops.
+  //
+  // The browser SpeechRecognition above is best-effort — on mobile Chrome
+  // (especially with `lang=hi-IN`) the engine often records the audio fine
+  // but produces zero transcript callbacks. To make the textarea reliably
+  // fill in across devices we POST the uploaded audio to /api/transcribe
+  // (OpenAI Whisper) and overwrite whatever the live SR managed to capture.
+  // Whisper auto-detects English / Hindi mid-sentence, which is the common
+  // case for this team.
+  //
+  // If the server returns 503 (no OPENAI_API_KEY configured) we keep the
+  // live-SR partial silently — the audio is still saved either way.
   useEffect(() => {
-    if (audioBlob && onAudioUrl) {
-      // Auto-upload when recording stops
-      void uploadAudio().then((url) => {
-        if (url) onAudioUrl(url);
-      });
-    }
+    if (!audioBlob || !onAudioUrl) return;
+    let cancelled = false;
+    void (async () => {
+      const path = await uploadAudio();
+      if (cancelled || !path) return;
+      onAudioUrl(path);
+
+      setRecState("transcribing");
+      const { data, error } = await callAdminApi<{ transcript: string }>(
+        "transcribe",
+        { path }
+      );
+      if (cancelled) return;
+      setRecState("idle");
+      if (data?.transcript) {
+        transcriptRef.current = data.transcript;
+        onChange(data.transcript);
+      } else if (error) {
+        // Logged but not toasted — audio playback still works and the
+        // recipient can listen. We only nag when the user is left with
+        // nothing in the textarea AND no live-SR fallback either.
+        // eslint-disable-next-line no-console
+        console.warn("[VoiceFeedback] transcription failed:", error.message);
+        if (!transcriptRef.current.trim()) {
+          toast.info(
+            error.status === 503
+              ? "Audio saved. Live transcription unavailable on this device — paste a note or play the recording on the other side."
+              : "Audio saved. Auto-transcript unavailable right now."
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [audioBlob]);
 
   const fmtTime = (s: number) =>
@@ -243,6 +284,20 @@ export function VoiceFeedback({
           {hasSpeechApi && (
             <span className="ml-auto text-[10px] text-muted-foreground">Live transcription active</span>
           )}
+        </div>
+      )}
+
+      {/* Whisper transcription indicator — runs after upload, replaces the
+          live-SR partial with a more accurate auto-detected transcript. */}
+      {recState === "transcribing" && (
+        <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5">
+          <Loader2 className="h-3 w-3 animate-spin text-primary" />
+          <span className="text-[11px] font-medium text-primary">
+            Transcribing audio…
+          </span>
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            Auto-detects English / Hindi
+          </span>
         </div>
       )}
 

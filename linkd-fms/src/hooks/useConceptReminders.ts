@@ -5,13 +5,12 @@ import { useAuth } from "@/hooks/useAuth";
 
 const REMINDER_TITLE = "Concept Submission Reminder";
 
-// Week 1 (Day 8):  need at least 1 concept
-// Week 2 (Day 17): need at least 2 concepts
-// Week 3 (Day 24): need at least 3 concepts
+// Monthly target: 2 concepts per designer
+// Day 8:  need at least 1 concept
+// Day 20: need at least 2 concepts
 const CHECKPOINTS: { day: number; minRequired: number }[] = [
   { day: 8, minRequired: 1 },
-  { day: 17, minRequired: 2 },
-  { day: 24, minRequired: 3 },
+  { day: 20, minRequired: 2 },
 ];
 
 export function useConceptReminders() {
