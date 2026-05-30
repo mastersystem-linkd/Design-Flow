@@ -35,6 +35,7 @@ import {
 import { ConceptImage } from "@/components/ui/ConceptImage";
 import { useAuth } from "@/hooks/useAuth";
 import { VoiceFeedback } from "@/components/ui/VoiceFeedback";
+import { FeedbackDisplay } from "@/components/ui/FeedbackDisplay";
 import { MarkDoneDialog } from "@/components/concepts/MarkDoneDialog";
 import {
   CONCEPT_STATUS_LABELS,
@@ -734,8 +735,8 @@ export function ConceptDetailDrawer({
 
             {/* MD notes */}
             {concept.md_notes && (
-              <div className="mt-2 rounded-lg border border-border bg-card p-3 text-sm italic text-muted-foreground">
-                "{concept.md_notes}"
+              <div className="mt-2 rounded-lg border border-border bg-card p-3">
+                <FeedbackDisplay text={concept.md_notes} />
               </div>
             )}
 
@@ -961,9 +962,9 @@ export function ConceptDetailDrawer({
                           Reworking — round {(concept.revision_count ?? 0) + 1}
                         </div>
                         {concept.md_feedback && (
-                          <p className="mt-1 text-xs italic text-foreground">
-                            Ma'am's feedback: "{concept.md_feedback}"
-                          </p>
+                          <div className="mt-1">
+                            <FeedbackDisplay text={concept.md_feedback} />
+                          </div>
                         )}
                       </div>
                     )}
@@ -1040,9 +1041,9 @@ export function ConceptDetailDrawer({
                         Reworking — Ma'am's feedback
                       </div>
                       {concept.md_feedback && (
-                        <p className="mt-1 text-xs italic text-foreground">
-                          "{concept.md_feedback}"
-                        </p>
+                        <div className="mt-1">
+                          <FeedbackDisplay text={concept.md_feedback} />
+                        </div>
                       )}
                     </div>
                   )}
@@ -1178,8 +1179,8 @@ export function ConceptDetailDrawer({
                   </div>
                 )}
                 {concept.final_approval_notes && (
-                  <div className="mt-2 rounded-lg border border-border bg-card p-3 text-sm italic text-muted-foreground">
-                    "{concept.final_approval_notes}"
+                  <div className="mt-2 rounded-lg border border-border bg-card p-3">
+                    <FeedbackDisplay text={concept.final_approval_notes} />
                   </div>
                 )}
               </>
@@ -1206,7 +1207,9 @@ export function ConceptDetailDrawer({
                       Waiting for designer to revise
                     </p>
                     {concept.md_feedback && (
-                      <p className="mt-1 text-xs italic text-foreground">Your feedback: "{concept.md_feedback}"</p>
+                      <div className="mt-1">
+                        <FeedbackDisplay text={concept.md_feedback} />
+                      </div>
                     )}
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       The designer will upload revised files and re-submit. You'll be able to review again.
@@ -1234,7 +1237,7 @@ export function ConceptDetailDrawer({
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                     <div>
                       <p className="text-[10px] font-semibold text-warning">Previous feedback (Round {concept.revision_count ?? 1})</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{concept.final_approval_notes}</p>
+                      <FeedbackDisplay text={concept.final_approval_notes!} className="mt-0.5" />
                     </div>
                   </div>
                 )}
@@ -1357,7 +1360,7 @@ export function ConceptDetailDrawer({
                                 <p className="text-xs font-semibold text-warning">
                                   Changes Requested {(concept.revision_count ?? 0) > 0 && `· Round ${concept.revision_count}`}
                                 </p>
-                                {feedback && <p className="mt-0.5 text-xs italic text-foreground">"{feedback}"</p>}
+                                {feedback && <FeedbackDisplay text={feedback} className="mt-1" />}
                               </div>
                             </div>
                             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
