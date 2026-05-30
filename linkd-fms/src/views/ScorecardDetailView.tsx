@@ -24,6 +24,7 @@ import {
   GitBranch,
   TrendingUp,
   Pause,
+  Lightbulb,
 } from "lucide-react";
 import {
   format,
@@ -969,312 +970,293 @@ export function ScorecardDetailView() {
         </div>
       </div>
 
-      {/* ── ROW: Concept + Task performance (detailed score cards) ── */}
+      {/* ── ROW: Concept + Task performance (detailed score cards) ──
+           Each card now follows the textile / hero pattern from
+           CLAUDE.md §8.2: tone-coloured top accent bar matching the
+           score quality, icon-chipped header with subtitle, and a
+           HERO SCORE block as the visual centrepiece (big tabular
+           number + quality label like "Excellent" / "Needs Focus").
+           See SCORE_TONE below for the tier definitions. */}
       <div className="grid gap-3 lg:grid-cols-2">
-        <Card className="border border-border">
-          <div className="p-3 sm:p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">
-                Concept Performance
-              </h3>
-              <ScorePill score={data.concept.score} />
-            </div>
-            <div className="flex flex-col items-center gap-4 sm:flex-row">
-              <ConceptDonut
-                approved={data.concept.approved}
-                revisions={data.concept.revisions}
-                rejected={data.concept.rejected}
-                pending={data.concept.pending}
-                total={data.concept.submitted}
+        <ScoreCard
+          icon={<Lightbulb className="h-5 w-5" />}
+          title="Concept Performance"
+          subtitle="Submission → MD approval pipeline"
+          score={data.concept.score}
+        >
+          {/* Donut + breakdown bars */}
+          <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
+            <ConceptDonut
+              approved={data.concept.approved}
+              revisions={data.concept.revisions}
+              rejected={data.concept.rejected}
+              pending={data.concept.pending}
+              total={data.concept.submitted}
+            />
+            <div className="flex-1 space-y-3">
+              <ScoreBar
+                label="Volume"
+                points={data.concept.breakdown.volume}
+                max={30}
+                fillClass="bg-primary"
+                index={0}
               />
-              <div className="flex-1 space-y-2">
-                <ScoreBar
-                  label="Volume"
-                  points={data.concept.breakdown.volume}
-                  max={30}
-                  fillClass="bg-primary"
-                  index={0}
-                />
-                <ScoreBar
-                  label="Approval"
-                  points={data.concept.breakdown.approval}
-                  max={35}
-                  fillClass="bg-success"
-                  index={1}
-                />
-                <ScoreBar
-                  label="Speed"
-                  points={data.concept.breakdown.speed}
-                  max={20}
-                  fillClass="bg-primary"
-                  index={2}
-                />
-                <ScoreBar
-                  label="Low Rev"
-                  points={data.concept.breakdown.lowRev}
-                  max={15}
-                  fillClass="bg-primary"
-                  index={3}
-                />
-              </div>
+              <ScoreBar
+                label="Approval"
+                points={data.concept.breakdown.approval}
+                max={35}
+                fillClass="bg-success"
+                index={1}
+              />
+              <ScoreBar
+                label="Speed"
+                points={data.concept.breakdown.speed}
+                max={20}
+                fillClass="bg-primary"
+                index={2}
+              />
+              <ScoreBar
+                label="Low Rev"
+                points={data.concept.breakdown.lowRev}
+                max={15}
+                fillClass="bg-primary"
+                index={3}
+              />
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Avg review time:{" "}
-              <span
-                className={cn(
-                  "font-semibold",
-                  data.concept.avgReviewHours === 0
-                    ? "text-muted-foreground"
-                    : data.concept.avgReviewHours < 24
-                    ? "text-success"
-                    : data.concept.avgReviewHours < 48
-                    ? "text-warning"
-                    : "text-destructive"
-                )}
-              >
-                {data.concept.avgReviewHours === 0
-                  ? "—"
-                  : `${data.concept.avgReviewHours}h`}
-              </span>
-              <span className="ml-2 text-muted-foreground/70">target: &lt; 24h</span>
-            </p>
-            {/* Completion + revision-cycle footnote — exposes the gap between
-                "MD approved" and "actually shipped" so the reviewer can spot a
-                designer who lands approvals but stalls on finalisation. */}
-            <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-l-[3px] border-l-success border-border/60 bg-secondary/40 px-3 py-2 text-xs">
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                  Shipped
-                </div>
-                <div className="mt-0.5 flex items-baseline gap-1.5">
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      data.concept.approved === 0
-                        ? "text-muted-foreground"
-                        : data.concept.completionRate >= 70
-                        ? "text-success"
-                        : data.concept.completionRate >= 40
-                        ? "text-warning"
-                        : "text-destructive"
-                    )}
-                  >
-                    {data.concept.completed}
-                    <span className="text-muted-foreground/60">/{data.concept.approved}</span>
+          </div>
+
+          {/* Avg review time inline footnote */}
+          <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+            <span className="text-muted-foreground">Avg review time</span>
+            <span
+              className={cn(
+                "font-bold tabular-nums",
+                data.concept.avgReviewHours === 0
+                  ? "text-muted-foreground"
+                  : data.concept.avgReviewHours < 24
+                  ? "text-success"
+                  : data.concept.avgReviewHours < 48
+                  ? "text-warning"
+                  : "text-destructive"
+              )}
+            >
+              {data.concept.avgReviewHours === 0 ? "—" : `${data.concept.avgReviewHours}h`}
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+              target &lt; 24h
+            </span>
+          </div>
+
+          {/* Completion + revision-cycle stat strip — refined as side-by-
+              side glass tiles with their own tone-coloured accent so the
+              shipped-vs-approved gap reads at a glance. */}
+          <div className="mt-4 grid grid-cols-2 gap-2.5">
+            <StatTile
+              label="Shipped"
+              value={
+                <>
+                  {data.concept.completed}
+                  <span className="text-base font-medium text-muted-foreground/50">
+                    /{data.concept.approved}
                   </span>
-                  {data.concept.approved > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      ({data.concept.completionRate}%)
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                  Revision cycles
-                </div>
-                <div className="mt-0.5 flex items-baseline gap-1.5">
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      data.concept.revisionCycles === 0
-                        ? "text-success"
-                        : data.concept.submitted > 0 &&
-                          data.concept.revisionCycles / data.concept.submitted > 0.5
-                        ? "text-destructive"
-                        : "text-foreground"
-                    )}
-                  >
-                    {data.concept.revisionCycles}
-                  </span>
-                  {data.concept.submitted > 0 && data.concept.revisionCycles > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      ({(data.concept.revisionCycles / data.concept.submitted).toFixed(1)} per submission)
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+                </>
+              }
+              hint={
+                data.concept.approved > 0
+                  ? `${data.concept.completionRate}% finalised`
+                  : "no approvals yet"
+              }
+              tone={
+                data.concept.approved === 0
+                  ? "muted"
+                  : data.concept.completionRate >= 70
+                  ? "success"
+                  : data.concept.completionRate >= 40
+                  ? "warning"
+                  : "destructive"
+              }
+            />
+            <StatTile
+              label="Revision Cycles"
+              value={data.concept.revisionCycles}
+              hint={
+                data.concept.submitted > 0 && data.concept.revisionCycles > 0
+                  ? `${(data.concept.revisionCycles / data.concept.submitted).toFixed(1)} per submission`
+                  : data.concept.submitted > 0
+                  ? "first-pass clean"
+                  : "—"
+              }
+              tone={
+                data.concept.revisionCycles === 0 && data.concept.submitted > 0
+                  ? "success"
+                  : data.concept.submitted > 0 &&
+                    data.concept.revisionCycles / data.concept.submitted > 0.5
+                  ? "destructive"
+                  : "muted"
+              }
+            />
+          </div>
 
             {/* ── Post-Approval Pipeline — work-status lifecycle metrics
                  from migration 0026. Hidden when the designer has no
                  lifecycle data yet so we don't show four "—" tiles. */}
-            {(data.concept.firstPassRate !== null ||
-              data.concept.avgRevisionRounds !== null ||
-              data.concept.avgDesignDays !== null ||
-              data.concept.holdRate !== null) && (
-              <div className="mt-3 rounded-lg border border-l-[3px] border-l-primary border-border/60 bg-secondary/40 p-3">
-                <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <Sparkles className="h-3 w-3 text-primary" />
-                  Post-Approval Pipeline
+          {(data.concept.firstPassRate !== null ||
+            data.concept.avgRevisionRounds !== null ||
+            data.concept.avgDesignDays !== null ||
+            data.concept.holdRate !== null) && (
+            <div className="mt-4 rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-card to-card p-3.5">
+              <div className="mb-2.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-foreground/85">
+                <div className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/15 text-primary">
+                  <Sparkles className="h-2.5 w-2.5" />
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <LifecycleStat
-                    icon={<Sparkles className="h-3 w-3" />}
-                    label="First-Pass"
-                    value={
-                      data.concept.firstPassRate !== null
-                        ? `${data.concept.firstPassRate}%`
-                        : "—"
-                    }
-                    accentClass={
-                      data.concept.firstPassRate === null
-                        ? undefined
-                        : data.concept.firstPassRate >= 80
-                          ? "text-success"
-                          : data.concept.firstPassRate >= 60
-                            ? "text-warning"
-                            : "text-destructive"
-                    }
-                  />
-                  <LifecycleStat
-                    icon={<RotateCcw className="h-3 w-3" />}
-                    label="Avg Rounds"
-                    value={
-                      data.concept.avgRevisionRounds !== null
-                        ? data.concept.avgRevisionRounds.toFixed(1)
-                        : "—"
-                    }
-                  />
-                  <LifecycleStat
-                    icon={<CalendarIcon className="h-3 w-3" />}
-                    label="Working Days"
-                    value={
-                      data.concept.avgDesignDays !== null
-                        ? `${data.concept.avgDesignDays}d`
-                        : "—"
-                    }
-                  />
-                  <LifecycleStat
-                    icon={<Pause className="h-3 w-3" />}
-                    label="Hold Rate"
-                    value={
-                      data.concept.holdRate !== null
-                        ? `${data.concept.holdRate}%`
-                        : "—"
-                    }
-                    sub={
-                      data.concept.totalHolds > 0
-                        ? `${data.concept.totalHolds} total`
-                        : undefined
-                    }
-                    accentClass={
-                      data.concept.holdRate === null
-                        ? undefined
-                        : data.concept.holdRate <= 20
-                          ? "text-success"
-                          : data.concept.holdRate <= 50
-                            ? "text-warning"
-                            : "text-destructive"
-                    }
-                  />
-                </div>
+                Post-Approval Pipeline
               </div>
-            )}
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                <LifecycleStat
+                  icon={<Sparkles className="h-3 w-3" />}
+                  label="First-Pass"
+                  value={
+                    data.concept.firstPassRate !== null
+                      ? `${data.concept.firstPassRate}%`
+                      : "—"
+                  }
+                  accentClass={
+                    data.concept.firstPassRate === null
+                      ? undefined
+                      : data.concept.firstPassRate >= 80
+                        ? "text-success"
+                        : data.concept.firstPassRate >= 60
+                          ? "text-warning"
+                          : "text-destructive"
+                  }
+                />
+                <LifecycleStat
+                  icon={<RotateCcw className="h-3 w-3" />}
+                  label="Avg Rounds"
+                  value={
+                    data.concept.avgRevisionRounds !== null
+                      ? data.concept.avgRevisionRounds.toFixed(1)
+                      : "—"
+                  }
+                />
+                <LifecycleStat
+                  icon={<CalendarIcon className="h-3 w-3" />}
+                  label="Working Days"
+                  value={
+                    data.concept.avgDesignDays !== null
+                      ? `${data.concept.avgDesignDays}d`
+                      : "—"
+                  }
+                />
+                <LifecycleStat
+                  icon={<Pause className="h-3 w-3" />}
+                  label="Hold Rate"
+                  value={
+                    data.concept.holdRate !== null
+                      ? `${data.concept.holdRate}%`
+                      : "—"
+                  }
+                  sub={
+                    data.concept.totalHolds > 0
+                      ? `${data.concept.totalHolds} total`
+                      : undefined
+                  }
+                  accentClass={
+                    data.concept.holdRate === null
+                      ? undefined
+                      : data.concept.holdRate <= 20
+                        ? "text-success"
+                        : data.concept.holdRate <= 50
+                          ? "text-warning"
+                          : "text-destructive"
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </ScoreCard>
+
+        <ScoreCard
+          icon={<Activity className="h-5 w-5" />}
+          title="Task Performance"
+          subtitle="Briefs claimed → completed"
+          score={data.task.score}
+        >
+          {/* Pipeline bar */}
+          <DetailedPipelineBar
+            completed={data.task.completed}
+            inProgress={data.task.inProgress}
+            assigned={data.task.assigned}
+          />
+
+          {/* Score breakdown bars */}
+          <div className="mt-5 space-y-3">
+            <ScoreBar label="Volume" points={data.task.breakdown.volume} max={30} fillClass="bg-primary" index={0} />
+            <ScoreBar label="On-Time" points={data.task.breakdown.onTime} max={35} fillClass="bg-success" index={1} />
+            <ScoreBar label="Speed" points={data.task.breakdown.speed} max={20} fillClass="bg-primary" index={2} />
+            <ScoreBar label="Active" points={data.task.breakdown.active} max={15} fillClass="bg-primary" index={3} />
           </div>
-        </Card>
 
-        <Card className="border border-border">
-          <div className="p-3.5 sm:p-5">
-            {/* Header */}
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
-                  <Activity className="h-3.5 w-3.5 text-primary" />
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">
-                  Task Performance
-                </h3>
-              </div>
-              <ScorePill score={data.task.score} />
-            </div>
-
-            {/* Pipeline bar */}
-            <div>
-              <DetailedPipelineBar
-                completed={data.task.completed}
-                inProgress={data.task.inProgress}
-                assigned={data.task.assigned}
-              />
-            </div>
-
-            {/* Score breakdown bars */}
-            <div className="mt-6 space-y-3">
-              <ScoreBar label="Volume" points={data.task.breakdown.volume} max={30} fillClass="bg-primary" index={0} />
-              <ScoreBar label="On-Time" points={data.task.breakdown.onTime} max={35} fillClass="bg-success" index={1} />
-              <ScoreBar label="Speed" points={data.task.breakdown.speed} max={20} fillClass="bg-primary" index={2} />
-              <ScoreBar label="Active" points={data.task.breakdown.active} max={15} fillClass="bg-primary" index={3} />
-            </div>
-
-            {/* Divider */}
-            <div className="my-5 border-t border-border/50" />
-
-            {/* Bottom stats — 3-column grid */}
-            <div className="grid grid-cols-3 gap-3">
-              {/* Avg Completion */}
-              <div className="rounded-xl border border-border/50 bg-secondary/20 p-3 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Avg Completion
-                </p>
-                <p className={cn(
-                  "mt-1.5 text-xl font-bold tabular-nums leading-none",
-                  data.task.completed === 0 ? "text-muted-foreground"
-                    : data.task.avgDays < 3 ? "text-success"
-                    : data.task.avgDays <= 5 ? "text-warning"
-                    : "text-destructive"
-                )}>
-                  {data.task.completed === 0 ? "—" : `${data.task.avgDays}d`}
-                </p>
-                {data.task.completed > 0 && data.task.teamAvgDays > 0 && (() => {
-                  const delta = Math.round((data.task.avgDays - data.task.teamAvgDays) * 10) / 10;
-                  if (Math.abs(delta) < 0.1)
-                    return <p className="mt-1 text-[10px] text-muted-foreground/60">on team avg</p>;
-                  return delta > 0
-                    ? <p className="mt-1 text-[10px] text-destructive">+{delta}d slower</p>
-                    : <p className="mt-1 text-[10px] text-success">{delta}d faster</p>;
-                })()}
-              </div>
-
-              {/* Cycle Time */}
-              <div className="rounded-xl border border-border/50 bg-secondary/20 p-3 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Cycle Time
-                </p>
-                <p className={cn(
-                  "mt-1.5 text-xl font-bold tabular-nums leading-none",
-                  data.task.completed === 0 ? "text-muted-foreground"
-                    : data.task.avgCycleDays <= 3 ? "text-success"
-                    : data.task.avgCycleDays <= 6 ? "text-warning"
-                    : "text-destructive"
-                )}>
-                  {data.task.completed === 0 ? "—" : `${data.task.avgCycleDays}d`}
-                </p>
-                <p className="mt-1 text-[10px] text-muted-foreground/60">assigned→done</p>
-              </div>
-
-              {/* Late Completions */}
-              <div className="rounded-xl border border-border/50 bg-secondary/20 p-3 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Late
-                </p>
-                <p className={cn(
-                  "mt-1.5 text-xl font-bold tabular-nums leading-none",
-                  data.task.late === 0 ? "text-success"
-                    : data.task.late > data.task.onTime ? "text-destructive"
-                    : "text-warning"
-                )}>
+          {/* Bottom stat tiles — 3 column grid, same StatTile primitive as
+              the Concept card's footer so the visual rhythm is consistent.
+              Tones drive the value colour + ring + accent automatically. */}
+          <div className="mt-5 grid grid-cols-3 gap-2.5">
+            <StatTile
+              label="Avg Completion"
+              value={data.task.completed === 0 ? "—" : `${data.task.avgDays}d`}
+              hint={(() => {
+                if (data.task.completed === 0 || data.task.teamAvgDays === 0) return undefined;
+                const delta = Math.round((data.task.avgDays - data.task.teamAvgDays) * 10) / 10;
+                if (Math.abs(delta) < 0.1) return "on team avg";
+                return delta > 0 ? `+${delta}d slower` : `${delta}d faster`;
+              })()}
+              tone={
+                data.task.completed === 0
+                  ? "muted"
+                  : data.task.avgDays < 3
+                  ? "success"
+                  : data.task.avgDays <= 5
+                  ? "warning"
+                  : "destructive"
+              }
+            />
+            <StatTile
+              label="Cycle Time"
+              value={data.task.completed === 0 ? "—" : `${data.task.avgCycleDays}d`}
+              hint="assigned → done"
+              tone={
+                data.task.completed === 0
+                  ? "muted"
+                  : data.task.avgCycleDays <= 3
+                  ? "success"
+                  : data.task.avgCycleDays <= 6
+                  ? "warning"
+                  : "destructive"
+              }
+            />
+            <StatTile
+              label="Late"
+              value={
+                <>
                   {data.task.late}
                   {data.task.completed > 0 && (
-                    <span className="text-xs font-normal text-muted-foreground">
+                    <span className="text-base font-medium text-muted-foreground/50">
                       /{data.task.completed}
                     </span>
                   )}
-                </p>
-                <p className="mt-1 text-[10px] text-muted-foreground/60">completions</p>
-              </div>
-            </div>
+                </>
+              }
+              hint="completions"
+              tone={
+                data.task.late === 0
+                  ? "success"
+                  : data.task.late > data.task.onTime
+                  ? "destructive"
+                  : "warning"
+              }
+            />
           </div>
-        </Card>
+        </ScoreCard>
       </div>
 
       {/* ── ROW: Momentum (recharts area) — responds to date filter ── */}
@@ -1766,6 +1748,243 @@ function WeekdayPattern({
 // ============================================================================
 // ScorePill — colored badge for the section score
 // ============================================================================
+
+// ============================================================================
+// Score visual system (used by the Concept / Task performance cards)
+// ============================================================================
+//
+// SCORE_TONE maps a 0–100 score onto:
+//   - a *quality label* you can show next to the number ("Excellent" etc.)
+//   - a *tone* (text colour + accent gradient + ring) so the card reads at a
+//     glance from across the room — top bar tinted, hero number tinted,
+//     header chip tinted, no decoding required.
+// Tailwind can't compose dynamic colour utilities, so every variant is a
+// static string here. Add a new tier by appending another entry.
+
+type Tone = "success" | "primary" | "warning" | "destructive" | "muted";
+
+interface ScoreTone {
+  label: string;
+  textClass: string;
+  ringClass: string;
+  bgChipClass: string;
+  // Top accent bar — left-to-right tone gradient so the score quality is
+  // legible at the very first pixel of the card.
+  accentClass: string;
+}
+
+const TONE_BASE: Record<Tone, Omit<ScoreTone, "label" | "accentClass">> = {
+  success: {
+    textClass: "text-success",
+    ringClass: "ring-success/30",
+    bgChipClass: "bg-success/10 text-success",
+  },
+  primary: {
+    textClass: "text-primary",
+    ringClass: "ring-primary/30",
+    bgChipClass: "bg-primary/10 text-primary",
+  },
+  warning: {
+    textClass: "text-warning",
+    ringClass: "ring-warning/30",
+    bgChipClass: "bg-warning/10 text-warning",
+  },
+  destructive: {
+    textClass: "text-destructive",
+    ringClass: "ring-destructive/30",
+    bgChipClass: "bg-destructive/10 text-destructive",
+  },
+  muted: {
+    textClass: "text-muted-foreground",
+    ringClass: "ring-border",
+    bgChipClass: "bg-secondary text-muted-foreground",
+  },
+};
+
+function getScoreTone(score: number): ScoreTone {
+  if (score >= 90)
+    return {
+      ...TONE_BASE.success,
+      label: "Excellent",
+      accentClass: "bg-gradient-to-r from-success via-success/80 to-success/40",
+    };
+  if (score >= 80)
+    return {
+      ...TONE_BASE.success,
+      label: "Strong",
+      accentClass: "bg-gradient-to-r from-success via-success/70 to-primary/50",
+    };
+  if (score >= 70)
+    return {
+      ...TONE_BASE.primary,
+      label: "On Track",
+      accentClass: "bg-gradient-to-r from-primary via-primary/70 to-success/50",
+    };
+  if (score >= 60)
+    return {
+      ...TONE_BASE.primary,
+      label: "Steady",
+      accentClass: "bg-gradient-to-r from-primary via-warning/60 to-warning/40",
+    };
+  if (score >= 40)
+    return {
+      ...TONE_BASE.warning,
+      label: "Needs Focus",
+      accentClass: "bg-gradient-to-r from-warning via-warning/70 to-destructive/40",
+    };
+  return {
+    ...TONE_BASE.destructive,
+    label: "At Risk",
+    accentClass: "bg-gradient-to-r from-destructive via-destructive/70 to-warning/40",
+  };
+}
+
+// ----------------------------------------------------------------------------
+// ScoreCard — card shell used by Concept + Task Performance.
+// Composes: tone-coloured top accent bar, icon-chip header, hero score
+// (big tabular number + quality label), and a slot for everything below.
+// Adopts the textile / hero motif from CLAUDE.md §8.2 so the card reads in
+// the same visual language as the rest of the dashboards.
+// ----------------------------------------------------------------------------
+function ScoreCard({
+  icon,
+  title,
+  subtitle,
+  score,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  score: number;
+  children: React.ReactNode;
+}) {
+  const tone = getScoreTone(score);
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/[0.04] via-card to-card shadow-sm">
+      {/* Woven dot grid — textile motif backdrop (§8.2). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, rgb(var(--foreground)) 1px, transparent 1px)",
+          backgroundSize: "14px 14px",
+        }}
+      />
+      {/* Top accent bar — score-quality coloured so the card's tone is
+          legible from the first pixel. */}
+      <div
+        aria-hidden
+        className={cn("pointer-events-none absolute inset-x-0 top-0 h-[3px]", tone.accentClass)}
+      />
+
+      <div className="relative p-4 sm:p-5">
+        {/* Header row: icon chip + title block | hero score block */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div
+              className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
+                tone.bgChipClass,
+                tone.ringClass
+              )}
+            >
+              {icon}
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate text-[15px] font-semibold tracking-tight text-foreground">
+                {title}
+              </h3>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {subtitle}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col items-end leading-none">
+            <div className="flex items-baseline gap-0.5">
+              <span
+                className={cn(
+                  "text-3xl font-bold tabular-nums tracking-tight sm:text-[34px]",
+                  tone.textClass
+                )}
+              >
+                {score}
+              </span>
+              <span className="text-base font-medium text-muted-foreground/60">
+                /100
+              </span>
+            </div>
+            <span
+              className={cn(
+                "mt-1 text-[10px] font-bold uppercase tracking-[0.14em]",
+                tone.textClass
+              )}
+            >
+              {tone.label}
+            </span>
+          </div>
+        </div>
+
+        {/* Subtle divider before the data body — same hairline as inside
+            other dashboards for cohesion. */}
+        <div className="my-4 h-px bg-border/60" />
+
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// StatTile — compact tone-tinted KPI tile used by the footer of each score
+// card (Shipped / Revision Cycles / Avg Completion / Cycle Time / Late).
+// Tone drives the bg tint, value colour and ring; "muted" is the empty
+// state so a row with no data still reads as intentional.
+// ----------------------------------------------------------------------------
+function StatTile({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  tone: Tone;
+}) {
+  const cfg = TONE_BASE[tone];
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-xl border border-border/60 bg-secondary/30 px-3 py-2.5",
+        // tinted top accent — 2px stripe in the tile's tone, lifts the
+        // bottom-strip from looking like a generic stat list.
+        "before:absolute before:inset-x-0 before:top-0 before:h-[2px]",
+        tone === "success" && "before:bg-success/70",
+        tone === "primary" && "before:bg-primary/70",
+        tone === "warning" && "before:bg-warning/70",
+        tone === "destructive" && "before:bg-destructive/70",
+        tone === "muted" && "before:bg-border"
+      )}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-1 flex items-baseline gap-0.5 text-xl font-bold tabular-nums leading-none",
+          cfg.textClass
+        )}
+      >
+        {value}
+      </p>
+      {hint && (
+        <p className="mt-1 text-[10px] text-muted-foreground/70">{hint}</p>
+      )}
+    </div>
+  );
+}
 
 function ScorePill({ score }: { score: number }) {
   const color =
