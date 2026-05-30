@@ -1284,98 +1284,148 @@ export function ConceptDetailDrawer({
 
                 {canFinalApprove ? (
                   <div className="space-y-3">
-                    <p className="text-xs font-medium text-foreground">
-                      Designer re-submitted — your review decides the outcome.
-                      {concept.designs_count && <span className="text-muted-foreground"> · {concept.designs_count} designs submitted</span>}
-                    </p>
-                    {/* ── Option A: Approve ── */}
+                    {/* Outcome cue — kept compact so the two action cards
+                        below carry the visual weight. */}
+                    <div className="flex items-start gap-2 rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
+                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                      <p className="text-[12px] leading-snug text-foreground">
+                        Designer re-submitted — your review decides the outcome.
+                        {concept.designs_count != null && (
+                          <span className="text-muted-foreground"> · {concept.designs_count} designs submitted</span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* ── Option A: Approve ──
+                         Icon-chip header + tinted gradient surface + refined
+                         input. Same pattern the ScoreCard uses so the drawer
+                         reads in one visual language. */}
                     {onFinalApprove && (
-                      <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-3">
-                        <p className="text-xs font-semibold text-success">
-                          Approve this concept
-                        </p>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="fa-count" className="text-xs">
-                            Approved Designs #
-                          </Label>
-                          <input
-                            id="fa-count"
-                            type="number"
-                            min="0"
-                            value={approvedCount}
-                            onChange={(e) => setApprovedCount(e.target.value)}
-                            placeholder="e.g. 5"
+                      <div className="relative overflow-hidden rounded-xl border border-success/25 bg-gradient-to-br from-success/[0.09] via-success/[0.04] to-transparent">
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-success via-success/70 to-success/30"
+                        />
+                        <div className="space-y-3 p-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success ring-1 ring-inset ring-success/30">
+                              <Check className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[13px] font-semibold leading-tight text-success">
+                                Approve this concept
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                Final sign-off — concept ships
+                              </p>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label
+                              htmlFor="fa-count"
+                              className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                            >
+                              Approved Designs #
+                            </Label>
+                            <input
+                              id="fa-count"
+                              type="number"
+                              min="0"
+                              value={approvedCount}
+                              onChange={(e) => setApprovedCount(e.target.value)}
+                              placeholder="e.g. 5"
+                              disabled={busy !== null}
+                              className="w-full rounded-lg border border-success/20 bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:border-success/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success/30 disabled:opacity-50"
+                            />
+                          </div>
+                          <Button
+                            onClick={handleFinalApprove}
                             disabled={busy !== null}
-                            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                          />
+                            size="sm"
+                            className="w-full gap-1.5 bg-success text-white shadow-sm shadow-success/20 hover:bg-success/90"
+                          >
+                            {busy === "final_approve" ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                            Approve
+                          </Button>
                         </div>
-                        <Button
-                          onClick={handleFinalApprove}
-                          disabled={busy !== null}
-                          size="sm"
-                          className="w-full gap-1.5 bg-success hover:bg-success/90"
-                        >
-                          {busy === "final_approve" ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Check className="h-3.5 w-3.5" />
-                          )}
-                          Approve
-                        </Button>
                       </div>
                     )}
 
-                    {/* ── Divider ── */}
+                    {/* ── Refined OR divider — pill-shaped label on a
+                         softly faded hairline so it reads as a decision
+                         point, not a structural break. */}
                     {onFinalApprove && onFinalRevise && (
-                      <div className="flex items-center gap-3">
-                        <div className="h-px flex-1 bg-border" />
-                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      <div className="flex items-center gap-3 py-0.5">
+                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-border/60" />
+                        <span className="rounded-full border border-border bg-secondary/60 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                           or
                         </span>
-                        <div className="h-px flex-1 bg-border" />
+                        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border to-border/60" />
                       </div>
                     )}
 
                     {/* ── Option B: Request Revision ── */}
                     {onFinalRevise && (
-                      <div className="rounded-lg border border-warning/30 bg-warning/5 p-4 space-y-3">
-                        <p className="text-xs font-semibold text-warning">
-                          Request revision
-                        </p>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">
-                            What needs to be changed? <span className="font-normal text-muted-foreground">(type or record voice)</span>
-                          </Label>
-                          <VoiceFeedback
-                            value={finalNotes}
-                            onChange={setFinalNotes}
-                            onAudioUrl={setFinalAudioUrl}
-                            placeholder="Describe what needs to change or tap 🎤 to record…"
-                            disabled={busy !== null}
-                            rows={2}
-                          />
+                      <div className="relative overflow-hidden rounded-xl border border-warning/25 bg-gradient-to-br from-warning/[0.09] via-warning/[0.04] to-transparent">
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-warning via-warning/70 to-warning/30"
+                        />
+                        <div className="space-y-3 p-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning ring-1 ring-inset ring-warning/30">
+                              <RotateCcw className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[13px] font-semibold leading-tight text-warning">
+                                Request revision
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                Round {(concept.revision_count ?? 1) + 1} feedback — designer reworks
+                              </p>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                              What needs to change?{" "}
+                              <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
+                                (type or record voice)
+                              </span>
+                            </Label>
+                            <VoiceFeedback
+                              value={finalNotes}
+                              onChange={setFinalNotes}
+                              onAudioUrl={setFinalAudioUrl}
+                              placeholder="Describe what needs to change or tap 🎤 to record…"
+                              disabled={busy !== null}
+                              rows={2}
+                            />
+                          </div>
+                          <Button
+                            onClick={handleFinalRevise}
+                            disabled={busy !== null || !finalNotes.trim()}
+                            size="sm"
+                            className={cn(
+                              "w-full gap-1.5",
+                              finalNotes.trim()
+                                ? "bg-warning text-white shadow-sm shadow-warning/20 hover:bg-warning/90"
+                                : "border border-border bg-card text-muted-foreground hover:bg-secondary/40"
+                            )}
+                          >
+                            {busy === "final_revise" ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            )}
+                            {finalNotes.trim()
+                              ? "Send Revision Feedback"
+                              : "Type feedback above to send"}
+                          </Button>
                         </div>
-                        <Button
-                          onClick={handleFinalRevise}
-                          disabled={busy !== null || !finalNotes.trim()}
-                          variant="outline"
-                          size="sm"
-                          className={cn(
-                            "w-full gap-1.5",
-                            finalNotes.trim()
-                              ? "border-warning text-warning hover:bg-warning/10"
-                              : "border-border text-muted-foreground"
-                          )}
-                        >
-                          {busy === "final_revise" ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-3.5 w-3.5" />
-                          )}
-                          {finalNotes.trim()
-                            ? "Send Revision Feedback"
-                            : "Type feedback above to send"}
-                        </Button>
                       </div>
                     )}
                   </div>
