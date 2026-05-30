@@ -45,7 +45,6 @@ import { createClient } from "@supabase/supabase-js";
 const CLEARABLE_TABLES = [
   "tasks",
   "task_logs",
-  "task_files",
   "task_comments",
   "concepts",
   "samples",
@@ -61,7 +60,6 @@ type ClearableTable = (typeof CLEARABLE_TABLES)[number];
 // cascade doesn't fight us. Mirrors CLEAR_ALL_ORDER in DangerZoneTab.tsx.
 const CLEAR_ALL_ORDER: ClearableTable[] = [
   "task_logs",
-  "task_files",
   "task_comments",
   "files",
   "sampling_logs",
@@ -166,17 +164,28 @@ export default async function handler(
 
   // Helper: delete every row except the impossible sentinel id. Service-
   // role bypasses RLS so this matches "delete everything in this table".
+  // `missing` flags a table that doesn't exist in THIS deployment's schema
+  // (schema can drift between environments) — the caller treats that as a
+  // skip, not a fatal error, so one stray name can't break the whole wipe.
   async function wipe(
     table: ClearableTable
-  ): Promise<{ deleted: number; error: string | null }> {
+  ): Promise<{ deleted: number; error: string | null; missing: boolean }> {
     // Snapshot count first so we can return what was actually wiped (the
     // delete itself doesn't echo a row count back through PostgREST).
     const { count: before } = await admin
       .from(table)
       .select("*", { count: "exact", head: true });
     const { error } = await admin.from(table).delete().neq("id", NIL_ID);
-    if (error) return { deleted: 0, error: error.message };
-    return { deleted: before ?? 0, error: null };
+    if (error) {
+      const missing =
+        error.code === "42P01" || // Postgres: undefined_table
+        error.code === "PGRST205" || // PostgREST: table not in schema cache
+        /does not exist|could not find the table|schema cache/i.test(
+          error.message
+        );
+      return { deleted: 0, error: error.message, missing };
+    }
+    return { deleted: before ?? 0, error: null, missing: false };
   }
 
   // ── Dispatch ──────────────────────────────────────────────────────────
@@ -208,15 +217,17 @@ export default async function handler(
 
   if (body.kind === "clear-all") {
     const perTable: Record<string, number> = {};
+    const errors: Record<string, string> = {};
     let total = 0;
     for (const table of CLEAR_ALL_ORDER) {
-      const { deleted, error } = await wipe(table);
-      if (error) {
-        res.status(500).json({
-          error: `Failed clearing ${table}: ${error}`,
-          perTable,
-        });
-        return;
+      const { deleted, error, missing } = await wipe(table);
+      // A table that simply doesn't exist in this deployment is a no-op,
+      // not a failure — record 0 and move on. A real error (FK violation,
+      // permission, timeout) is collected so we can report exactly which
+      // table broke without aborting the rest of the wipe.
+      if (error && !missing) {
+        errors[table] = error;
+        continue;
       }
       perTable[table] = deleted;
       total += deleted;
@@ -225,7 +236,11 @@ export default async function handler(
     // task_counters has a composite PK (year), not a UUID id, so wipe()
     // can't be used here.
     await admin.from("task_counters" as never).delete().neq("year", -1);
-    res.status(200).json({ cleared: total, perTable });
+    res.status(200).json({
+      cleared: total,
+      perTable,
+      ...(Object.keys(errors).length ? { errors } : {}),
+    });
     return;
   }
 
