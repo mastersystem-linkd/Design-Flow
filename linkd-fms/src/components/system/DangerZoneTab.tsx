@@ -8,6 +8,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { callAdminApi } from "@/lib/adminApi";
 import {
   Card,
   CardContent,
@@ -188,63 +189,64 @@ export function DangerZoneTab() {
     void fetchCounts();
   }, [fetchCounts]);
 
-  // Single-row sentinel used by `.delete()` so PostgREST allows the call.
-  const NIL_ID = "00000000-0000-0000-0000-000000000000";
-
-  async function deleteTable(
-    table: ClearableTable
-  ): Promise<{ error: string | null }> {
-    const { error } = await supabase.from(table).delete().neq("id", NIL_ID);
-    return { error: error ? error.message : null };
-  }
-
   // ── Action handlers ──────────────────────────────────────────────────
+  //
+  // These used to run `supabase.from(table).delete()` directly, which
+  // returned 200 OK with 0 rows affected whenever RLS denied the delete
+  // (the common case for coordinators on tables policy-gated to admin
+  // only). The toast said "cleared" but nothing actually changed.
+  // Now everything routes through /api/admin-clear-data which verifies
+  // the caller is admin or coordinator and runs the delete with the
+  // service-role key — bypasses RLS so the action either succeeds or
+  // returns a real error we can show.
 
   async function executeClearNotifs() {
     setBusyTable("notifications-soft");
-    const count = counts["notifications"] ?? 0;
-    const { error } = await deleteTable("notifications");
+    const { data, error } = await callAdminApi<{ cleared: number }>(
+      "admin-clear-data",
+      { kind: "clear-notifs" }
+    );
     setBusyTable(null);
-    if (error) {
-      toast.error(error);
+    if (error || !data) {
+      toast.error(error?.message ?? "Failed to clear notifications");
       return;
     }
-    toast.success(`${count.toLocaleString()} notifications cleared`);
+    toast.success(`${data.cleared.toLocaleString()} notifications cleared`);
     void fetchCounts();
   }
 
   async function executeClearTable(spec: TableSpec) {
     setBusyTable(spec.key);
-    const count = counts[spec.key] ?? 0;
-    const { error } = await deleteTable(spec.table);
+    const { data, error } = await callAdminApi<{ cleared: number }>(
+      "admin-clear-data",
+      { kind: "clear-table", table: spec.table }
+    );
     setBusyTable(null);
-    if (error) {
-      toast.error(error);
+    if (error || !data) {
+      toast.error(error?.message ?? `Failed to clear ${spec.label}`);
       return;
     }
     toast.success(
-      `${count.toLocaleString()} record${count !== 1 ? "s" : ""} cleared from ${spec.label}`
+      `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} cleared from ${spec.label}`
     );
     void fetchCounts();
   }
 
   async function executeClearAll() {
     setBusyTable("__all__");
-    for (const tableKey of CLEAR_ALL_ORDER) {
-      const spec = TABLE_SPECS.find((s) => s.key === tableKey);
-      if (!spec) continue;
-      const { error } = await deleteTable(spec.table);
-      if (error) {
-        toast.error(`Failed clearing ${spec.label}: ${error}`);
-        setBusyTable(null);
-        await fetchCounts();
-        return;
-      }
-    }
-    // Reset the per-year task counter so codes restart at NN=01.
-    await supabase.from("task_counters" as never).delete().neq("year", -1);
+    const { data, error } = await callAdminApi<{
+      cleared: number;
+      perTable?: Record<string, number>;
+    }>("admin-clear-data", { kind: "clear-all" });
     setBusyTable(null);
-    toast.success("All transactional data cleared");
+    if (error || !data) {
+      toast.error(error?.message ?? "Failed to clear all data");
+      await fetchCounts();
+      return;
+    }
+    toast.success(
+      `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} cleared across all transactional tables`
+    );
     void fetchCounts();
   }
 
