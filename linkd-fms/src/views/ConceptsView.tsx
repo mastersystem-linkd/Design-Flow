@@ -22,6 +22,7 @@ import {
   FilterX,
   Calendar,
   Columns3,
+  Zap,
 } from "lucide-react";
 import { differenceInDays, format, parseISO } from "date-fns";
 import { useConcepts } from "@/hooks/useConcepts";
@@ -448,26 +449,27 @@ export function ConceptsView() {
     return map;
   }, [scopedConcepts]);
 
-  // Admin inbox count — concepts the MD/coordinator must act on:
+  // A concept is on the MD/coordinator's desk when:
   //   • md_status='pending'      → initial concept review queue
   //   • work_status='in_revision' → designer marked done, final review queue
-  // Computed once per concepts change so the chip badge stays accurate.
-  const needsApprovalCount = useMemo(() => {
-    return concepts.filter(
-      (c) =>
-        c.md_status === "pending" ||
-        (c.md_status === "approved" && c.work_status === "in_revision")
-    ).length;
-  }, [concepts]);
+  // We expose this as a predicate so both the inbox count AND the per-row
+  // "Your turn" pill below stay in lockstep with whatever counts as
+  // actionable.
+  const needsMdAction = useCallback(
+    (c: ConceptWithRelations): boolean =>
+      c.md_status === "pending" ||
+      (c.md_status === "approved" && c.work_status === "in_revision"),
+    []
+  );
+  const needsApprovalCount = useMemo(
+    () => concepts.filter(needsMdAction).length,
+    [concepts, needsMdAction]
+  );
 
   const allVisible = useMemo(() => {
     // Inbox mode short-circuits everything — admin sees only their queue.
     if (inboxMode) {
-      let pool = concepts.filter(
-        (c) =>
-          c.md_status === "pending" ||
-          (c.md_status === "approved" && c.work_status === "in_revision")
-      );
+      let pool = concepts.filter(needsMdAction);
       if (designerFilter) {
         pool = pool.filter((c) => c.designer_id === designerFilter);
       }
@@ -507,7 +509,7 @@ export function ConceptsView() {
       });
     }
     return pool;
-  }, [concepts, scopedConcepts, tab, workTab, inboxMode, designerFilter, dateRange]);
+  }, [concepts, scopedConcepts, tab, workTab, inboxMode, designerFilter, dateRange, needsMdAction]);
 
   const conceptPg = usePagination(allVisible.length, 25);
 
@@ -862,7 +864,7 @@ export function ConceptsView() {
                     {showCol("designs") && <td className="px-3 py-1.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
                     {showCol("assigned_by") && <Cell>{c.assigned_by || "—"}</Cell>}
 
-                    {showCol("decision") && <td className="px-3 py-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} /></td>}
+                    {showCol("decision") && <td className="px-3 py-1.5"><div className="flex items-center gap-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} />{isAdmin && needsMdAction(c) && <YourTurnPill />}</div></td>}
                     {showCol("planned") && <Cell>{fmtDate(c.md_planned_date)}</Cell>}
                     {showCol("reviewed") && <td className="px-3 py-1.5"><span className="text-xs">{fmtDate(c.md_actual_date)}</span>{approvalDelay !== null && <DelayLabel days={approvalDelay} />}</td>}
 
@@ -922,16 +924,19 @@ export function ConceptsView() {
                 <p className="line-clamp-1 flex-1 text-sm font-medium text-foreground">
                   {c.title}
                 </p>
-                <Badge
-                  className={cn(
-                    "shrink-0 text-[10px]",
-                    CONCEPT_STATUS_COLORS[c.md_status]
-                  )}
-                >
-                  {c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0
-                    ? "Re-submitted"
-                    : CONCEPT_STATUS_LABELS[c.md_status]}
-                </Badge>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                  {isAdmin && needsMdAction(c) && <YourTurnPill />}
+                  <Badge
+                    className={cn(
+                      "shrink-0 text-[10px]",
+                      CONCEPT_STATUS_COLORS[c.md_status]
+                    )}
+                  >
+                    {c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0
+                      ? "Re-submitted"
+                      : CONCEPT_STATUS_LABELS[c.md_status]}
+                  </Badge>
+                </div>
               </div>
               <p className="mt-1 truncate text-xs text-muted-foreground">
                 {(c.submitter ?? c.designer)?.full_name ?? "—"}
@@ -1178,6 +1183,25 @@ function ConceptColumnMenu({ visible, onChange }: { visible: ConceptColKey[]; on
         </div>
       )}
     </div>
+  );
+}
+
+// "Your turn" pill — rendered on rows where the current admin/coordinator
+// needs to act (pending initial review, OR designer-resubmitted final
+// review). Tinted primary so it pops next to the muted status badge and
+// pulses subtly to read as a call-to-action rather than just decoration.
+// Mirrored on both the desktop row decision cell and the mobile card
+// header so the affordance is consistent across devices.
+function YourTurnPill() {
+  return (
+    <span
+      title="This concept is waiting for your review"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white shadow-sm ring-1 ring-inset ring-primary/40 animate-pulse"
+      style={{ animationDuration: "2.5s" }}
+    >
+      <Zap className="h-2.5 w-2.5" />
+      Your turn
+    </span>
   );
 }
 
