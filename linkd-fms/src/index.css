@@ -270,6 +270,25 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /* ── iOS Safari focus-zoom workaround ──
+     When an input/textarea/select has a font-size below 16px, iOS Safari
+     auto-zooms the viewport on focus to "help" the user — which is jarring
+     because the zoom doesn't reset cleanly when the field is dismissed.
+     The fix is to make those controls render at 16px on iOS only (Android
+     Chrome doesn't have this behaviour). `-webkit-touch-callout` is an
+     iOS-only feature, so @supports detection keeps the rule from
+     affecting anything else and preserves the deliberate text-xs / text-sm
+     sizing the design system uses on every other platform.
+     Checkbox / radio are excluded because they're 0×0 visually and the
+     hit target is the surrounding label. */
+  @supports (-webkit-touch-callout: none) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+
   /* Theme-switch smoothing on major surfaces so toggling light↔dark
      glides instead of snapping. Inputs included so focus states
      don't flash. */
