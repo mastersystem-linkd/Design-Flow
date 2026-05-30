@@ -76,10 +76,10 @@ export function KpiCard({
   /* ── Flat mode — compact tiles for divided grid strips ── */
   if (flat) {
     const inner = (
-      <div className="flex h-full flex-col justify-center gap-0.5 px-3 py-2.5 sm:px-4 sm:py-3">
+      <div className="flex h-full flex-col justify-center gap-0.5 px-3 py-1.5 sm:px-4 sm:py-2">
         <div className="flex items-center justify-between gap-2">
           <div className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
             tintClass
           )}>
             {icon}
@@ -99,8 +99,8 @@ export function KpiCard({
           <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/60 sm:block">{sub}</p>
         )}
         {sparklineData && sparklineData.length >= 2 && (
-          <div className="-mb-0.5 mt-auto hidden h-5 sm:block">
-            <Sparkline data={sparklineData} color={sparkColor} height={22} />
+          <div className="-mb-0.5 mt-auto hidden h-3.5 sm:block">
+            <Sparkline data={sparklineData} color={sparkColor} height={14} />
           </div>
         )}
       </div>
