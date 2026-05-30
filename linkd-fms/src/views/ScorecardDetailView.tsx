@@ -758,7 +758,7 @@ export function ScorecardDetailView() {
   }
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-3 pb-6">
       {/* Back + actions */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link
@@ -833,31 +833,25 @@ export function ScorecardDetailView() {
 
       {/* ── HERO: identity + date filter + reliability ── */}
       <Card className="border border-border">
-        <div className="flex flex-col gap-3 p-4 sm:p-5">
-          {/* Row: identity left · date filters center · reliability right */}
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
-            <div className="flex items-center gap-4 shrink-0">
-              <Avatar className="h-14 w-14">
+        <div className="flex flex-col gap-2 p-3 sm:p-4">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:gap-3">
+            <div className="flex items-center gap-3 shrink-0">
+              <Avatar className="h-10 w-10">
                 {data.profile.avatar_url ? (
                   <AvatarImage src={data.profile.avatar_url} />
                 ) : null}
-                <AvatarFallback className="bg-primary/10 text-primary text-base font-bold">
+                <AvatarFallback className="bg-primary/10 text-primary text-sm font-bold">
                   {getInitials(data.profile.full_name)}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">
-                <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                <h1 className="text-base font-semibold tracking-tight text-foreground">
                   {data.profile.full_name}
                 </h1>
-                <p className="text-xs text-muted-foreground">
-                  {ROLE_LABELS[data.profile.role]}{" "}
+                <p className="text-[11px] text-muted-foreground">
+                  {ROLE_LABELS[data.profile.role]}
                   {data.designerCodes.length > 0 && (
-                    <>
-                      · {" "}
-                      <span className="font-mono">
-                        {data.designerCodes.join(", ")}
-                      </span>
-                    </>
+                    <> · <span className="font-mono">{data.designerCodes.join(", ")}</span></>
                   )}
                 </p>
               </div>
@@ -884,8 +878,8 @@ export function ScorecardDetailView() {
       {/* ── KPI strip — same KpiCard tile used on every other dashboard
            (Concept, Task, Sampling, Scorecards list), wrapped in the
            shared TextileHeroWrapper. */}
-      <TextileHeroWrapper className="p-0 sm:p-0">
-        <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-5">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border/30 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-5">
           <KpiCard
             flat
             icon={<CalendarIcon className="h-4 w-4 text-primary" />}
@@ -973,13 +967,13 @@ export function ScorecardDetailView() {
             }
           />
         </div>
-      </TextileHeroWrapper>
+      </div>
 
       {/* ── ROW: Concept + Task performance (detailed score cards) ── */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Card className="border border-border">
-          <div className="p-3.5 sm:p-5">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="p-3 sm:p-4">
+            <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">
                 Concept Performance
               </h3>
@@ -1383,46 +1377,6 @@ export function ScorecardDetailView() {
                 <ThroughputSparkline data={throughputWeekly} />
               </div>
             </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* ── ROW: Trend + Weekday + Cycle Time ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border border-border">
-          <div className="p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Trend
-            </p>
-            <h3 className="text-sm font-semibold text-foreground">
-              On-Time %
-            </h3>
-            <TrendBars data={monthlyTrend} />
-          </div>
-        </Card>
-
-        <Card className="border border-border">
-          <div className="p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              By Weekday
-            </p>
-            <h3 className="text-sm font-semibold text-foreground">
-              Day-of-week pattern
-            </h3>
-            <WeekdayPattern data={weekdayPattern} />
-          </div>
-        </Card>
-
-        <Card className="border border-border">
-          <div className="p-4">
-            <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              <span>Cycle Time</span>
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Distribution · delay buckets
-            </h3>
-            <CycleTimeChart data={cycleTimeDist} />
           </div>
         </Card>
       </div>
