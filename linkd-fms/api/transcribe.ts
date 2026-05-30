@@ -8,9 +8,16 @@
 //   transcript at all (especially with `lang=hi-IN` on devices that don't
 //   have Google Speech Services tuned for that locale). After the audio is
 //   uploaded to Supabase Storage, the client POSTs the path here and we run
-//   the file through OpenAI Whisper, which auto-detects language and is
-//   consistent across devices. Browser SR stays as a "live preview" while
-//   recording; this endpoint returns the authoritative transcript.
+//   the file through **Groq's hosted Whisper** (the same OpenAI Whisper
+//   model, served on Groq's infra), which auto-detects English / Hindi and
+//   is consistent across devices. Browser SR stays as a "live preview"
+//   while recording; this endpoint returns the authoritative transcript.
+//
+//   Groq was picked over OpenAI because it has a **free tier** that's more
+//   than enough for a small team (~28,800 audio seconds per day) with no
+//   credit card required. The API surface is OpenAI-compatible — to flip
+//   back to OpenAI later, change WHISPER_URL + WHISPER_MODEL + the env var
+//   name and nothing else moves.
 //
 // Request:  { path: string }     storage path inside `sample-files`
 // Response: { transcript: string }
@@ -19,8 +26,9 @@
 //   • SUPABASE_URL                — same as VITE_SUPABASE_URL
 //   • SUPABASE_ANON_KEY           — same as VITE_SUPABASE_ANON_KEY
 //   • SUPABASE_SERVICE_ROLE_KEY   — to download the audio bypassing RLS
-//   • OPENAI_API_KEY              — your OpenAI API key (sk-…). If missing,
-//                                   the endpoint returns 503 and the client
+//   • GROQ_API_KEY                — get one at console.groq.com/keys (free,
+//                                   no credit card). If missing, the
+//                                   endpoint returns 503 and the client
 //                                   silently falls back to "audio only".
 // ============================================================================
 
@@ -28,10 +36,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
 const BUCKET = "sample-files";
-const WHISPER_MODEL = "whisper-1";
-const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
-// Whisper hard limit is 25 MB; reject anything obviously larger early so a
-// truncated upload doesn't waste an OpenAI call.
+// Groq's fast Whisper-v3 turbo variant — same quality as OpenAI's whisper-1,
+// noticeably faster end-to-end. Auto-detects language.
+const WHISPER_MODEL = "whisper-large-v3-turbo";
+const WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+// Groq's per-request audio size limit on the free tier is 25 MB, same as
+// OpenAI. Reject obviously oversized blobs before they cost a round trip.
 const MAX_AUDIO_BYTES = 24 * 1024 * 1024;
 
 interface RequestBody {
@@ -61,7 +71,12 @@ export default async function handler(
   const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const ANON = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  // GROQ_API_KEY is the new primary; fall back to OPENAI_API_KEY if someone
+  // is mid-migration (the request body is OpenAI-compatible so it works for
+  // either provider, the URL is the only thing that differs — and that's
+  // pinned to Groq above. If you flip back to OpenAI, change WHISPER_URL
+  // and read OPENAI_API_KEY first here too).
+  const GROQ_API_KEY = process.env.GROQ_API_KEY ?? process.env.OPENAI_API_KEY;
 
   if (!SUPABASE_URL || !ANON || !SERVICE_ROLE) {
     res.status(500).json({
@@ -71,11 +86,11 @@ export default async function handler(
     return;
   }
 
-  if (!OPENAI_API_KEY) {
+  if (!GROQ_API_KEY) {
     // Surface a clear, actionable error so the client can present a hint.
     res.status(503).json({
       error:
-        "Transcription is not configured on this deployment. Add OPENAI_API_KEY to Vercel env vars to enable.",
+        "Transcription is not configured on this deployment. Add GROQ_API_KEY to Vercel env vars to enable (get a free key at console.groq.com/keys).",
     });
     return;
   }
@@ -159,7 +174,7 @@ export default async function handler(
   try {
     whisperRes = await fetch(WHISPER_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
       body: form,
     });
   } catch (err) {
