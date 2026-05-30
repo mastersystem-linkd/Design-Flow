@@ -1572,18 +1572,41 @@ function ReliabilityGauge({
   tier: ReturnType<typeof reliabilityTier>;
 }) {
   return (
-    <div className={cn("flex items-center gap-4 rounded-xl border border-l-[3px] bg-secondary/30 p-3", tier.textClass === "text-success" ? "border-l-success" : tier.textClass === "text-primary" ? "border-l-primary" : tier.textClass === "text-warning" ? "border-l-warning" : "border-l-destructive")}>
-      <div className="text-center">
-        <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Reliability
-        </p>
-        <p className={cn("text-3xl font-bold tabular-nums leading-none", tier.textClass)}>
-          {reliability.total}
-        </p>
-        <p className="text-[10px] text-muted-foreground">/100</p>
+    <div
+      className={cn(
+        // Mobile: stack the score header above full-width bars so nothing
+        // gets crushed on a phone. sm+: restore the side-by-side layout.
+        "flex flex-col gap-3 rounded-xl border border-l-[3px] bg-secondary/30 p-3 sm:flex-row sm:items-center sm:gap-4",
+        tier.textClass === "text-success"
+          ? "border-l-success"
+          : tier.textClass === "text-primary"
+            ? "border-l-primary"
+            : tier.textClass === "text-warning"
+              ? "border-l-warning"
+              : "border-l-destructive"
+      )}
+    >
+      {/* Score + tier — one justified row on mobile, centered column on sm+ */}
+      <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:justify-center sm:gap-1 sm:text-center">
+        <div className="sm:space-y-0.5">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Reliability
+          </p>
+          <p className="flex items-baseline gap-1 sm:justify-center">
+            <span
+              className={cn(
+                "text-4xl font-bold tabular-nums leading-none sm:text-3xl",
+                tier.textClass
+              )}
+            >
+              {reliability.total}
+            </span>
+            <span className="text-[10px] text-muted-foreground">/100</span>
+          </p>
+        </div>
         <span
           className={cn(
-            "mt-1 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold",
+            "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold",
             tier.badgeClass
           )}
         >
@@ -1591,7 +1614,7 @@ function ReliabilityGauge({
           {tier.label}
         </span>
       </div>
-      <div className="min-w-[200px] space-y-1.5">
+      <div className="min-w-0 flex-1 space-y-2 sm:min-w-[200px] sm:space-y-1.5">
         <ComponentBar label="On-time" pts={reliability.onTime} max={50} />
         <ComponentBar label="Throughput" pts={reliability.throughput} max={30} />
         <ComponentBar label="Consistency" pts={reliability.consistency} max={20} />
@@ -1612,7 +1635,7 @@ function ComponentBar({
   const pct = (pts / max) * 100;
   return (
     <div className="flex items-center gap-2">
-      <span className="w-[80px] shrink-0 text-[10px] text-muted-foreground">
+      <span className="w-16 shrink-0 text-[10px] text-muted-foreground sm:w-20">
         {label}
       </span>
       <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">

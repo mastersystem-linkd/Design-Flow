@@ -1,7 +1,7 @@
 import {
-  useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -100,6 +100,50 @@ export function Combobox<TValue extends string = string>({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+
+  // Drop-up vs drop-down. Inside a scrolling dialog body the menu would be
+  // clipped if it opened downward off a near-the-bottom field, so when
+  // there's more room above the trigger we flip it up. Kept as an in-flow
+  // absolute child (not a body portal) so it stays inside the dialog's
+  // focus trap — a portaled <input> would get focus-bounced by Radix.
+  const [menuPos, setMenuPos] = useState<{
+    placement: "bottom" | "top";
+    maxHeight: number;
+  }>({ placement: "bottom", maxHeight: 340 });
+  useLayoutEffect(() => {
+    if (!open || !wrapperRef.current) return;
+    const el = wrapperRef.current;
+    const rect = el.getBoundingClientRect();
+    const ESTIMATED_MENU = 340; // search bar + list + footer, roughly
+
+    // The clip box is the nearest scrollable ancestor (e.g. a dialog body
+    // with overflow-y-auto), NOT the viewport — measuring against the
+    // viewport would drop the menu down into a region the dialog clips.
+    let clipBottom = window.innerHeight;
+    let clipTop = 0;
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      const oy = getComputedStyle(node).overflowY;
+      if (oy === "auto" || oy === "scroll" || oy === "hidden") {
+        const r = node.getBoundingClientRect();
+        clipBottom = Math.min(clipBottom, r.bottom);
+        clipTop = Math.max(clipTop, r.top);
+        break;
+      }
+    }
+
+    const gap = 8;
+    const spaceBelow = clipBottom - rect.bottom - gap;
+    const spaceAbove = rect.top - clipTop - gap;
+    const placement =
+      spaceBelow < ESTIMATED_MENU && spaceAbove > spaceBelow ? "top" : "bottom";
+    // Never taller than the room on the chosen side, so the list scrolls
+    // internally instead of spilling past the clip box.
+    const maxHeight = Math.min(
+      ESTIMATED_MENU,
+      Math.max(160, placement === "top" ? spaceAbove : spaceBelow)
+    );
+    setMenuPos({ placement, maxHeight });
+  }, [open]);
 
   // Debounced filter — keeps the menu rendering smooth when the user types
   // fast across a 1000+ row list. For server-driven sources, push the
@@ -250,22 +294,17 @@ export function Combobox<TValue extends string = string>({
         </div>
       </button>
 
-      {/* ── Menu — diffused shadow, rounded corners, slide-down fade ── */}
+      {/* ── Menu — diffused shadow, rounded corners, slide-in fade. Drops up
+           or down based on available space so a near-the-bottom field in a
+           scrolling dialog doesn't get its list clipped. ── */}
       {open && (
         <div
+          style={{ maxHeight: menuPos.maxHeight }}
           className={cn(
-            "absolute left-0 right-0 z-50 mt-1.5 overflow-hidden rounded-lg border border-border bg-card shadow-[0_8px_24px_-4px_rgba(0,0,0,0.16),0_4px_8px_-2px_rgba(0,0,0,0.08)]",
-            // Quick fade + slight downward translate on enter
-            "animate-[combobox-in_140ms_ease-out]"
+            "absolute left-0 right-0 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[0_8px_24px_-4px_rgba(0,0,0,0.16),0_4px_8px_-2px_rgba(0,0,0,0.08)]",
+            "animate-[combobox-in_140ms_ease-out]",
+            menuPos.placement === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5"
           )}
-          style={{
-            // Single-shot keyframe defined inline so the component is fully
-            // self-contained — no css changes needed in index.css.
-            // (animate-fade-in already exists app-wide but does not slide.)
-            // The `animate-[combobox-in_...]` Tailwind arbitrary value below
-            // wires it to the keyframe declared via a styled <style> tag
-            // when this menu mounts.
-          }}
         >
           <style>{`
             @keyframes combobox-in {
@@ -275,7 +314,7 @@ export function Combobox<TValue extends string = string>({
           `}</style>
 
           {/* Search bar */}
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <input
               ref={inputRef}
@@ -316,7 +355,7 @@ export function Combobox<TValue extends string = string>({
             ref={listRef}
             id={listboxId}
             role="listbox"
-            className="max-h-[280px] overflow-y-auto py-1"
+            className="flex-1 overflow-y-auto py-1"
           >
             {showLoading && filtered.length === 0 ? (
               <SkeletonRows />
@@ -343,7 +382,7 @@ export function Combobox<TValue extends string = string>({
 
           {/* Footer count — gives the user a sense of how big the list is. */}
           {!showLoading && filtered.length > 0 && (
-            <div className="border-t border-border bg-secondary/30 px-3 py-1.5 text-[10px] text-muted-foreground">
+            <div className="shrink-0 border-t border-border bg-secondary/30 px-3 py-1.5 text-[10px] text-muted-foreground">
               {filtered.length} {filtered.length === 1 ? "match" : "matches"}
               {debouncedQuery ? ` for "${debouncedQuery}"` : ""}
               {filtered.length !== options.length && ` of ${options.length}`}

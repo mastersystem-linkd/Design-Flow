@@ -230,13 +230,23 @@ export function DangerZoneTab() {
 
   async function executeClearTable(spec: TableSpec) {
     setBusyTable(spec.key);
+    // Console-log the round-trip so a stuck delete tells us exactly which
+    // boundary failed (network reach? auth check? per-table delete error?).
+    // Without this the only signal was a toast we hoped fired.
+    // eslint-disable-next-line no-console
+    console.info("[danger-zone] clear-table →", { table: spec.table, label: spec.label });
     try {
       const { data, error } = await callAdminApi<{ cleared: number }>(
         "admin-clear-data",
         { kind: "clear-table", table: spec.table }
       );
+      // eslint-disable-next-line no-console
+      console.info("[danger-zone] clear-table ←", { data, error });
       if (error || !data) {
-        toast.error(error?.message ?? `Failed to clear ${spec.label}`);
+        const msg =
+          (error?.message ?? `Failed to clear ${spec.label}`) +
+          (error?.status ? ` (HTTP ${error.status})` : "");
+        toast.error(msg);
         return;
       }
       toast.success(
@@ -244,6 +254,8 @@ export function DangerZoneTab() {
       );
       void fetchCounts();
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[danger-zone] clear-table threw", err);
       toast.error(
         err instanceof Error ? err.message : `Failed to clear ${spec.label}`
       );

@@ -23,6 +23,11 @@
      ================================================================ */
 
   :root {
+    /* Tell the browser this is a light surface so native controls
+       (date/time picker indicators, number spinners, scrollbars) render
+       legibly. The .dark block flips this to `dark`. */
+    color-scheme: light;
+
     /* ── Tailwind semantic tokens (rgb-channel triples) ──────── */
     --background: 243 244 248;        /* canvas */
     --foreground: 15 23 42;
@@ -112,6 +117,11 @@
   }
 
   .dark {
+    /* Native controls (the date/time picker calendar + clock icons,
+       spinners, scrollbars) follow this — without it they render
+       dark-on-dark and disappear. */
+    color-scheme: dark;
+
     /* ── Tailwind semantic tokens — dark ─────────────────────────
        Premium neutral-dark palette (à la Spotify / Twitter "dim" /
        Reddit): LOW-saturation surfaces with only a faint cool tint and

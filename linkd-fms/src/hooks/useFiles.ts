@@ -165,6 +165,15 @@ export interface UseFiles {
   refetch: () => Promise<void>;
   getSignedUrl: (file: StorageFile) => Promise<string | null>;
   deleteFile: (file: StorageFile) => Promise<{ error: string | null }>;
+  /**
+   * Bulk-remove many files at once (e.g. "Delete all" over the filtered set).
+   * Batches by bucket and chunks the path list so a large selection still
+   * goes through Storage's array `.remove()` efficiently. Returns how many
+   * were actually removed plus the first error encountered (if any).
+   */
+  deleteFiles: (
+    files: StorageFile[]
+  ) => Promise<{ deleted: number; error: string | null }>;
 }
 
 export function useFiles(): UseFiles {
@@ -227,5 +236,53 @@ export function useFiles(): UseFiles {
     []
   );
 
-  return { files, isLoading, error, refetch, getSignedUrl, deleteFile };
+  const deleteFiles = useCallback(
+    async (
+      toDelete: StorageFile[]
+    ): Promise<{ deleted: number; error: string | null }> => {
+      if (toDelete.length === 0) return { deleted: 0, error: null };
+
+      // Group by bucket — Storage `.remove()` is per-bucket and takes an array.
+      const byBucket = new Map<BucketName, StorageFile[]>();
+      for (const f of toDelete) {
+        const arr = byBucket.get(f.bucket) ?? [];
+        arr.push(f);
+        byBucket.set(f.bucket, arr);
+      }
+
+      const removedIds = new Set<string>();
+      let firstError: string | null = null;
+      const CHUNK = 100; // keep each request payload modest
+
+      for (const [bucket, items] of byBucket) {
+        for (let i = 0; i < items.length; i += CHUNK) {
+          const chunk = items.slice(i, i + CHUNK);
+          const { error: err } = await supabase.storage
+            .from(bucket)
+            .remove(chunk.map((c) => c.path));
+          if (err) {
+            firstError ??= err.message;
+            continue; // keep going; report partial result
+          }
+          for (const c of chunk) removedIds.add(c.id);
+        }
+      }
+
+      if (removedIds.size > 0) {
+        setFiles((prev) => prev.filter((f) => !removedIds.has(f.id)));
+      }
+      return { deleted: removedIds.size, error: firstError };
+    },
+    []
+  );
+
+  return {
+    files,
+    isLoading,
+    error,
+    refetch,
+    getSignedUrl,
+    deleteFile,
+    deleteFiles,
+  };
 }
