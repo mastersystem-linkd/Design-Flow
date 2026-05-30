@@ -24,9 +24,12 @@ import type { Profile } from "@/types/database";
 export interface TopNavProps {
   profile: Profile;
   onMobileMenuClick: () => void;
+  /** Pinned-collapsed state of the desktop sidebar. Controls how far in from
+   *  the left the topnav starts so it reflows when the sidebar is collapsed. */
+  collapsed?: boolean;
 }
 
-export function TopNav({ profile, onMobileMenuClick }: TopNavProps) {
+export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNavProps) {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -52,8 +55,11 @@ export function TopNav({ profile, onMobileMenuClick }: TopNavProps) {
     <>
       <header
         className={cn(
-          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b px-4",
-          "md:left-[220px] md:px-6"
+          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b px-4 transition-[left] duration-200 md:px-6",
+          // Track the pinned sidebar width so the topnav reflows when the
+          // user collapses it. Same values + transition as AppLayout's
+          // content padding so they animate together.
+          collapsed ? "md:left-[64px]" : "md:left-[220px]"
         )}
         style={{ borderColor: "var(--border-default)" }}
       >

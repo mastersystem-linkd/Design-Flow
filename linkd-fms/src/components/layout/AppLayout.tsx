@@ -73,6 +73,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
         <TopNav
           profile={profile}
           onMobileMenuClick={() => setMobileOpen(true)}
+          collapsed={collapsed}
         />
         <main
           ref={mainRef}
