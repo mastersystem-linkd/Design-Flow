@@ -12,6 +12,8 @@ interface VoiceFeedbackProps {
   value: string;
   onChange: (text: string) => void;
   onAudioUrl?: (url: string | null) => void;
+  /** Called when recording/uploading/transcribing starts or stops — parent should disable submit buttons while busy */
+  onBusyChange?: (busy: boolean) => void;
   placeholder?: string;
   disabled?: boolean;
   rows?: number;
@@ -30,6 +32,7 @@ export function VoiceFeedback({
   value,
   onChange,
   onAudioUrl,
+  onBusyChange,
   placeholder = "Type feedback or click mic to record…",
   disabled = false,
   rows = 2,
@@ -41,6 +44,10 @@ export function VoiceFeedback({
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Notify parent whenever we're busy (recording, uploading, or transcribing)
+  const isBusy = recState !== "idle" || uploading;
+  useEffect(() => { onBusyChange?.(isBusy); }, [isBusy, onBusyChange]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -65,6 +72,13 @@ export function VoiceFeedback({
   }, []);
 
   useEffect(() => cleanup, [cleanup]);
+
+  // Auto-stop recording if parent disables the component (e.g. submit clicked)
+  useEffect(() => {
+    if (disabled && recState === "recording") {
+      void stopRecording();
+    }
+  }, [disabled, recState]);
 
   const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
@@ -99,9 +113,9 @@ export function VoiceFeedback({
         const recognition = new SpeechRecognition();
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = "hi-IN";
-        // Multi-language: listen for Hindi primarily, engine auto-detects English
-        // Setting maxAlternatives helps accuracy
+        recognition.lang = "en-IN";
+        // en-IN handles both English and Hinglish (Hindi in Roman script)
+        // naturally — produces readable phonetic output for Hindi words
         recognition.maxAlternatives = 1;
 
         recognition.onresult = (event: any) => {

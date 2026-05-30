@@ -184,7 +184,7 @@ export interface DesignerScorecardData {
 // Helpers
 // ============================================================================
 
-const MONTHLY_TARGET = 3;
+const MONTHLY_TARGET = 2;
 
 function getPeriodRange(period: ScorecardPeriod, now: Date) {
   switch (period) {

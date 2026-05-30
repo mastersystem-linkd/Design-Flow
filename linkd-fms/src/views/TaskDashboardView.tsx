@@ -254,77 +254,41 @@ export function TaskDashboardView() {
   }
 
   return (
-    <div className="space-y-3 sm:space-y-4">
+    <div className="space-y-3">
       {tabsRow}
-      {/* Inter-section spacing — was sm:space-y-6 which compounded with
-           the navbar gap to leave a visibly empty band above the fold.
-           space-y-3 / sm:space-y-4 matches every other dashboard. */}
-      <div className="animate-fade-in space-y-3 sm:space-y-4">
+      <div className="animate-fade-in space-y-3">
 
-      {/* ── Production Studio Banner — mirrors Concept Dashboard's Design Studio banner ── */}
-      <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
-        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
-        <svg
-          className="absolute right-0 top-0 h-full w-40 opacity-[0.03]"
-          viewBox="0 0 160 80"
-          aria-hidden="true"
-        >
-          {Array.from({ length: 20 }).map((_, i) => (
-            <line key={`h${i}`} x1="0" y1={i * 4} x2="160" y2={i * 4} stroke="currentColor" strokeWidth="1" />
-          ))}
-          {Array.from({ length: 40 }).map((_, i) => (
-            <line key={`v${i}`} x1={i * 4} y1="0" x2={i * 4} y2="80" stroke="currentColor" strokeWidth="0.5" />
-          ))}
-        </svg>
-        <div className="relative flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-              <LayoutGrid className="h-[18px] w-[18px] text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Production Studio</p>
-              <p className="text-[11px] text-muted-foreground">
-                Task production pipeline · {a.periodLabel}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-1 sm:flex" title="Pipeline stages">
-              <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm" />
-              <span className="h-2.5 w-2.5 rounded-full bg-success shadow-sm" />
-              <span className="h-2.5 w-2.5 rounded-full bg-warning shadow-sm" />
-              <span className="h-2.5 w-2.5 rounded-full bg-destructive shadow-sm" />
-            </div>
-            {a.kpis.overdueCount > 0 && (
-              <Badge
-                className={cn(
-                  "cursor-pointer border transition-colors",
-                  a.kpis.overdueCount > 3
-                    ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
-                    : "bg-warning/10 text-warning border-warning/20"
-                )}
-                onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
-              >
-                {a.kpis.overdueCount} overdue
-              </Badge>
-            )}
-            {a.kpis.urgentCount > 0 && (
-              <Badge
-                className="cursor-pointer border border-destructive/20 bg-destructive/10 text-destructive"
-                onClick={() => navigate(dashLink({ status: "in_progress" }))}
-              >
-                {a.kpis.urgentCount} urgent
-              </Badge>
-            )}
-            {a.kpis.activePipeline > 0 && (
-              <Badge
-                className="cursor-pointer border border-primary/20 bg-primary/10 text-primary"
-                onClick={() => navigate(dashLink({ status: "in_progress" }))}
-              >
-                {a.kpis.activePipeline} in flight
-              </Badge>
-            )}
-          </div>
+      {/* ── Compact status bar — replaces the old decorative banner ── */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <div className="flex items-center gap-2">
+          <LayoutGrid className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold text-foreground">Production Studio</span>
+          <span className="text-[11px] text-muted-foreground">· {a.periodLabel}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          {a.kpis.overdueCount > 0 && (
+            <Badge
+              className={cn(
+                "cursor-pointer border text-[10px]",
+                a.kpis.overdueCount > 3
+                  ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
+                  : "bg-warning/10 text-warning border-warning/20"
+              )}
+              onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
+            >
+              {a.kpis.overdueCount} overdue
+            </Badge>
+          )}
+          {a.kpis.urgentCount > 0 && (
+            <Badge className="cursor-pointer border border-destructive/20 bg-destructive/10 text-destructive text-[10px]" onClick={() => navigate(dashLink({ status: "in_progress" }))}>
+              {a.kpis.urgentCount} urgent
+            </Badge>
+          )}
+          {a.kpis.activePipeline > 0 && (
+            <Badge className="cursor-pointer border border-primary/20 bg-primary/10 text-primary text-[10px]" onClick={() => navigate(dashLink({ status: "in_progress" }))}>
+              {a.kpis.activePipeline} in flight
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -365,16 +329,19 @@ export function TaskDashboardView() {
               to={dashLink({ filter: "mine", status: "in_progress" })}
             />
           </div>
-          {/* Score card */}
-          <Card>
-            <CardContent className="flex flex-col items-center py-6">
-              <p className={cn("text-5xl font-bold tabular-nums", myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive")}>{myStats.score}</p>
-              <div className="mt-3 h-2.5 w-48 overflow-hidden rounded-full bg-secondary">
-                <div className={cn("h-full rounded-full transition-[width] duration-[800ms]", myStats.score >= 90 ? "bg-success" : myStats.score >= 75 ? "bg-warning" : "bg-destructive")} style={{ width: `${myStats.score}%` }} />
+          {/* Compact score strip */}
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2">
+            <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", myStats.score >= 90 ? "bg-success/10" : myStats.score >= 75 ? "bg-warning/10" : "bg-destructive/10")}>
+              <span className={cn("text-lg font-bold tabular-nums", myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive")}>{myStats.score}</span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-foreground">Performance Score</p>
+              <div className="mt-1 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-secondary">
+                <div className={cn("h-full rounded-full transition-[width] duration-700", myStats.score >= 90 ? "bg-success" : myStats.score >= 75 ? "bg-warning" : "bg-destructive")} style={{ width: `${myStats.score}%` }} />
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">Performance score this {period}</p>
-            </CardContent>
-          </Card>
+            </div>
+            <span className="text-[10px] text-muted-foreground">This {period}</span>
+          </div>
 
           {/* My active tasks */}
           <MyTasksTable tasks={tasks} userId={profile?.id ?? ""} />
@@ -447,8 +414,8 @@ export function TaskDashboardView() {
               KpiCards into one continuous row of 7 divided HeroKpiTiles.
               The textile wrapper is shared with every other dashboard so
               the visual language stays uniform. */}
-          <TextileHeroWrapper className="p-0 sm:p-0">
-            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-4 lg:grid-cols-7">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div className="grid grid-cols-2 divide-x divide-y divide-border/30 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-4 lg:grid-cols-7">
               <HeroKpiTile
                 icon={CheckCircle2}
                 label="Delivered"
@@ -550,7 +517,7 @@ export function TaskDashboardView() {
                 onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
               />
             </div>
-          </TextileHeroWrapper>
+          </div>
 
           {/* Charts */}
           <div className="grid gap-3 lg:grid-cols-3">
@@ -735,35 +702,20 @@ function HeroKpiTile({
           : "rgb(var(--primary))";
 
   const content = (
-    <div className="flex h-full flex-col justify-center gap-0.5 px-3 py-2.5 text-left sm:px-4 sm:py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div
-          className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-transform duration-200 group-hover:scale-110",
-            toneIconBg[tone],
-            pulse && "animate-pulse"
-          )}
-        >
-          <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+    <div className="flex h-full flex-col justify-between px-3 py-3 text-left sm:px-4">
+      <div className="flex items-center justify-between">
+        <div className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md", toneIconBg[tone], pulse && "animate-pulse")}>
+          <Icon className="h-3 w-3" />
         </div>
         {trendNode}
       </div>
-      <p
-        className={cn(
-          "text-xl font-bold leading-none tracking-tight tabular-nums sm:text-2xl",
-          toneText[tone]
-        )}
-      >
-        {value}
-      </p>
-      <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">{label}</p>
-      {sub && (
-        <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/60 sm:block">
-          {sub}
-        </p>
-      )}
+      <div className="mt-1.5">
+        <p className={cn("text-2xl font-bold leading-none tracking-tight tabular-nums", toneText[tone])}>{value}</p>
+        <p className="mt-1 truncate text-[10px] font-medium text-muted-foreground">{label}</p>
+        {sub && <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/50 sm:block">{sub}</p>}
+      </div>
       {sparklineData && sparklineData.length > 1 && (
-        <div className="-mb-0.5 mt-auto hidden h-5 sm:block">
+        <div className="mt-1.5 hidden h-5 sm:block">
           <Sparkline data={sparklineData} color={sparkColor} />
         </div>
       )}

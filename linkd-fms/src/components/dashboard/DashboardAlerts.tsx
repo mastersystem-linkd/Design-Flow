@@ -121,7 +121,7 @@ export function DashboardAlerts({
       alerts.push({
         id: "concept-reminder",
         icon: Lightbulb,
-        text: `You've submitted ${myConceptsThisMonth}/3 concepts this month — ${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining`,
+        text: `You've submitted ${myConceptsThisMonth}/2 concepts this month — ${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining`,
         to: ROUTES.concepts,
         border: "border-primary/30",
         bg: "bg-primary/5 hover:bg-primary/10",

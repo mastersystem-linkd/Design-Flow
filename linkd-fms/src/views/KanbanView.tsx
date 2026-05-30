@@ -1357,117 +1357,98 @@ function TopBar({
   const canCreate = canCreateBriefs(role);
 
   const iconBtn =
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50";
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50";
   const hasFilters =
     !!search || (isAdmin && (!!designerFilter || !!dateRange.from || !!dateRange.to));
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
-      {/* Filters (left) */}
-      <FilterTabs
-        value={filter}
-        onChange={setFilter}
-        urgentCount={urgentCount}
-        isAdmin={isAdmin}
-      />
+    <div className="space-y-2 border-b border-border pb-2">
+      {/* Row 1: Filter tabs + designer dropdown (scrollable on mobile) */}
+      <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1">
+        <FilterTabs
+          value={filter}
+          onChange={setFilter}
+          urgentCount={urgentCount}
+          isAdmin={isAdmin}
+        />
+        {isAdmin ? (
+          <select
+            value={designerFilter}
+            onChange={(e) => setDesignerFilter(e.target.value)}
+            className="h-7 shrink-0 rounded-md border border-border bg-card px-2 text-[11px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[140px]"
+            aria-label="Filter by designer"
+          >
+            <option value="">All designers</option>
+            {designers.map((d) => (
+              <option key={d.id} value={d.id}>{d.full_name}</option>
+            ))}
+          </select>
+        ) : (
+          <StatCluster stats={myStats} />
+        )}
 
-      {isAdmin ? (
-        <select
-          value={designerFilter}
-          onChange={(e) => setDesignerFilter(e.target.value)}
-          className="h-8 shrink-0 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[150px]"
-          aria-label="Filter by designer"
-        >
-          <option value="">All designers</option>
-          {designers.map((d) => (
-            <option key={d.id} value={d.id}>{d.full_name}</option>
-          ))}
-        </select>
-      ) : (
-        <StatCluster stats={myStats} />
-      )}
+        {/* Date range — desktop only */}
+        {isAdmin && (
+          <div className="hidden h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-2 sm:flex">
+            <Calendar className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateRange.from ?? ""}
+              onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
+              className="h-5 w-[88px] min-w-0 border-0 bg-transparent px-0.5 text-[10px] text-foreground outline-none"
+              aria-label="From date"
+            />
+            <span className="text-[9px] text-muted-foreground">–</span>
+            <input
+              type="date"
+              value={dateRange.to ?? ""}
+              onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
+              className="h-5 w-[88px] min-w-0 border-0 bg-transparent px-0.5 text-[10px] text-foreground outline-none"
+              aria-label="To date"
+            />
+          </div>
+        )}
+      </div>
 
-      {isAdmin && (
-        <div className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border bg-card px-2">
-          <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <input
-            type="date"
-            value={dateRange.from ?? ""}
-            onChange={(e) => setDateRange({ ...dateRange, from: e.target.value || null })}
-            className="h-6 w-[92px] min-w-0 border-0 bg-transparent px-0.5 text-[11px] text-foreground outline-none focus:ring-0"
-            aria-label="From date"
-          />
-          <span className="text-[10px] text-muted-foreground">–</span>
-          <input
-            type="date"
-            value={dateRange.to ?? ""}
-            onChange={(e) => setDateRange({ ...dateRange, to: e.target.value || null })}
-            className="h-6 w-[92px] min-w-0 border-0 bg-transparent px-0.5 text-[11px] text-foreground outline-none focus:ring-0"
-            aria-label="To date"
-          />
-        </div>
-      )}
-
-      {/* Search + actions (right) */}
-      <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+      {/* Row 2: Search + actions — compact single line */}
+      <div className="flex items-center gap-1.5">
         {hasFilters && (
           <button
             type="button"
-            onClick={() => {
-              setSearch("");
-              if (isAdmin) {
-                setDesignerFilter("");
-                setDateRange({ from: null, to: null });
-              }
-            }}
+            onClick={() => { setSearch(""); if (isAdmin) { setDesignerFilter(""); setDateRange({ from: null, to: null }); } }}
             title="Clear all filters"
-            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-2 text-[10px] font-medium text-muted-foreground hover:border-destructive/40 hover:text-destructive"
           >
-            <FilterX className="h-3.5 w-3.5" />
+            <FilterX className="h-3 w-3" />
             <span className="hidden sm:inline">Clear</span>
           </button>
         )}
-        <div className="w-[150px] sm:w-[180px]">
+        <div className="min-w-0 flex-1">
           <SearchInput
             ref={searchInputRef}
             value={search}
             onChange={setSearch}
             placeholder="Search tasks…"
-            className="[&_input]:!h-8 [&_input]:!text-xs [&_input]:!pl-8"
+            className="[&_input]:!h-7 [&_input]:!text-[11px] [&_input]:!pl-7"
           />
         </div>
-        <button
-          type="button"
-          onClick={onOpenShortcuts}
-          className={cn(iconBtn, "hidden sm:flex")}
-          title="Keyboard shortcuts (?)"
-          aria-label="Open keyboard shortcuts"
-        >
-          <Keyboard className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className={iconBtn}
-          title="Refresh"
-        >
+        <button type="button" onClick={onRefresh} disabled={isRefreshing} className={iconBtn} title="Refresh">
           <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
         </button>
-        {columnMenuSlot}
-        {onExport && (
-          <button
-            type="button"
-            onClick={onExport}
-            className={iconBtn}
-            title="Export CSV"
-          >
-            <Download className="h-3.5 w-3.5" />
+        <div className="hidden sm:flex sm:items-center sm:gap-1.5">
+          <button type="button" onClick={onOpenShortcuts} className={iconBtn} title="Keyboard shortcuts">
+            <Keyboard className="h-3.5 w-3.5" />
           </button>
-        )}
+          {columnMenuSlot}
+          {onExport && (
+            <button type="button" onClick={onExport} className={iconBtn} title="Export CSV">
+              <Download className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         {canCreate && (
-          <Button size="sm" className="h-8 gap-1.5 px-3" onClick={onNewBrief}>
-            <Plus className="h-4 w-4" />
+          <Button size="sm" className="h-7 gap-1 px-2.5 text-[11px]" onClick={onNewBrief}>
+            <Plus className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">New brief</span>
           </Button>
         )}
@@ -1975,7 +1956,7 @@ function MobileCardList({
   sectionProps: SectionProps;
 }) {
   return (
-    <ul className="flex flex-col gap-2 p-3">
+    <ul className="flex flex-col gap-1.5 px-2 py-2">
       {rows.map((task, idx) => (
         <MobileTaskCard
           key={`${task.id}-${task.status}`}
@@ -2038,7 +2019,7 @@ function MobileTaskCard({
     <li
       onClick={() => onSelectTask(task.id)}
       className={cn(
-        "rounded-xl border border-border border-l-[3px] bg-card p-3.5 shadow-sm transition-colors active:scale-[0.99]",
+        "rounded-lg border border-border border-l-[3px] bg-card p-2.5 shadow-sm transition-colors active:scale-[0.99]",
         "hover:bg-card/80 active:bg-card/60 cursor-pointer",
         selected && "bg-primary/[0.04] ring-1 ring-primary/40",
         task.status === "done" ? "border-l-success"

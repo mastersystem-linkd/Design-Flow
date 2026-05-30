@@ -290,77 +290,10 @@ export function AnalyticsView({
       ) : (
         /* ── ADMIN / COORDINATOR VIEW ── */
         <>
-          {/* ── Design Studio Banner — textile-inspired accent ── */}
-          <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
-            <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
-            <svg
-              className="absolute right-0 top-0 h-full w-40 opacity-[0.03]"
-              viewBox="0 0 160 80"
-              aria-hidden="true"
-            >
-              {Array.from({ length: 20 }).map((_, i) => (
-                <line
-                  key={`h${i}`}
-                  x1="0"
-                  y1={i * 4}
-                  x2="160"
-                  y2={i * 4}
-                  stroke="currentColor"
-                  strokeWidth="1"
-                />
-              ))}
-              {Array.from({ length: 40 }).map((_, i) => (
-                <line
-                  key={`v${i}`}
-                  x1={i * 4}
-                  y1="0"
-                  x2={i * 4}
-                  y2="80"
-                  stroke="currentColor"
-                  strokeWidth="0.5"
-                />
-              ))}
-            </svg>
-            <div className="relative flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                  <Palette className="h-[18px] w-[18px] text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Design Studio</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Digital print concept pipeline · {a.periodLabel}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="hidden items-center gap-1 sm:flex" title="Print color palette">
-                  <span className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-success shadow-sm" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-warning shadow-sm" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-destructive shadow-sm" />
-                </div>
-                {a.kpis.pendingReview > 0 && (
-                  <Badge
-                    className={cn(
-                      "cursor-pointer border transition-colors",
-                      a.kpis.pendingReview > 2
-                        ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
-                        : "bg-warning/10 text-warning border-warning/20"
-                    )}
-                    onClick={() => navigate(`${ROUTES.concepts}?tab=pending`)}
-                  >
-                    {a.kpis.pendingReview} awaiting review
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* KPI cards — wrapped in the shared TextileHeroWrapper so the
               Concept Dashboard reads as part of the same visual system
               as Task / Sampling / Salvedge / Scorecards. */}
-          <TextileHeroWrapper className="p-0 sm:p-0">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:divide-y-0 lg:grid-cols-4">
             <KpiCard
               flat
@@ -427,24 +360,16 @@ export function AnalyticsView({
               sub="Target: < 24 hours"
             />
             </div>
-          </TextileHeroWrapper>
+          </div>
 
           {/* ── Print Production Pipeline — post-approval lifecycle ── */}
           <Card>
-            <CardContent className="p-4">
-              <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardContent className="p-3">
+              <header className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Layers className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Print Production Pipeline
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Post-approval lifecycle — what's moving, what's stuck
-                    </p>
-                  </div>
+                  <Layers className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold text-foreground">Pipeline</p>
+                  <p className="text-[10px] text-muted-foreground">· post-approval lifecycle</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {a.conversionRates.reviewedToApproved > 0 && (
@@ -638,23 +563,7 @@ export function AnalyticsView({
             </CardContent>
           </Card>
 
-          {/* Hero row: Designer matrix + Monthly target. Default `items-stretch`
-              so both cards match height; the TargetHero distributes its own
-              content via flex so it doesn't leave an empty band. */}
-          <div className="grid gap-3 xl:grid-cols-5">
-            <div className="xl:col-span-3">
-              <DesignerConceptMatrix />
-            </div>
-            <div className="xl:col-span-2">
-              <TeamTargetHero
-                data={a.targetRace}
-                periodStart={a.periodStart}
-                periodEnd={a.periodEnd}
-              />
-            </div>
-          </div>
-
-          {/* Charts row */}
+          {/* Charts + Pipeline — compact 2-col row */}
           <div className="grid gap-3 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <VolumeChart
@@ -665,12 +574,17 @@ export function AnalyticsView({
             <PipelineHealth data={a.statusDistribution} />
           </div>
 
-          {/* MD Review Performance — admin only */}
-          {isAdminCheck(role) && (
-            <MdReviewPanel stats={a.mdReview} />
-          )}
+          {/* MD Review + Monthly Target — side by side */}
+          <div className="grid gap-3 lg:grid-cols-2">
+            {isAdminCheck(role) && <MdReviewPanel stats={a.mdReview} />}
+            <TeamTargetHero
+              data={a.targetRace}
+              periodStart={a.periodStart}
+              periodEnd={a.periodEnd}
+            />
+          </div>
 
-          {/* Designer Leaderboard */}
+          {/* Designer Leaderboard — single source of per-designer performance */}
           <DesignerLeaderboard data={a.designerStats} concepts={concepts} />
         </>
       )}
@@ -707,7 +621,7 @@ function PersonalTargetRing({ approved, target }: { approved: number; target: nu
           style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.4,0,0.2,1)" }}
         />
         {/* Milestone ticks */}
-        {[1, 2, 3].map((m) => {
+        {Array.from({ length: target }, (_, i) => i + 1).map((m) => {
           const angle = (m / target) * 2 * Math.PI;
           const x = 65 + r * Math.cos(angle);
           const y = 65 + r * Math.sin(angle);

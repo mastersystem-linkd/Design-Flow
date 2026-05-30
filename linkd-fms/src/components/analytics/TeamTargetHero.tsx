@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { TargetRaceEntry } from "@/hooks/useAnalytics";
 
-const TARGET = 3;
+const TARGET = 2;
 
 interface Props {
   data: TargetRaceEntry[];
