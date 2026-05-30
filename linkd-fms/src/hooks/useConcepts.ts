@@ -360,10 +360,14 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       }
 
       const submitterName = profile?.full_name ?? "A designer";
+      const conceptDetails = [
+        input.designs_count ? `${input.designs_count} designs` : null,
+        input.start_date ? `Start: ${new Date(input.start_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : null,
+      ].filter(Boolean).join(" · ");
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "New Concept Submitted",
-        `${submitterName} submitted "${input.title}"`,
+        `${submitterName} submitted "${input.title}"${conceptDetails ? ` — ${conceptDetails}` : ""}`,
         "info",
         "/concepts"
       );
@@ -411,11 +415,12 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         // the reason in a single payload, so they don't have to open the
         // drawer to find out why a rejection happened.
         const notes = input.notes?.trim();
+        const reviewerName = profile?.full_name ?? "Admin";
         if (input.status === "approved") {
           void sendNotification(
             data.submitted_by,
-            "Concept Approved",
-            `Your concept "${data.title}" has been approved.`,
+            "Concept Approved ✨",
+            `${reviewerName} approved "${data.title}" — Stage: MD Approval${data.designs_count ? ` · ${data.designs_count} designs` : ""}`,
             "success",
             "/concepts"
           );
@@ -423,7 +428,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
           void sendNotification(
             data.submitted_by,
             "Concept Rejected",
-            `Your concept "${data.title}" was rejected: ${notes || "No reason given"}`,
+            `${reviewerName} rejected "${data.title}" — Reason: ${notes || "No reason given"}`,
             "warning",
             "/concepts"
           );
@@ -431,7 +436,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
           void sendNotification(
             data.submitted_by,
             "Revision Requested",
-            `Changes needed on "${data.title}": ${notes || "See details"}`,
+            `${reviewerName} requested changes on "${data.title}" — Feedback: ${notes || "See details"}`,
             "warning",
             "/concepts"
           );
@@ -580,6 +585,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       const { data, error: err } = await supabase
         .from("concepts")
         .update({
+          work_status: "changes_requested",
+          md_feedback: notes.trim(),
           final_approval_notes: notes.trim(),
           completion_history: history as unknown as any,
         })
@@ -760,7 +767,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Concept Re-submitted",
-        `${submitterName} addressed feedback and re-submitted "${data.title}"`,
+        `${submitterName} addressed feedback and re-submitted "${data.title}"${newFiles.length > 0 ? ` — ${newFiles.length} new file${newFiles.length > 1 ? "s" : ""} uploaded` : ""}${changesNotes ? ` · Note: "${changesNotes.slice(0, 80)}${changesNotes.length > 80 ? "…" : ""}"` : ""}`,
         "info",
         "/concepts"
       );
@@ -818,7 +825,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Concept started",
-        `${designerName} started working on ${data.concept_code}`,
+        `${designerName} started working on "${data.title}"`,
         "info",
         "/concepts"
       );
@@ -875,7 +882,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Concept on hold",
-        `${designerName} paused ${data.concept_code}${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
+        `${designerName} paused "${data.title}"${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
         "warning",
         "/concepts"
       );
@@ -945,7 +952,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Concept resumed",
-        `${designerName} resumed ${data.concept_code}`,
+        `${designerName} resumed "${data.title}"`,
         "info",
         "/concepts"
       );
@@ -1004,6 +1011,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         revision_count: nextRevisionCount,
         completion_history: history as unknown as any,
         designer_actual_date: designerActualDate,
+        md_feedback: null,
+        final_approval_notes: null,
       };
       if (newFiles.length > 0) {
         update.files = mergedFiles;
@@ -1015,7 +1024,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .from("concepts")
         .update(update)
         .eq("id", conceptId)
-        .eq("work_status", "in_progress")
+        .in("work_status", ["in_progress", "changes_requested", "in_revision"])
         .select("*")
         .single();
       if (err) {
@@ -1029,10 +1038,14 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       }
 
       const designerName = profile?.full_name ?? "A designer";
+      const reviewMeta = [
+        data.designs_count ? `${data.designs_count} designs` : null,
+        nextRevisionCount > 1 ? `Round ${nextRevisionCount}` : null,
+      ].filter(Boolean).join(" · ");
       void sendNotificationToRole(
         ["admin"],
         "Design ready for review",
-        `${designerName} completed ${data.concept_code}, awaiting your review`,
+        `${designerName} completed "${data.title}" — ${reviewMeta || "awaiting your review"}`,
         "info",
         "/concepts"
       );
@@ -1094,7 +1107,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotification(
         designerId,
         "Design approved!",
-        `Ma'am approved your design ${data.concept_code}`,
+        `Ma'am approved your design "${data.title}"`,
         "success",
         "/concepts"
       );
@@ -1150,7 +1163,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotification(
         designerId,
         "Changes requested",
-        `Ma'am suggested changes on ${data.concept_code}: ${trimmed}`,
+        `Ma'am suggested changes on "${data.title}": ${trimmed}`,
         "warning",
         "/concepts"
       );
@@ -1196,7 +1209,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Implementing changes",
-        `${designerName} started working on changes for ${data.concept_code}`,
+        `${designerName} started working on changes for "${data.title}"`,
         "info",
         "/concepts"
       );

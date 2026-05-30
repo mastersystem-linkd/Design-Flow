@@ -77,15 +77,11 @@ export function MarkDoneDialog({
 
   async function handleSubmit() {
     if (!user || !concept) return;
-    if (files.length === 0) {
-      toast.error("Please upload at least one design file");
-      return;
-    }
     setUploading(true);
     setProgress(2);
 
     const uploadedPaths: string[] = [];
-    const perFileShare = 95 / files.length;
+    const perFileShare = files.length > 0 ? 95 / files.length : 95;
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i]!;
@@ -173,7 +169,7 @@ export function MarkDoneDialog({
                   <Paperclip className="h-3 w-3" />
                 </span>
                 <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
-                  Design Files <span className="text-destructive">*</span>
+                  Design Files <span className="text-[10px] font-normal text-muted-foreground">(optional)</span>
                   {files.length > 0 && <span className="ml-1 text-[10px] font-normal text-muted-foreground">{files.length}/{MAX_FILES}</span>}
                 </h3>
               </div>
@@ -187,19 +183,30 @@ export function MarkDoneDialog({
             <input ref={inputRef} type="file" multiple accept="*/*" onChange={handlePick} className="hidden" disabled={uploading} />
 
             {files.length > 0 ? (
-              <div className="space-y-1">
-                {files.map((f, i) => (
-                  <div key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-md border border-success/20 bg-success/5 px-2 py-1">
-                    <FileText className="h-3 w-3 shrink-0 text-success" />
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">{f.name}</span>
-                    <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
-                    {!uploading && (
-                      <button type="button" onClick={() => removeFile(i)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive">
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {files.map((f, i) => {
+                  const isImg = f.type.startsWith("image/");
+                  return (
+                    <div key={`${f.name}-${i}`} className="group/file flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-2 py-1.5 transition-colors hover:border-success/40">
+                      {isImg ? (
+                        <img src={URL.createObjectURL(f)} alt="" className="h-8 w-8 shrink-0 rounded object-cover" />
+                      ) : (
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-success/10">
+                          <FileText className="h-4 w-4 text-success" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-medium text-foreground">{f.name}</p>
+                        <p className="text-[9px] text-muted-foreground">{(f.size / 1024 / 1024).toFixed(1)} MB</p>
+                      </div>
+                      {!uploading && (
+                        <button type="button" onClick={() => removeFile(i)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover/file:opacity-100 hover:text-destructive">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div
@@ -208,44 +215,56 @@ export function MarkDoneDialog({
                 onDragLeave={() => setDragActive(false)}
                 onClick={() => inputRef.current?.click()}
                 className={cn(
-                  "flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border border-dashed transition-colors",
-                  dragActive ? "border-success bg-success/10" : "border-border bg-card hover:border-success/40 hover:bg-secondary/30"
+                  "relative flex cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-lg border-2 border-dashed px-4 py-6 transition-all",
+                  dragActive ? "border-success bg-success/10 scale-[1.01]" : "border-border bg-gradient-to-b from-success/[0.03] to-transparent hover:border-success/40 hover:from-success/[0.06]"
                 )}
               >
-                <Upload className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">Drag & drop or click to upload</span>
-                <span className="text-[10px] text-muted-foreground">Up to {MAX_FILES} files · {MAX_SIZE_MB} MB each · any type</span>
+                <div className={cn("flex h-10 w-10 items-center justify-center rounded-full transition-colors", dragActive ? "bg-success/20" : "bg-success/10")}>
+                  <Upload className={cn("h-5 w-5 transition-colors", dragActive ? "text-success" : "text-success/60")} />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-foreground">Drop your design files here</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">or click to browse · up to {MAX_FILES} files · {MAX_SIZE_MB} MB each</p>
+                </div>
               </div>
             )}
 
             {uploading && (
-              <div className="mt-1.5 space-y-0.5">
-                <div className="h-1 w-full overflow-hidden rounded-full bg-secondary">
-                  <div className="h-full bg-success transition-[width] duration-200 ease-out" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+              <div className="mt-2 space-y-1 rounded-md border border-success/20 bg-success/5 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium text-success">Uploading {files.length} file{files.length > 1 ? "s" : ""}…</p>
+                  <span className="text-[10px] font-semibold tabular-nums text-success">{Math.round(progress)}%</span>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Uploading… {Math.round(progress)}%</p>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-success/20">
+                  <div className="h-full rounded-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+                </div>
               </div>
             )}
           </section>
 
           {/* Notes */}
           <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-success/30">
-            <div className="mb-1.5 flex items-center gap-2">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-success/10 text-success">
-                <MessageSquare className="h-3 w-3" />
-              </span>
-              <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
-                Notes <span className="text-[10px] font-normal text-muted-foreground">(optional)</span>
-              </h3>
+            <div className="mb-1.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-success/10 text-success">
+                  <MessageSquare className="h-3 w-3" />
+                </span>
+                <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+                  Notes <span className="text-[10px] font-normal text-muted-foreground">(optional)</span>
+                </h3>
+              </div>
+              {notes.length > 0 && (
+                <span className="text-[9px] tabular-nums text-muted-foreground">{notes.length}/500</span>
+              )}
             </div>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Completed 5 designs as requested, changed colorway on #3 per your feedback…"
+              placeholder="What did you complete? Any changes from the brief? Highlight key decisions…"
               rows={2}
               maxLength={500}
               disabled={uploading}
-              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
           </section>
 
@@ -256,7 +275,7 @@ export function MarkDoneDialog({
               loading={uploading}
               loadingText="Submitting…"
               onClick={handleSubmit}
-              disabled={files.length === 0 || uploading}
+              disabled={uploading}
               className="gap-1.5 bg-success px-6 text-white shadow-sm shadow-success/20 hover:bg-success/90"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />

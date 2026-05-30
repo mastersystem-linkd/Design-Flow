@@ -284,24 +284,41 @@ deo:
   Notifications
 ```
 
-### 5.3 Sidebar (`Sidebar.tsx`)
+### 5.3 Sidebar (`Sidebar.tsx`) — collapsible + pinnable
 ```
-- 220px wide, fixed left, bg-sidebar (dark in both themes)
-- Logo clicks → navigate to roleHomePath(role) = /task-dashboard (or /kitting for DEO)
-- Nav groups with optional section labels (e.g. "Manage")
-- Active link: bg-primary text-white shadow-sm
-- ThemeToggle above user block (cycles: light → dark → system)
-- User block: Radix DropdownMenu → Profile link + "Sign Out" → ConfirmDialog
-- Mobile: hidden by default, slides in as overlay with backdrop
+- Pinned-expanded: 220px wide.   Pinned-collapsed: 64px slim icon rail.
+- State: AppLayout `collapsed` boolean, persisted to localStorage["sidebar-collapsed"].
+- Collapse toggle: PanelLeftClose / PanelLeftOpen button at the bottom of the rail.
+- Hover-expand: while collapsed, hovering the rail expands an overlay
+  (shadow + full 220px width) over the page WITHOUT reflowing content.
+  Only pinning (the toggle) reflows the page.
+- "LD" brand on the rail when collapsed; full "Logo + Brand" when expanded.
+- bg-sidebar (dark in both themes); logo → roleHomePath(role).
+- Active link: bg-primary text-white shadow-sm. Count badges shrink to a
+  dot on the rail (NavRow `collapsed` prop hides labels via md:hidden).
+- ThemeToggle above user block (ThemeToggle gained labelClassName so the
+  text label hides cleanly when railed).
+- User block: Radix DropdownMenu → Profile + Sign Out (ConfirmDialog).
+- Mobile (<md): hidden by default, slides in as overlay with backdrop.
 ```
 
-### 5.4 TopNav (`TopNav.tsx`)
+### 5.4 TopNav (`TopNav.tsx`) — thin utility strip
 ```
-- 56px height, fixed top, glassmorphism (bg-background/80 backdrop-blur-xl)
-- Left: page title computed from pathname + role
-- Right: ConnectionDot (Supabase Realtime heartbeat) + NotificationBell
-         (bell + unread badge + dropdown) + user first name + avatar
-- Mobile: hamburger menu button
+- 56px height, fixed top, glassmorphism (bg-background/80 backdrop-blur-xl).
+- NO page title. Each page renders its own in-content heading; the topnav
+  used to repeat it (Sampling Queue / Dashboards / …) and was removed.
+- Left: greeting block (anchors the bar so it doesn't read as empty)
+        - Line 1: "Good {morning|afternoon|evening}, {first_name}"
+          (time-based; computed from new Date().getHours())
+        - Line 2 (sm+): "Weekday, D Month YYYY"
+- Right: ConnectionDot (sm+) · NotificationBell (badge + dropdown + chime)
+         · Avatar (sm+) · Sign out (icon mobile, icon+label md+).
+         Name is NOT shown again on the right — it's already in the greeting.
+- Tracks sidebar collapse: fixed positioning ignores AppLayout's pl-*, so
+  TopNav uses its own left value — md:left-[64px] when collapsed,
+  md:left-[220px] when pinned-expanded, with a matching 200ms
+  transition-[left]. AppLayout passes collapsed={collapsed} as a prop.
+- Mobile: hamburger menu button on the far left.
 ```
 
 ### 5.5 Mobile bottom tab bar (`MobileTabBar.tsx`)
@@ -1550,8 +1567,13 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
       Fusing Operator options; idempotent re-insert).
 0053  concepts delete RLS widened — admins/coordinators OR the owner (submitted_by /
       designer_id = auth.uid()) can delete. Designers can delete their own concepts.
+0054  concepts added to the supabase_realtime publication + REPLICA IDENTITY FULL so
+      designer-side concept lists stay live across sessions (mirrors what 0041 did
+      for tasks).
+0055  concepts update RLS widened — admins/coordinators OR the owner can update
+      (pairs with 0053 so designers can edit their own concepts, not just delete).
 
-Next migration: 0054
+Next migration: 0056
 ```
 
 ---
@@ -1597,6 +1619,18 @@ Key utilities:
 <MobileTabBar>        → Fixed bottom tab bar for <md screens.
 <KeyboardShortcutsDialog> → Shows shortcuts grouped by category with <kbd> badges.
 ```
+
+**Dialog mobile-safe defaults** (`@/components/ui/dialog`): base `DialogContent`
+ships `w-[calc(100%-2rem)] max-w-lg rounded-lg` — a 1rem mobile gutter and
+rounded corners on every breakpoint. `cn` is `twMerge(clsx(...))`, so any
+caller's `w-[95vw]` / `max-w-[680px]` / `sm:rounded-xl` wins. There is **no**
+vertical overflow handling in the base; tall forms need their own. Two
+established patterns: (A) `flex max-h-[Nvh] flex-col overflow-hidden` on the
+DialogContent + an inner `flex-1 overflow-y-auto` scroll-body for combobox-heavy
+forms (Sampling, Brief, EditTask, Claim, TaskDetailDrawer); (B) `max-h-[90dvh]
+overflow-y-auto` directly on DialogContent for short admin forms (FullKittingModal,
+KittingStageADialog, TeamView add/edit). Combobox dropdowns are NOT portaled —
+prefer (A) when they'd open near the bottom of a tall body. See CLAUDE.md §18.
 
 Global CSS animations (in `index.css`):
 ```

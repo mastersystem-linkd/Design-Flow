@@ -293,3 +293,29 @@ Several form dropdowns are admin/coordinator-managed lookups (like Fabrics / Con
 - Forms read the hooks and map `names` → Combobox options. **Assign-by contexts:** New Brief / Edit Task / Submit Concept use `"task"` (the hook default); Full Knitting uses `"full_kitting"`; Sampling uses `"sampling"`. The "Other" free-text escape hatch is preserved everywhere.
 - `<LookupSection>` gained an **`insertExtra`** prop merged into every insert (e.g. `{ context }` or `{ field }`) and its `table` union includes the new tables. The parent owns fetching/filtering; the section owns add/edit/activate/delete/search.
 - **Adding a new managed dropdown:** create the table (mirror an existing migration), add it to `database.ts` + `queryKeys`, a hook (or extend `useSamplingDropdowns`'s field set), the `LookupSection` `table` union, a chip in `DropdownsTab`, and wire the form's Combobox. Don't reintroduce hard-coded option arrays.
+
+## 17. App shell — TopNav + collapsible sidebar
+
+The desktop app shell is **`AppLayout`** → **`Sidebar`** (pinned left, can collapse to a 64px rail) + **`TopNav`** (thin fixed utility strip) + `<main>`. The two pieces are coupled — touch one, check the other.
+
+### 17.1 Sidebar collapse
+- State: `collapsed` boolean in `AppLayout`, persisted per-device under `localStorage["sidebar-collapsed"]`. Toggle button lives in the sidebar (`PanelLeftClose` / `PanelLeftOpen`).
+- Width: `md:w-[220px]` when pinned-expanded, `md:w-16` when pinned-collapsed. While collapsed, hovering the rail expands an **overlay** (shadow + full width) over the page — content does NOT reflow on hover; only on pin/unpin.
+- Content padding follows the **pinned** state only: `cn("transition-[padding] duration-200", collapsed ? "md:pl-[64px]" : "md:pl-[220px]")` on the outer div in `AppLayout`. Same 200ms timing everywhere.
+
+### 17.2 TopNav rules
+- **No page title.** The TopNav deliberately renders no route-derived heading — each page already has its own in-content heading and the old "Sampling Queue / Dashboards / …" duplicated it. Don't reintroduce a `getPageTitle`/`<h1>` in TopNav.
+- **Left anchor:** a two-line greeting block — time-based greeting + first name (`Good {morning|afternoon|evening}, {first}`), date underneath on `sm+`. Anchors the bar so it doesn't read as empty.
+- **Right cluster:** ConnectionDot (`hidden sm:inline-flex`) · NotificationBell · Avatar (`hidden sm:inline-flex`) · Sign out (label `hidden md:inline`). The name is NOT duplicated here — it's in the greeting.
+- **Tracks sidebar collapse.** TopNav is `position: fixed`, so it ignores AppLayout's `pl-*`. It uses its own `left`: `cn("... transition-[left] duration-200 md:px-6", collapsed ? "md:left-[64px]" : "md:left-[220px]")`. AppLayout passes `collapsed={collapsed}` as a prop. If you add a new top-level fixed surface (banner, secondary bar), mirror this pattern or it will float in the wrong place when the sidebar collapses.
+
+## 18. Dialog mobile-safe defaults
+
+The base `DialogContent` in `@/components/ui/dialog` carries mobile-safe defaults so every dialog reads well on a phone. `cn` uses `tailwind-merge`, so any caller's class wins via `twMerge` last-write semantics.
+
+- **Width:** base is `w-[calc(100%-2rem)] max-w-lg` — keeps a 1rem gutter on phones so dialogs never touch the screen edges; `max-w-lg` caps desktop width. **Do NOT override with bare `w-full`** — you lose the gutter. To go wider, use a larger `max-w-*` or `sm:max-w-[Npx]`. To go full-bleed on mobile, set `w-[95vw]` explicitly (TaskDetailDrawer does this).
+- **Rounding:** `rounded-lg` applies on ALL breakpoints (was `sm:rounded-lg` pre-mobile-polish — sharp on phones because there was no gutter). Caller's `sm:rounded-xl` etc. still wins on larger screens.
+- **Vertical overflow is NOT in the base.** A tall form must either:
+  - **(A) The flex-col + scroll-body pattern** (use for combobox-heavy forms like SamplingFormDialog, TaskDetailDrawer, EditTaskDialog): `DialogContent` className includes `flex max-h-[92vh] flex-col overflow-hidden p-0` + an inner `<div className="flex-1 overflow-y-auto …">` for the scrollable body. Header/footer outside the scroll box stay pinned. Combobox dropdowns are clipped only by the inner body, which is usually fine; if a dropdown opens near the bottom of the body, the user can scroll the body first.
+  - **(B) The lazy retrofit** (use only for short admin forms): add `max-h-[90dvh] overflow-y-auto` to `DialogContent` and let the whole thing scroll. Applied to FullKittingModal, KittingStageADialog, TeamView add/edit. **Beware Combobox in this mode** — its dropdown is `absolute` and gets clipped by the dialog's scroll container, so prefer (A) for combobox-heavy forms.
+- **`<Combobox>` is NOT portaled** — its menu is `absolute` inside the trigger's relative wrapper. Any ancestor with `overflow: auto/hidden` clips it. This shapes the dialog scroll choices above; don't add `overflow-y-auto` to ancestors of a Combobox unless you're OK with clipping.

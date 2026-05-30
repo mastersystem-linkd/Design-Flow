@@ -87,7 +87,7 @@
 <body>
 
 <h1>LinkD <span>FMS</span> — System Flow Diagram</h1>
-<p class="subtitle">Complete architecture &middot; 23 views &middot; 25 hooks &middot; 80+ components &middot; 35 migrations &middot; 15+ tables &middot; 1 Vercel serverless route</p>
+<p class="subtitle">Complete architecture &middot; 23 views &middot; 29 hooks &middot; 90+ components &middot; 55 migrations &middot; 20+ tables &middot; 1 Vercel serverless route</p>
 
 <!-- SECTION 1: BOOT -->
 <div class="section">
@@ -227,24 +227,29 @@
 <div class="section">
 <h2>4. Task Pipeline</h2>
 <div class="pipeline">
-  <div class="pipe-node" style="background:rgba(100,116,139,0.1);border-color:#64748b"><div>Pool</div><div class="pipe-sub">Unassigned</div></div>
-  <div class="pipe-arrow" style="border-left-color:#64748b"></div>
-  <div class="pipe-node"><div>To-Do</div><div class="pipe-sub">Assigned (legacy)</div></div>
-  <div class="pipe-arrow"></div>
-  <div class="pipe-node" style="background:rgba(79,110,247,0.1);border-color:var(--primary)"><div>In Progress</div><div class="pipe-sub">Working</div></div>
+  <div class="pipe-node" style="background:rgba(100,116,139,0.1);border-color:#64748b"><div>Pool</div><div class="pipe-sub">Unassigned &middot; FIFO claim</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--primary)"></div>
-  <div class="pipe-node" style="background:rgba(124,92,252,0.1);border-color:var(--purple)"><div>Full Kitting</div><div class="pipe-sub">Kitting Review</div></div>
+  <div class="pipe-node" style="background:rgba(79,110,247,0.1);border-color:var(--primary)"><div>In Progress</div><div class="pipe-sub">Designer working</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--warning)"></div>
-  <div class="pipe-node" style="background:rgba(245,166,35,0.1);border-color:var(--warning)"><div>Sampling</div><div class="pipe-sub">Production (/sampling)</div></div>
+  <div class="pipe-node" style="background:rgba(245,166,35,0.1);border-color:var(--warning)"><div>Done</div><div class="pipe-sub">Awaiting fabric</div></div>
   <div class="pipe-arrow" style="border-left-color:var(--success)"></div>
-  <div class="pipe-node" style="background:rgba(60,201,122,0.1);border-color:var(--success)"><div>Done</div><div class="pipe-sub">Complete</div></div>
+  <div class="pipe-node" style="background:rgba(60,201,122,0.1);border-color:var(--success)"><div>Completed</div><div class="pipe-sub">Terminal (fabric recorded)</div></div>
 </div>
+
+<div class="flow-row" style="margin-top:32px;justify-content:center;align-items:flex-start;gap:32px">
+  <div class="node teal" style="max-width:240px"><div class="node-label">Full Kitting</div><div class="node-sub">Side data tab (not a pipeline stage) &middot; 2-stage coordinator&rarr;DEO workflow on the row's action menu</div></div>
+  <div class="node orange" style="max-width:240px"><div class="node-label">Sampling</div><div class="node-sub">Own page at <code>/sampling</code> &middot; runs in parallel, not a downstream stage</div></div>
+</div>
+
 <div class="note">
-  <strong>Dashboard tabs (5):</strong> Pool, To-Do, In Progress, Full Kitting, Done<br>
-  <strong>Important:</strong> Assigned tasks skip <code>todo</code> &rarr; go straight to <code>in_progress</code>. The <code>todo</code> enum exists but is no longer entered by the app.<br>
-  <strong>Task code:</strong> <code>DF NN-D{MMYY}-CONC-QM</code> (e.g. DF 01-S0526-FLOR-200M)<br>
-  <strong>Sampling:</strong> Lives on its own <code>/sampling</code> page (not a dashboard tab).<br>
-  <strong>Notifications:</strong> Task assigned &rarr; designer, task done &rarr; designer + admins + coordinators, pool claimed &rarr; previous assignee
+  <strong>Stepper UI:</strong> <code>&lt;TaskPipelineStepper&gt;</code> — slim single-row glass pills mounted as the All Tasks table header. Connected: Pool &rarr; In Progress &rarr; Completed (chevrons fill once upstream has items). Full Kitting renders as a standalone <strong>side pill</strong> divided off to the right (NOT a pipeline step) via the <code>sideStage</code> prop.<br>
+  <strong>done vs completed (load-bearing):</strong> <code>done</code> = design work finished, fabric not yet captured (intermediate "awaiting completion details" state). <code>completed</code> = terminal once fabric is recorded. On dashboards, "Done" merges both; on the board, <code>done</code> tasks stay in In Progress badged "Done" with a per-row "Complete" CTA.<br>
+  <strong>Pool claim flow:</strong> Designers don't browse the pool — <code>&lt;ClaimTaskModal&gt;</code> shows only the single FIFO-eligible task (urgent-first, then oldest <code>requirement_received_at</code>) with all brief details + reference files. They claim that one or cancel — no cherry-picking. Claim sets planned deadline (required), optional fabric, status=<code>in_progress</code>, designer letter on <code>task_code</code>, optimistic lock on <code>.eq('status','pool')</code>.<br>
+  <strong>Completion:</strong> Mark Done &rarr; <code>done</code> + notifies designer + admins/coordinators. "Complete" then runs immediately if fabric was set at claim time, otherwise opens <code>&lt;PostDoneModal&gt;</code> for the required fabric. <code>completeTask</code> stamps <code>completion_fabric</code>/<code>filled_by</code>/<code>filled_at</code> (migration 0040). MTR was removed.<br>
+  <strong>qty_completed may EXCEED qty:</strong> the inline column CHECK referenced two columns and Postgres auto-named it <code>tasks_check</code> (NOT <code>tasks_qty_completed_check</code>). 0043 dropped the wrong name; 0044 drops the real one and re-asserts only <code>qty_completed &gt;= 0</code>. QtyTracker clamp has no upper bound.<br>
+  <strong>Realtime:</strong> <code>tasks</code> joined the <code>supabase_realtime</code> publication (0041, REPLICA IDENTITY FULL); pool claims/assignments propagate live (~1s). <code>concepts</code> followed (0054).<br>
+  <strong>Task code:</strong> <code>DF NN-D{MMYY}-CONC-QM</code> (e.g. DF 01-S0526-FLOR-200M) &middot; regenerated on claim with the claiming designer's letter.<br>
+  <strong>Notifications:</strong> task assigned &rarr; designer; task done &rarr; designer + admins + coordinators; task completed &rarr; same; pool claimed &rarr; previous assignee (if any).
 </div>
 </div>
 
@@ -322,31 +327,36 @@
 
 <!-- SECTION 7: DATABASE -->
 <div class="section">
-<h2>7. Database Schema (15+ Tables, 35 Migrations)</h2>
+<h2>7. Database Schema (20+ Tables, 55 Migrations)</h2>
 <div class="grid-4">
   <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">4 roles &middot; soft-delete (is_active)</div></div>
-  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">30+ cols &middot; 7 statuses</div></div>
-  <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses &middot; files JSONB &middot; completion_history</div></div>
-  <div class="node"><div class="node-label">clients</div><div class="node-sub">party_name</div></div>
+  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">35+ cols &middot; 8 statuses (incl. completed) &middot; brief_type (0038)</div></div>
+  <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses &middot; files JSONB &middot; realtime (0054) &middot; owner CRUD (0053/0055)</div></div>
+  <div class="node"><div class="node-label">clients</div><div class="node-sub">party_name + client_group (LD/Job Work, 0037/0042)</div></div>
   <div class="node"><div class="node-label">task_logs</div><div class="node-sub">append-only audit</div></div>
   <div class="node"><div class="node-label">task_comments</div><div class="node-sub">discussion thread (0017)</div></div>
-  <div class="node"><div class="node-label">files</div><div class="node-sub">task attachments</div></div>
+  <div class="node"><div class="node-label">files</div><div class="node-sub">task attachments &middot; brief reference uploads</div></div>
   <div class="node"><div class="node-label">sampling_logs</div><div class="node-sub">meters printed</div></div>
   <div class="node teal"><div class="node-label">designer_codes</div><div class="node-sub">U/V/S/K/W/T letters</div></div>
   <div class="node purple"><div class="node-label">concept_categories</div><div class="node-sub">taxonomy (0011)</div></div>
   <div class="node purple"><div class="node-label">fabrics</div><div class="node-sub">taxonomy (0011)</div></div>
-  <div class="node"><div class="node-label">notifications</div><div class="node-sub">realtime bell (0013)</div></div>
+  <div class="node purple"><div class="node-label">assigned_by_options</div><div class="node-sub">managed "Assigned By" + per-form context (0045/0047)</div></div>
+  <div class="node purple"><div class="node-label">received_by_options</div><div class="node-sub">Full Knitting "Received By" (0049)</div></div>
+  <div class="node purple"><div class="node-label">sampling_dropdowns</div><div class="node-sub">field-scoped: requirement / sampling_done_by / fusing_operator (0051/0052)</div></div>
+  <div class="node teal"><div class="node-label">user_preferences</div><div class="node-sub">per-user visible_columns JSONB (0040)</div></div>
+  <div class="node"><div class="node-label">notifications</div><div class="node-sub">realtime bell (0013) &middot; notify_user RPC (0035)</div></div>
   <div class="node orange"><div class="node-label">full_kitting_details</div><div class="node-sub">kitting form + DEO workflow (0013/0021)</div></div>
-  <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010)</div></div>
-  <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric distribution (0010)</div></div>
+  <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010) &middot; admin/coord RLS (0048)</div></div>
+  <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric distribution (0010) &middot; attachment_url (0050) &middot; admin/coord RLS (0048)</div></div>
   <div class="node muted-node"><div class="node-label">task_counters</div><div class="node-sub">internal per-year sequence</div></div>
 </div>
 <div class="note">
-  <strong>Enums:</strong> user_role (admin/design_coordinator/designer/deo) &middot; task_status (7 values) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5)<br>
+  <strong>Enums:</strong> user_role (admin/design_coordinator/designer/deo) &middot; task_status (8 values incl. <code>completed</code> from 0039) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5)<br>
   <strong>Storage buckets:</strong> design-files (50 MB) &middot; sample-files (100 MB) &middot; proof-photos (10 MB) &middot; task-files &middot; avatars &mdash; all private with RLS<br>
-  <strong>RLS:</strong> 40+ policies &middot; <code>auth_role()</code> + <code>is_admin()</code> + <code>is_admin_or_coordinator()</code> + <code>is_deo()</code> helpers<br>
+  <strong>RLS:</strong> 50+ policies &middot; <code>auth_role()</code> + <code>is_admin()</code> + <code>is_admin_or_coordinator()</code> + <code>is_deo()</code> helpers. Coordinator write access widened on concept_categories / fabrics / assigned_by_options (0046) and salvedge_records / samples (0048).<br>
   <strong>Views:</strong> <code>deo_kitting_queue</code> (joins kitting + tasks + clients) &middot; <code>active_profiles</code> (is_active=true)<br>
-  <strong>Migrations:</strong> 0001, 0003&ndash;0035 (0002 / 0015 merged into earlier files; numbering gaps intentional). Latest: 0034 broadens notifications insert RLS to authenticated, 0035 adds <code>notify_user</code> / <code>notify_users_batch</code> SECURITY DEFINER RPCs.
+  <strong>Realtime publication:</strong> notifications, task_comments, <code>tasks</code> (0041 + REPLICA IDENTITY FULL), <code>concepts</code> (0054).<br>
+  <strong>Migrations:</strong> 0001, 0003&ndash;0055 (0002 / 0015 merged into earlier files; numbering gaps intentional). Latest cluster: 0036 (whatsapp_received), 0037-0038/0042 (clients_group + brief_type LD/Job Work), 0039-0044 (pool/completed/qty_completed CHECK fix), 0045-0049/0051-0052 (managed dropdowns), 0048 (salvedge/samples coord RLS), 0050 (salvedge attachment_url), 0053-0055 (concept owner CRUD + realtime).
 </div>
 </div>
 
@@ -376,6 +386,16 @@
   <div class="node teal"><div class="node-label">Notifications RPC</div><div class="node-sub"><code style="font-size:9px">notify_user</code> / <code style="font-size:9px">notify_users_batch</code> &middot; SECURITY DEFINER &middot; any-authed insert</div></div>
   <div class="node success"><div class="node-label">Mobile UX Polish</div><div class="node-sub">Pipeline pills stack vertically, DesignerMatrix card rows, login spacing, KittingMix centered</div></div>
   <div class="node warning"><div class="node-label">Concept Reminders</div><div class="node-sub"><code style="font-size:9px">useConceptReminders</code> &middot; Day 8/17/24 escalating targets (&ge;1/2/3) &middot; client-side deduped</div></div>
+  <div class="node primary"><div class="node-label">Pool Claim Flow</div><div class="node-sub"><code style="font-size:9px">&lt;ClaimTaskModal&gt;</code> + PoolSummaryCard &middot; FIFO single-task &middot; no cherry-picking &middot; optimistic <code style="font-size:9px">.eq('status','pool')</code></div></div>
+  <div class="node purple"><div class="node-label">Managed Dropdowns</div><div class="node-sub">Settings &rarr; Dropdowns &middot; Assigned By (per-form context) + Received By + Sampling triple &middot; one DropdownsTab UI</div></div>
+  <div class="node teal"><div class="node-label">Per-User Column Visibility</div><div class="node-sub">All Tasks columns persisted in <code style="font-size:9px">user_preferences.visible_columns</code> via <code style="font-size:9px">useUserPreferences</code></div></div>
+  <div class="node success"><div class="node-label">TaskPipelineStepper</div><div class="node-sub">Slim single-row glass pills as the table header &middot; Full Kitting standalone side pill</div></div>
+  <div class="node primary"><div class="node-label">Brief Type (LD / Job Work)</div><div class="node-sub">tasks.brief_type + nullable client_id + DB CHECK &middot; LD briefs skip the party picker entirely</div></div>
+  <div class="node"><div class="node-label">Collapsible Sidebar</div><div class="node-sub">220px &harr; 64px rail &middot; localStorage-persisted &middot; hover-expand overlay &middot; TopNav tracks via <code style="font-size:9px">collapsed</code> prop</div></div>
+  <div class="node teal"><div class="node-label">Premium TopNav</div><div class="node-sub">No page-title duplication &middot; time-based greeting + date anchor &middot; 200ms transition-[left] follows sidebar</div></div>
+  <div class="node warning"><div class="node-label">Premium Dark Mode</div><div class="node-sub">Neutral near-black palette tuned for Twitter/Spotify/Vercel feel &middot; chartConfig tooltip + grid dark-optimised</div></div>
+  <div class="node success"><div class="node-label">Mobile Dialog Polish</div><div class="node-sub">Base 1rem gutter + rounded-lg on all bp &middot; max-h-[90dvh] retrofit on short admin forms</div></div>
+  <div class="node orange"><div class="node-label">Sampling File Capture</div><div class="node-sub">Add Sample form &middot; Upload + Camera tiles per slot (<code style="font-size:9px">capture="environment"</code>) &middot; row-cell file open as signed-URL "View" pills</div></div>
 </div>
 </div>
 
@@ -436,7 +456,7 @@
 <div class="divider"></div>
 <p style="text-align:center;color:var(--muted);font-size:12px">
   LinkD FMS &mdash; Design Flow System<br>
-  15+ tables &middot; 4 roles &middot; 23 views &middot; 25 hooks &middot; 80+ components &middot; 35 migrations &middot; 1 Vercel serverless route<br>
+  20+ tables &middot; 4 roles &middot; 23 views &middot; 29 hooks &middot; 90+ components &middot; 55 migrations &middot; 1 Vercel serverless route<br>
   Updated: May 2026
 </p>
 

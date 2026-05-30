@@ -65,6 +65,8 @@ import {
   PencilLine,
   AlertTriangle,
   ChevronDown,
+  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -268,10 +270,15 @@ export function ConceptDetailDrawer({
     isMine &&
     concept.md_status === "approved" &&
     !concept.designer_actual_date;
+  // Admin can approve/revise ONLY when work is submitted for review (in_revision)
+  // AND no pending feedback exists (if feedback exists, the ball is with designer)
+  const hasPendingFeedback = !!(concept.md_feedback || concept.final_approval_notes);
   const canFinalApprove =
     isAdmin &&
     !!concept.designer_actual_date &&
-    !concept.final_approved_at;
+    !concept.final_approved_at &&
+    concept.work_status === "in_revision" &&
+    !hasPendingFeedback;
 
   const submitter = concept.submitter ?? concept.designer;
 
@@ -393,8 +400,12 @@ export function ConceptDetailDrawer({
     conceptId: string,
     options?: { newFiles?: string[]; notes?: string }
   ) {
-    if (!onMarkDone) return { data: null, error: "Not available" };
-    return onMarkDone(conceptId, options);
+    if (!onMarkDone) return { data: null, error: "Not available" } as const;
+    const result = await onMarkDone(conceptId, options);
+    if (!result.error) {
+      onOpenChange(false);
+    }
+    return result;
   }
 
   async function handleApproveDesign() {
@@ -465,7 +476,7 @@ export function ConceptDetailDrawer({
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[95vh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+        className="flex max-h-[98vh] min-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
@@ -549,38 +560,8 @@ export function ConceptDetailDrawer({
              scroll so the sticky header stays put. ── */}
         <div className="flex-1 overflow-y-auto">
 
-        {/* ── Work-status action panel — visible whenever md_status='approved'.
-             This sits at the top of the body so the right next-step button is
-             always one tap away. Designer + admin see different actions per
-             work_status; see the per-state branches below. ── */}
-        {/* Top action panel — now reserved for the admin's "in revision"
-             final review (where the Approved count input + Approve / Suggest
-             Changes buttons live). All other lifecycle actions are inlined
-             into the Designer Completion stage section below so the user
-             has a single, contextual surface for each transition. */}
-        {showWorkActions && canReviewDesign && (
-          <WorkStatusActionPanel
-            concept={concept}
-            isAdmin={isAdmin}
-            isMine={isMine}
-            busy={busy}
-            approvedCount={approvedCount}
-            setApprovedCount={setApprovedCount}
-            canStart={canStart}
-            canHold={canHold}
-            canResume={canResume}
-            canMarkDone={canMarkDone}
-            canStartChanges={canStartChanges}
-            canReviewDesign={canReviewDesign}
-            onStart={handleStart}
-            onOpenHold={() => setHoldOpen(true)}
-            onResume={handleResume}
-            onMarkDone={handleMarkDone}
-            onStartChanges={handleStartChanges}
-            onApproveDesign={handleApproveDesign}
-            onOpenSuggest={() => setSuggestOpen(true)}
-          />
-        )}
+        {/* Design review actions moved entirely into Stage 4 (Final Approval)
+             to avoid duplicate UI. The top-level panel is removed. */}
 
         {/* ── Body ── */}
         <div className="space-y-0 pb-4">
@@ -1203,25 +1184,67 @@ export function ConceptDetailDrawer({
                 )}
               </>
             ) : concept.designer_actual_date ? (
-              /* ── Active: Ready for MD to review ── */
+              /* ── Active: Final review lifecycle ── */
               <>
-                {/* Show previous revision feedback if any */}
-                {concept.final_approval_notes && (
-                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                {/* Round indicator */}
+                {(concept.revision_count ?? 0) > 0 && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                      Round {(concept.revision_count ?? 0) + 1}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {concept.revision_count} revision{(concept.revision_count ?? 0) > 1 ? "s" : ""} so far
+                    </span>
+                  </div>
+                )}
+
+                {/* State: Waiting for designer to revise */}
+                {concept.work_status === "changes_requested" && (
+                  <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-warning">
+                      <Clock className="h-3.5 w-3.5" />
+                      Waiting for designer to revise
+                    </p>
+                    {concept.md_feedback && (
+                      <p className="mt-1 text-xs italic text-foreground">Your feedback: "{concept.md_feedback}"</p>
+                    )}
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      The designer will upload revised files and re-submit. You'll be able to review again.
+                    </p>
+                  </div>
+                )}
+
+                {/* State: Designer is working on changes */}
+                {concept.work_status === "in_progress" && (concept.revision_count ?? 0) > 0 && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Designer is working on changes
+                    </p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      The designer is implementing your feedback. You'll see their work when they re-submit.
+                    </p>
+                  </div>
+                )}
+
+                {/* State: Ready for admin to review (in_revision) */}
+                {/* Previous feedback trail */}
+                {concept.final_approval_notes && concept.work_status === "in_revision" && (
+                  <div className="mb-2 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2.5">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                     <div>
-                      <p className="text-xs font-semibold text-warning">
-                        Previous feedback
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {concept.final_approval_notes}
-                      </p>
+                      <p className="text-[10px] font-semibold text-warning">Previous feedback (Round {concept.revision_count ?? 1})</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{concept.final_approval_notes}</p>
                     </div>
                   </div>
                 )}
 
                 {canFinalApprove ? (
                   <div className="space-y-3">
+                    <p className="text-xs font-medium text-foreground">
+                      Designer re-submitted — your review decides the outcome.
+                      {concept.designs_count && <span className="text-muted-foreground"> · {concept.designs_count} designs submitted</span>}
+                    </p>
                     {/* ── Option A: Approve ── */}
                     {onFinalApprove && (
                       <div className="rounded-lg border border-success/30 bg-success/5 p-4 space-y-3">
@@ -1277,18 +1300,15 @@ export function ConceptDetailDrawer({
                           Request revision
                         </p>
                         <div className="space-y-1.5">
-                          <Label htmlFor="fa-notes" className="text-xs">
-                            What needs to be changed?{" "}
-                            <span className="text-destructive">*</span>
+                          <Label className="text-xs">
+                            What needs to be changed? <span className="font-normal text-muted-foreground">(type or record voice)</span>
                           </Label>
-                          <textarea
-                            id="fa-notes"
+                          <VoiceFeedback
                             value={finalNotes}
-                            onChange={(e) => setFinalNotes(e.target.value)}
-                            rows={2}
-                            placeholder="Describe what the designer needs to fix…"
+                            onChange={setFinalNotes}
+                            placeholder="Describe what needs to change or tap 🎤 to record…"
                             disabled={busy !== null}
-                            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                            rows={2}
                           />
                         </div>
                         <Button
@@ -1317,11 +1337,71 @@ export function ConceptDetailDrawer({
                   </div>
                 ) : (
                   /* Designer / non-admin view */
-                  <p className="text-xs text-muted-foreground">
-                    {concept.final_approval_notes
-                      ? "Revision feedback was shared. Waiting for admin to review again."
-                      : "Waiting for admin to grant final approval."}
-                  </p>
+                  <>
+                    {(() => {
+                      const feedback = concept.md_feedback || concept.final_approval_notes;
+                      const needsRevision =
+                        concept.work_status === "changes_requested" ||
+                        (concept.work_status === "in_revision" && !!feedback);
+                      const isWorking =
+                        concept.work_status === "in_progress" && !!concept.designer_actual_date && (concept.revision_count ?? 0) > 0;
+                      const isWaiting =
+                        concept.work_status === "in_revision" && !feedback;
+
+                      if (isMine && needsRevision) {
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                              <div>
+                                <p className="text-xs font-semibold text-warning">
+                                  Changes Requested {(concept.revision_count ?? 0) > 0 && `· Round ${concept.revision_count}`}
+                                </p>
+                                {feedback && <p className="mt-0.5 text-xs italic text-foreground">"{feedback}"</p>}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                              <p className="mb-1 text-xs font-medium text-primary">Your action: revise and re-submit</p>
+                              <p className="mb-2 text-[11px] text-muted-foreground">Upload your revised files and notes. The feedback above stays visible for reference.</p>
+                              <Button size="sm" onClick={handleMarkDone} disabled={busy !== null} className="gap-1.5 bg-success hover:bg-success/90">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Re-submit Revised Work
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (isMine && isWorking) {
+                        return (
+                          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                            <p className="mb-1 text-xs font-medium text-primary">Working on changes — ready to re-submit?</p>
+                            <p className="mb-2 text-[11px] text-muted-foreground">Upload your revised files and mark as done for final review.</p>
+                            <Button size="sm" onClick={handleMarkDone} disabled={busy !== null} className="gap-1.5 bg-success hover:bg-success/90">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Mark as Done
+                            </Button>
+                          </div>
+                        );
+                      }
+
+                      if (isWaiting) {
+                        return (
+                          <div className="rounded-lg border border-success/30 bg-success/5 p-3">
+                            <p className="flex items-center gap-1.5 text-xs font-medium text-success">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Your work was submitted
+                            </p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">Waiting for admin to review and approve.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <p className="text-xs text-muted-foreground">Waiting for admin to grant final approval.</p>
+                      );
+                    })()}
+                  </>
                 )}
               </>
             ) : (
@@ -1332,24 +1412,47 @@ export function ConceptDetailDrawer({
             )}
           </StageSection>
 
-          {/* ═══════ Activity Log ═══════ */}
-          {concept.completion_history &&
-            Array.isArray(concept.completion_history) &&
-            concept.completion_history.length > 0 && (
-            <div className="border-t border-border px-6 py-5">
-              <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                <Clock className="h-3.5 w-3.5" />
-                Completion Activity Log
-              </h3>
-              <div className="space-y-0">
-                {(concept.completion_history as CompletionHistoryEntry[]).map(
-                  (entry, i) => (
-                    <HistoryEntry key={i} entry={entry} isLast={i === (concept.completion_history as CompletionHistoryEntry[]).length - 1} />
-                  )
-                )}
+          {/* ═══════ Activity Timeline ═══════
+               Synthesises the early lifecycle (creation, first MD review) so
+               the log reads as the *full* story, not just the tail kept in
+               completion_history. Always renders — at minimum we have the
+               "Concept Submitted" event from concept.created_at. */}
+          {(() => {
+            const timeline = buildConceptTimeline(
+              concept,
+              submitter ?? null,
+              concept.reviewer ?? null
+            );
+            return (
+              <div className="border-t border-border bg-gradient-to-b from-secondary/30 via-transparent to-transparent px-5 py-5">
+                <div className="mb-3.5 flex items-center gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+                    <Clock className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                      Activity Timeline
+                    </h3>
+                    <p className="text-[10px] text-muted-foreground">
+                      Full lifecycle from submission through final approval
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-[10px] font-medium tabular-nums text-muted-foreground">
+                    {timeline.length} event{timeline.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-card/40 p-2">
+                  {timeline.map((entry, i) => (
+                    <HistoryEntry
+                      key={`${entry.type}-${entry.date}-${i}`}
+                      entry={entry}
+                      isLast={i === timeline.length - 1}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
         </div>
       </DialogContent>
@@ -1711,111 +1814,190 @@ function WorkStatusActionPanel({
 }
 
 // ============================================================================
-// History entry
+// Timeline — unified view that merges synthesised lifecycle events (concept
+// created, first MD review) with persisted `completion_history`. The DB only
+// starts writing history once work begins; the early lifecycle (submission +
+// MD's initial review) lives on the concept row itself. We splice those in
+// at render time so the activity log is the FULL story, not just the tail.
 // ============================================================================
 
-const HISTORY_CONFIG: Record<
-  CompletionHistoryEntry["type"],
-  { icon: typeof Check; label: string; color: string; bgColor: string }
+type TimelineEntryType =
+  | CompletionHistoryEntry["type"]
+  | "created"
+  | "md_concept_approved"
+  | "md_concept_revision"
+  | "md_concept_rejected";
+
+interface TimelineEntry {
+  type: TimelineEntryType;
+  date: string;
+  by?: string;
+  feedback?: string;
+  delay_days?: number;
+  /** Synthetic events are rendered the same way but tagged so they read as
+   *  the source of truth (the concept row itself, not the history JSONB). */
+  synthetic?: boolean;
+}
+
+type Tone = "primary" | "success" | "warning" | "destructive";
+
+// Static class lookups — Tailwind can't compose dynamic color utilities.
+const TONE_CLASSES: Record<
+  Tone,
+  { chip: string; ring: string; text: string; feedback: string; hover: string }
 > = {
-  // ── Legacy event types ──
-  done: {
-    icon: CheckCircle2,
-    label: "Marked as Done",
-    color: "text-success",
-    bgColor: "bg-success",
+  primary: {
+    chip: "bg-primary/10 text-primary",
+    ring: "ring-primary/30",
+    text: "text-primary",
+    feedback: "bg-primary/[0.06] border-primary/40",
+    hover: "hover:bg-primary/[0.04]",
   },
-  revision: {
-    icon: RotateCcw,
-    label: "Revision Requested",
-    color: "text-warning",
-    bgColor: "bg-warning",
+  success: {
+    chip: "bg-success/10 text-success",
+    ring: "ring-success/30",
+    text: "text-success",
+    feedback: "bg-success/[0.06] border-success/40",
+    hover: "hover:bg-success/[0.04]",
   },
-  resubmit: {
-    icon: ArrowRight,
-    label: "Re-submitted",
-    color: "text-primary",
-    bgColor: "bg-primary",
+  warning: {
+    chip: "bg-warning/10 text-warning",
+    ring: "ring-warning/30",
+    text: "text-warning",
+    feedback: "bg-warning/[0.06] border-warning/40",
+    hover: "hover:bg-warning/[0.04]",
   },
-  approved: {
-    icon: CheckCircle2,
-    label: "Final Approval",
-    color: "text-success",
-    bgColor: "bg-success",
-  },
-  // ── Work-status lifecycle event types (added 0026) ──
-  started: {
-    icon: PlayCircle,
-    label: "Started Working",
-    color: "text-primary",
-    bgColor: "bg-primary",
-  },
-  held: {
-    icon: Pause,
-    label: "Put On Hold",
-    color: "text-warning",
-    bgColor: "bg-warning",
-  },
-  resumed: {
-    icon: Play,
-    label: "Resumed",
-    color: "text-primary",
-    bgColor: "bg-primary",
-  },
-  marked_done: {
-    icon: Send,
-    label: "Sent for Review",
-    color: "text-primary",
-    bgColor: "bg-primary",
-  },
-  design_approved: {
-    icon: ThumbsUp,
-    label: "Design Approved",
-    color: "text-success",
-    bgColor: "bg-success",
-  },
-  changes_requested: {
-    icon: PencilLine,
-    label: "Changes Requested",
-    color: "text-warning",
-    bgColor: "bg-warning",
-  },
-  start_changes: {
-    icon: PlayCircle,
-    label: "Started Changes",
-    color: "text-primary",
-    bgColor: "bg-primary",
+  destructive: {
+    chip: "bg-destructive/10 text-destructive",
+    ring: "ring-destructive/30",
+    text: "text-destructive",
+    feedback: "bg-destructive/[0.06] border-destructive/40",
+    hover: "hover:bg-destructive/[0.04]",
   },
 };
+
+const HISTORY_CONFIG: Record<
+  TimelineEntryType,
+  { icon: typeof Check; label: string; tone: Tone }
+> = {
+  // ── Synthesised lifecycle (not in history JSONB; derived from concept row) ──
+  created: { icon: Sparkles, label: "Concept Submitted", tone: "primary" },
+  md_concept_approved: { icon: ShieldCheck, label: "MD Approved Concept", tone: "success" },
+  md_concept_revision: { icon: PencilLine, label: "MD Requested Revision", tone: "warning" },
+  md_concept_rejected: { icon: XCircle, label: "MD Rejected Concept", tone: "destructive" },
+
+  // ── Legacy event types ──
+  done: { icon: CheckCircle2, label: "Marked as Done", tone: "success" },
+  revision: { icon: RotateCcw, label: "Revision Requested", tone: "warning" },
+  resubmit: { icon: ArrowRight, label: "Re-submitted", tone: "primary" },
+  approved: { icon: CheckCircle2, label: "Final Approval", tone: "success" },
+
+  // ── Work-status lifecycle event types (added 0026) ──
+  started: { icon: PlayCircle, label: "Started Working", tone: "primary" },
+  held: { icon: Pause, label: "Put On Hold", tone: "warning" },
+  resumed: { icon: Play, label: "Resumed", tone: "primary" },
+  marked_done: { icon: Send, label: "Sent for Review", tone: "primary" },
+  design_approved: { icon: ThumbsUp, label: "Design Approved", tone: "success" },
+  changes_requested: { icon: PencilLine, label: "Changes Requested", tone: "warning" },
+  start_changes: { icon: PlayCircle, label: "Started Changes", tone: "primary" },
+};
+
+// ----------------------------------------------------------------------------
+// buildConceptTimeline — merges synthesised early-lifecycle events with the
+// persisted completion_history, sorts chronologically. Always returns at
+// least the "Concept Submitted" event so brand-new concepts still show a row.
+// ----------------------------------------------------------------------------
+function buildConceptTimeline(
+  concept: {
+    created_at: string;
+    md_status: ConceptStatus;
+    md_reviewed_at: string | null;
+    md_notes: string | null;
+    completion_history: CompletionHistoryEntry[] | null | undefined;
+  },
+  submitter: { full_name: string } | null,
+  reviewer: { full_name: string } | null
+): TimelineEntry[] {
+  const items: TimelineEntry[] = [];
+
+  // 1) Concept submitted — always synthesised from created_at.
+  items.push({
+    type: "created",
+    date: concept.created_at,
+    by: submitter?.full_name,
+    synthetic: true,
+  });
+
+  // 2) First MD review of the *concept* (distinct from `design_approved`,
+  //    which is MD signing off the *finished design* later in the lifecycle).
+  if (concept.md_reviewed_at) {
+    const type: TimelineEntryType =
+      concept.md_status === "approved"
+        ? "md_concept_approved"
+        : concept.md_status === "rejected"
+        ? "md_concept_rejected"
+        : concept.md_status === "revision_requested"
+        ? "md_concept_revision"
+        : "md_concept_approved";
+    items.push({
+      type,
+      date: concept.md_reviewed_at,
+      by: reviewer?.full_name,
+      feedback: concept.md_notes ?? undefined,
+      synthetic: true,
+    });
+  }
+
+  // 3) Everything actually written to history.
+  const history = Array.isArray(concept.completion_history)
+    ? (concept.completion_history as TimelineEntry[])
+    : [];
+  items.push(...history);
+
+  // 4) Chronological. ISO date strings sort lexicographically.
+  items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return items;
+}
 
 function HistoryEntry({
   entry,
   isLast,
 }: {
-  entry: CompletionHistoryEntry;
+  entry: TimelineEntry;
   isLast: boolean;
 }) {
   const cfg = HISTORY_CONFIG[entry.type];
+  // Defensive: an old / unknown event type slipped through. Render a neutral
+  // row rather than crash the drawer.
+  if (!cfg) return null;
   const Icon = cfg.icon;
+  const tone = TONE_CLASSES[cfg.tone];
   return (
-    <div className="relative flex gap-3 pb-4">
-      {/* Vertical line */}
-      {!isLast && (
-        <div className="absolute left-[9px] top-5 bottom-0 w-px bg-border" />
+    <div
+      className={cn(
+        "group relative flex gap-3 rounded-lg px-2 py-2 transition-colors",
+        tone.hover
       )}
-      {/* Dot */}
+    >
+      {/* Vertical connector — sits behind the chip via z-0 so the chip's ring
+          stays clean. */}
+      {!isLast && (
+        <div className="absolute left-[22px] top-10 bottom-0 z-0 w-px bg-border" />
+      )}
+      {/* Tone chip */}
       <div
         className={cn(
-          "mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full",
-          cfg.bgColor
+          "relative z-10 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
+          tone.chip,
+          tone.ring
         )}
       >
-        <Icon className="h-2.5 w-2.5 text-white" />
+        <Icon className="h-3.5 w-3.5" />
       </div>
       {/* Content */}
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className={cn("text-xs font-semibold", cfg.color)}>
+          <span className={cn("text-xs font-semibold", tone.text)}>
             {cfg.label}
           </span>
           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
@@ -1823,24 +2005,37 @@ function HistoryEntry({
           </span>
         </div>
         {entry.by && (
-          <p className="text-[10px] text-muted-foreground">by {entry.by}</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">
+            by <span className="font-medium text-foreground/80">{entry.by}</span>
+          </p>
         )}
         {entry.delay_days != null && entry.delay_days !== 0 && (
-          <p className={cn(
-            "text-[10px] font-medium",
-            entry.delay_days > 0 ? "text-destructive" : "text-success"
-          )}>
+          <p
+            className={cn(
+              "mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+              entry.delay_days > 0
+                ? "bg-destructive/10 text-destructive"
+                : "bg-success/10 text-success"
+            )}
+          >
             {entry.delay_days > 0
               ? `+${entry.delay_days}d late`
               : `${Math.abs(entry.delay_days)}d early`}
           </p>
         )}
         {entry.delay_days === 0 && entry.type !== "revision" && (
-          <p className="text-[10px] font-medium text-success">On time</p>
+          <p className="mt-1 inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+            On time
+          </p>
         )}
         {entry.feedback && (
-          <p className="mt-1 rounded bg-warning/5 border border-warning/20 px-2 py-1 text-xs text-muted-foreground italic">
-            "{entry.feedback}"
+          <p
+            className={cn(
+              "mt-1.5 rounded-md border-l-2 px-2.5 py-1.5 text-xs italic text-foreground/85",
+              tone.feedback
+            )}
+          >
+            “{entry.feedback}”
           </p>
         )}
       </div>

@@ -807,10 +807,16 @@ export function useTaskMutations(): UseTaskMutations {
 
         // Inform admins + coordinators that the pool just shrunk by one —
         // gives them visibility into who's pulling work without polling.
+        const details = [
+          data.concept ? `Design: ${data.concept}` : null,
+          data.qty ? `Qty: ${data.qty}` : null,
+          data.planned_deadline ? `Deadline: ${new Date(data.planned_deadline).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : null,
+          data.priority === "urgent" ? "⚡ Urgent" : null,
+        ].filter(Boolean).join(" · ");
         void sendNotificationToRole(
           ["admin", "design_coordinator"],
           "Task Claimed from Pool",
-          `${profile.full_name} claimed ${newCode} from the pool`,
+          `${profile.full_name} claimed "${data.concept || "Task"}" — ${details}`,
           "info",
           "/dashboard"
         );
@@ -963,7 +969,7 @@ export function useTaskMutations(): UseTaskMutations {
           void sendNotificationToRole(
             ["admin", "design_coordinator"],
             "Task Claimed from Pool",
-            `${profile.full_name} claimed ${claimed.task_code}`,
+            `${profile.full_name} claimed "${claimed.concept || "Task"}"${claimed.task_code ? ` (${claimed.task_code})` : ""}`,
             "info",
             "/dashboard"
           );
@@ -1022,20 +1028,23 @@ export function useTaskMutations(): UseTaskMutations {
 
         if (error) return { data: null, error: error.message };
 
-        // Confirm to the designer that their task is done.
+        const doneDetails = [
+          data.concept ? `Design: ${data.concept}` : null,
+          data.qty ? `Qty: ${data.qty}` : null,
+          data.qty_completed ? `Done: ${data.qty_completed}` : null,
+        ].filter(Boolean).join(" · ");
         void sendNotification(
           profile.id,
           "Task Completed",
-          `You completed ${data.task_code ?? taskId}. Great work!`,
+          `You completed "${data.concept || "Task"}" — ${doneDetails}. Great work!`,
           "success",
           "/dashboard"
         );
 
-        // Notify admins + coordinators that a task crossed the finish line.
         void sendNotificationToRole(
           ["admin", "design_coordinator"],
           "Task Completed",
-          `${profile.full_name} completed ${data.task_code ?? taskId}`,
+          `${profile.full_name} completed "${data.concept || "Task"}" — ${doneDetails}`,
           "success",
           "/dashboard"
         );
@@ -1089,7 +1098,7 @@ export function useTaskMutations(): UseTaskMutations {
           void sendNotificationToRole(
             ["admin", "design_coordinator"],
             "Task Fully Completed",
-            `${profile.full_name} completed ${data.task_code} (fabric: ${fab})`,
+            `${profile.full_name} completed "${data.concept || "Task"}" — Fabric: ${fab} · Qty: ${data.qty}`,
             "success",
             "/dashboard"
           );

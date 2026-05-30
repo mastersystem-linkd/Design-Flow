@@ -21,6 +21,7 @@ import {
   AlertCircle,
   FilterX,
   Calendar,
+  Columns3,
 } from "lucide-react";
 import { differenceInDays, format, parseISO } from "date-fns";
 import { useConcepts } from "@/hooks/useConcepts";
@@ -207,6 +208,56 @@ function deriveFinalStatus(
 }
 
 // ============================================================================
+// Column visibility for the concepts table
+// ============================================================================
+
+type ConceptColKey =
+  | "submitted" | "designer" | "concept" | "description" | "party" | "designs" | "assigned_by"
+  | "decision" | "planned" | "reviewed"
+  | "work_status" | "started" | "holds" | "marked_done"
+  | "final_decision" | "approved_count" | "md_feedback" | "completed";
+
+type StageGroup = "creation" | "approval" | "completion" | "final";
+
+const CONCEPT_COLS: readonly { key: ConceptColKey; label: string; stage: StageGroup }[] = [
+  { key: "submitted", label: "Submitted", stage: "creation" },
+  { key: "designer", label: "Designer", stage: "creation" },
+  { key: "concept", label: "Concept", stage: "creation" },
+  { key: "description", label: "Description", stage: "creation" },
+  { key: "party", label: "Party", stage: "creation" },
+  { key: "designs", label: "Designs", stage: "creation" },
+  { key: "assigned_by", label: "Assigned By", stage: "creation" },
+  { key: "decision", label: "Decision", stage: "approval" },
+  { key: "planned", label: "Planned", stage: "approval" },
+  { key: "reviewed", label: "Reviewed", stage: "approval" },
+  { key: "work_status", label: "Work Status", stage: "completion" },
+  { key: "started", label: "Started", stage: "completion" },
+  { key: "holds", label: "Holds", stage: "completion" },
+  { key: "marked_done", label: "Marked Done", stage: "completion" },
+  { key: "final_decision", label: "Decision", stage: "final" },
+  { key: "approved_count", label: "Approved", stage: "final" },
+  { key: "md_feedback", label: "MD Feedback", stage: "final" },
+  { key: "completed", label: "Completed", stage: "final" },
+];
+
+const CONCEPT_DEFAULT_COLS: ConceptColKey[] = [
+  "submitted", "designer", "concept", "description", "party", "designs", "assigned_by",
+  "decision", "planned", "reviewed",
+  "work_status", "started", "holds", "marked_done",
+  "final_decision", "approved_count", "completed",
+];
+
+const CONCEPT_COL_KEY = "concept_visible_columns";
+
+function loadConceptCols(): ConceptColKey[] {
+  try {
+    const raw = localStorage.getItem(CONCEPT_COL_KEY);
+    if (raw) return JSON.parse(raw) as ConceptColKey[];
+  } catch { /* ignore */ }
+  return [...CONCEPT_DEFAULT_COLS];
+}
+
+// ============================================================================
 // Main view
 // ============================================================================
 
@@ -254,6 +305,15 @@ export function ConceptsView() {
   const initialTab: Tab = urlTab && validTabs.includes(urlTab) ? urlTab : "all";
 
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [conceptCols, setConceptCols] = useState<ConceptColKey[]>(loadConceptCols);
+  const showCol = useCallback((k: ConceptColKey) => conceptCols.includes(k), [conceptCols]);
+  function saveConceptCols(next: ConceptColKey[]) {
+    setConceptCols(next);
+    localStorage.setItem(CONCEPT_COL_KEY, JSON.stringify(next));
+  }
+  function stageColSpan(stage: StageGroup): number {
+    return CONCEPT_COLS.filter((c) => c.stage === stage && conceptCols.includes(c.key)).length;
+  }
   // Secondary tab — work-status. Drives the second chip row when md_status
   // filter is "All" or "Approved". Stays "all" otherwise so switching back
   // doesn't surprise the user with a hidden filter.
@@ -503,6 +563,7 @@ export function ConceptsView() {
               <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
+            <ConceptColumnMenu visible={conceptCols} onChange={saveConceptCols} />
             {canExport && (
               <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} className="gap-1 px-2">
                 <Download className="h-3.5 w-3.5" />
@@ -714,82 +775,54 @@ export function ConceptsView() {
         />
       ) : (
         <>
-        <div className="hidden md:block overflow-x-auto rounded-2xl border border-border bg-card shadow-card-soft transition-shadow hover:shadow-card-soft-hover">
-          <table className="w-full min-w-[2600px] border-collapse text-[13px]">
+        <div className="hidden md:block overflow-x-auto overflow-hidden rounded-xl border border-border bg-card">
+          <table className="w-full min-w-[2600px] text-sm">
             <caption className="sr-only">Design concepts with approval workflow</caption>
             <thead>
               {/* -- Row 1: Merged category headers -- */}
               <tr>
                 <th
                   rowSpan={2}
-                  className="sticky left-0 z-20 w-[42px] border-b border-r border-border bg-card/95 px-2 py-3 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-foreground backdrop-blur-sm"
+                  className="sticky left-0 z-20 w-[42px] border-b border-r border-border/30 bg-secondary/60 px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-foreground"
                 >
                   #
                 </th>
 
-                <StageHeader
-                  stage="creation"
-                  colSpan={7}
-                  step={1}
-                  label="Concept Submitted"
-                />
-                <StageHeader
-                  stage="approval"
-                  colSpan={3}
-                  step={2}
-                  label="MD Approval"
-                />
-                <StageHeader
-                  stage="completion"
-                  colSpan={4}
-                  step={3}
-                  label="Designer Working"
-                />
-                <StageHeader
-                  stage="final"
-                  colSpan={4}
-                  step={4}
-                  label="Final Approval"
-                />
+                {stageColSpan("creation") > 0 && <StageHeader stage="creation" colSpan={stageColSpan("creation")} step={1} label="Concept Submitted" />}
+                {stageColSpan("approval") > 0 && <StageHeader stage="approval" colSpan={stageColSpan("approval")} step={2} label="MD Approval" />}
+                {stageColSpan("completion") > 0 && <StageHeader stage="completion" colSpan={stageColSpan("completion")} step={3} label="Designer Working" />}
+                {stageColSpan("final") > 0 && <StageHeader stage="final" colSpan={stageColSpan("final")} step={4} label="Final Approval" />}
 
                 {/* Sticky right Actions column — outside any lifecycle
                      group because the menu controls row-level operations,
                      not stage data. */}
                 <th
                   rowSpan={2}
-                  className="sticky right-0 z-20 w-[68px] border-b border-l border-border bg-card/95 px-2 py-3 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-foreground backdrop-blur-sm"
+                  className="sticky right-0 z-20 w-[68px] border-b border-l border-border/30 bg-secondary/60 px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-foreground"
                 >
                   Actions
                 </th>
               </tr>
 
-              {/* ── Row 2: Sub-column headers ── */}
-              <tr className="bg-secondary/40">
-                {/* 1 · Concept Submitted */}
-                <ColHead>Submitted</ColHead>
-                <ColHead>Designer</ColHead>
-                <ColHead>Concept</ColHead>
-                <ColHead>Description</ColHead>
-                <ColHead>Party</ColHead>
-                <ColHead center>Designs</ColHead>
-                <ColHead border>Assigned By</ColHead>
-
-                {/* 2 · MD Approval (Idea) */}
-                <ColHead>Decision</ColHead>
-                <ColHead>Planned</ColHead>
-                <ColHead border>Reviewed</ColHead>
-
-                {/* 3 · Designer Working — lifecycle-driven */}
-                <ColHead>Work Status</ColHead>
-                <ColHead>Started</ColHead>
-                <ColHead center>Holds</ColHead>
-                <ColHead border>Marked Done</ColHead>
-
-                {/* 4 · Final Approval */}
-                <ColHead>Decision</ColHead>
-                <ColHead center>Approved</ColHead>
-                <ColHead wider>MD Feedback</ColHead>
-                <ColHead border>Completed</ColHead>
+              <tr className="bg-secondary/60">
+                {showCol("submitted") && <ColHead>Submitted</ColHead>}
+                {showCol("designer") && <ColHead>Designer</ColHead>}
+                {showCol("concept") && <ColHead>Concept</ColHead>}
+                {showCol("description") && <ColHead>Description</ColHead>}
+                {showCol("party") && <ColHead>Party</ColHead>}
+                {showCol("designs") && <ColHead center>Designs</ColHead>}
+                {showCol("assigned_by") && <ColHead>Assigned By</ColHead>}
+                {showCol("decision") && <ColHead>Decision</ColHead>}
+                {showCol("planned") && <ColHead>Planned</ColHead>}
+                {showCol("reviewed") && <ColHead>Reviewed</ColHead>}
+                {showCol("work_status") && <ColHead>Work Status</ColHead>}
+                {showCol("started") && <ColHead>Started</ColHead>}
+                {showCol("holds") && <ColHead center>Holds</ColHead>}
+                {showCol("marked_done") && <ColHead>Marked Done</ColHead>}
+                {showCol("final_decision") && <ColHead>Decision</ColHead>}
+                {showCol("approved_count") && <ColHead center>Approved</ColHead>}
+                {showCol("md_feedback") && <ColHead wider>MD Feedback</ColHead>}
+                {showCol("completed") && <ColHead>Completed</ColHead>}
               </tr>
             </thead>
 
@@ -811,151 +844,31 @@ export function ConceptsView() {
                       {String(conceptPg.from + idx + 1).padStart(2, "0")}
                     </td>
 
-                    {/* -- Concept Creation -- */}
-                    {/* ── Stage 1 · Concept Submitted ── */}
-                    <Cell>{fmtDate(c.start_date ?? c.created_at)}</Cell>
-                    <td className="px-3 py-3">
-                      {submitter ? (
-                        <span className="truncate text-xs font-medium text-foreground">
-                          {submitter.full_name}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <span
-                        className="text-xs font-medium text-foreground line-clamp-1"
-                        title={c.concept_code ?? undefined}
-                      >
-                        {c.title}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {c.description ? (
-                        <span className="max-w-[200px] text-xs text-muted-foreground line-clamp-2">
-                          {c.description}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <Cell>{c.client?.party_name || "—"}</Cell>
-                    <td className="px-3 py-3 text-center">
-                      {c.designs_count != null ? (
-                        <span className="inline-flex h-6 min-w-[28px] items-center justify-center rounded-md bg-primary/8 px-2 text-xs font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">
-                          {c.designs_count}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <Cell border>{c.assigned_by || "—"}</Cell>
+                    {showCol("submitted") && <Cell>{fmtDate(c.start_date ?? c.created_at)}</Cell>}
+                    {showCol("designer") && <td className="px-3 py-1.5">{submitter ? <span className="truncate text-xs font-medium text-foreground">{submitter.full_name}</span> : <Dash />}</td>}
+                    {showCol("concept") && <td className="px-3 py-1.5"><span className="text-xs font-medium text-foreground line-clamp-1" title={c.concept_code ?? undefined}>{c.title}</span></td>}
+                    {showCol("description") && <td className="px-3 py-1.5">{c.description ? <span className="max-w-[200px] text-xs text-muted-foreground line-clamp-1">{c.description}</span> : <Dash />}</td>}
+                    {showCol("party") && <Cell>{c.client?.party_name || "—"}</Cell>}
+                    {showCol("designs") && <td className="px-3 py-1.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
+                    {showCol("assigned_by") && <Cell>{c.assigned_by || "—"}</Cell>}
 
-                    {/* ── Stage 2 · MD Approval (Idea) ── */}
-                    <td className="px-3 py-3 border-l border-border/20">
-                      <StatusPill
-                        status={c.md_status}
-                        label={
-                          c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0
-                            ? "Re-submitted"
-                            : undefined
-                        }
-                      />
-                    </td>
-                    <Cell>{fmtDate(c.md_planned_date)}</Cell>
-                    <td className="px-3 py-3 border-r border-border/20">
-                      <span className="text-xs">{fmtDate(c.md_actual_date)}</span>
-                      {approvalDelay !== null && (
-                        <DelayLabel days={approvalDelay} />
-                      )}
-                    </td>
+                    {showCol("decision") && <td className="px-3 py-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} /></td>}
+                    {showCol("planned") && <Cell>{fmtDate(c.md_planned_date)}</Cell>}
+                    {showCol("reviewed") && <td className="px-3 py-1.5"><span className="text-xs">{fmtDate(c.md_actual_date)}</span>{approvalDelay !== null && <DelayLabel days={approvalDelay} />}</td>}
 
                     {/* ── Stage 3 · Designer Working — lifecycle-driven. The
                          legacy "Done / Done Date / Delayed" columns are gone;
                          work-status, started_at, hold_count, revision_count,
                          and designer_actual_date (set automatically by
                          markConceptDone) now drive the picture. ── */}
-                    <td className="px-3 py-3 border-l border-border/20 whitespace-nowrap">
-                      {c.md_status === "approved" ? (
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset transition-shadow",
-                            WORK_STATUS_COLORS[c.work_status]
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full",
-                              WORK_STATUS_DOT[c.work_status],
-                              c.work_status === "in_progress" &&
-                                "animate-pulse"
-                            )}
-                            aria-hidden
-                          />
-                          {WORK_STATUS_LABELS[c.work_status]}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <Cell>{fmtDate(c.work_started_at)}</Cell>
-                    <td className="px-3 py-3 text-center whitespace-nowrap">
-                      <HoldCell concept={c} />
-                    </td>
-                    <td className="px-3 py-3 border-r border-border/20 whitespace-nowrap">
-                      {c.designer_actual_date ? (
-                        <span className="text-xs">
-                          {fmtDate(c.designer_actual_date)}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-
-                    {/* ── Stage 4 · Final Approval ── */}
-                    <td className="px-3 py-3 border-l border-border/20 whitespace-nowrap">
-                      <FinalDecisionPill concept={c} />
-                    </td>
-                    <td className="px-3 py-3 text-center text-xs tabular-nums text-foreground">
-                      {c.work_status === "completed" ? (
-                        <span className="font-semibold text-success">
-                          {c.approved_designs_count ?? "—"}
-                          <span className="text-muted-foreground/60">
-                            {c.designs_count != null
-                              ? ` / ${c.designs_count}`
-                              : ""}
-                          </span>
-                        </span>
-                      ) : c.designs_count != null ? (
-                        <span className="text-muted-foreground/60">
-                          — / {c.designs_count}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <td className="max-w-[220px] px-3 py-3 text-xs text-muted-foreground">
-                      {c.md_feedback ? (
-                        <span
-                          className="line-clamp-2 italic"
-                          title={c.md_feedback}
-                        >
-                          "{c.md_feedback}"
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <td className="px-3 py-3 border-r border-border/20 whitespace-nowrap">
-                      {c.work_completed_at ? (
-                        <span className="text-xs font-medium text-success">
-                          {fmtDate(c.work_completed_at)}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
+                    {showCol("work_status") && <td className="px-3 py-1.5 whitespace-nowrap">{c.md_status === "approved" ? <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset", WORK_STATUS_COLORS[c.work_status])}><span className={cn("h-1.5 w-1.5 rounded-full", WORK_STATUS_DOT[c.work_status], c.work_status === "in_progress" && "animate-pulse")} aria-hidden />{WORK_STATUS_LABELS[c.work_status]}</span> : <Dash />}</td>}
+                    {showCol("started") && <Cell>{fmtDate(c.work_started_at)}</Cell>}
+                    {showCol("holds") && <td className="px-3 py-1.5 text-center whitespace-nowrap"><HoldCell concept={c} /></td>}
+                    {showCol("marked_done") && <td className="px-3 py-1.5 whitespace-nowrap">{c.designer_actual_date ? <span className="text-xs">{fmtDate(c.designer_actual_date)}</span> : <Dash />}</td>}
+                    {showCol("final_decision") && <td className="px-3 py-1.5 whitespace-nowrap"><FinalDecisionPill concept={c} /></td>}
+                    {showCol("approved_count") && <td className="px-3 py-1.5 text-center text-xs tabular-nums">{c.work_status === "completed" ? <span className="font-semibold text-success">{c.approved_designs_count ?? "—"}<span className="text-muted-foreground/60">{c.designs_count != null ? ` / ${c.designs_count}` : ""}</span></span> : c.designs_count != null ? <span className="text-muted-foreground/60">— / {c.designs_count}</span> : <Dash />}</td>}
+                    {showCol("md_feedback") && <td className="max-w-[180px] px-3 py-1.5 text-xs text-muted-foreground">{c.md_feedback ? <span className="line-clamp-1 italic" title={c.md_feedback}>"{c.md_feedback}"</span> : <Dash />}</td>}
+                    {showCol("completed") && <td className="px-3 py-1.5 whitespace-nowrap">{c.work_completed_at ? <span className="text-xs font-medium text-success">{fmtDate(c.work_completed_at)}</span> : <Dash />}</td>}
 
                     {/* Sticky right Actions cell — ⋮ menu with View / Edit /
                          Delete. stopPropagation everywhere so a menu click
@@ -1140,34 +1053,20 @@ function StageHeader({
   label: string;
 }) {
   const Icon = CAT_ICON[stage];
-  const isFirst = step === 1;
   return (
     <th
       colSpan={colSpan}
-      className={cn(
-        "relative border-b border-border p-0",
-        !isFirst && "border-l"
-      )}
+      className="relative border-b border-border/50 bg-secondary/60 p-0"
     >
-      <div className={cn("absolute inset-x-0 top-0 h-[3px]", CAT_ACCENT[stage])} />
-      <div
-        className={cn(
-          "flex items-center justify-center gap-2 px-4 py-3",
-          CAT_GRADIENT[stage]
-        )}
-      >
-        <span
-          className={cn(
-            "flex h-5 w-5 items-center justify-center rounded-md bg-card/80 shadow-card-soft ring-1 ring-border/60",
-            CAT_ICON_COLOR[stage]
-          )}
-        >
-          <Icon className="h-3 w-3" />
+      <div className={cn("absolute inset-x-0 top-0 h-[2px]", CAT_ACCENT[stage])} />
+      <div className="flex items-center justify-center gap-1.5 px-3 py-2">
+        <span className={cn("flex h-4 w-4 items-center justify-center rounded", CAT_ICON_COLOR[stage])}>
+          <Icon className="h-2.5 w-2.5" />
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+        <span className="font-mono text-[9px] tabular-nums text-muted-foreground">
           {String(step).padStart(2, "0")}
         </span>
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-foreground">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
           {label}
         </span>
       </div>
@@ -1175,7 +1074,6 @@ function StageHeader({
   );
 }
 
-/** Standard text cell. */
 function Cell({
   children,
   border,
@@ -1186,7 +1084,7 @@ function Cell({
   return (
     <td
       className={cn(
-        "px-3 py-3 text-xs text-foreground whitespace-nowrap",
+        "px-3 py-1.5 text-xs text-foreground whitespace-nowrap",
         border && "border-r border-border/20"
       )}
     >
@@ -1195,7 +1093,6 @@ function Cell({
   );
 }
 
-/** Column header (sub-row). */
 function ColHead({
   children,
   border,
@@ -1210,9 +1107,9 @@ function ColHead({
   return (
     <th
       className={cn(
-        "px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-foreground border-b border-border bg-secondary/40 backdrop-blur-sm",
-        center ? "text-center" : "text-left",
-        border && "border-r border-border/20",
+        "px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-foreground border-b border-border bg-secondary/60",
+        center && "text-center",
+        border && "border-r border-border/30",
         wider && "min-w-[200px]"
       )}
     >
@@ -1223,6 +1120,57 @@ function ColHead({
 
 /** Em-dash placeholder for empty values — minimal so it doesn't compete
  *  with real data when scanning the table. */
+function ConceptColumnMenu({ visible, onChange }: { visible: ConceptColKey[]; onChange: (next: ConceptColKey[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const isVis = (k: ConceptColKey) => visible.includes(k);
+  function toggle(k: ConceptColKey) { onChange(isVis(k) ? visible.filter((v) => v !== k) : [...visible, k]); }
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen((o) => !o)} className="gap-1 px-2">
+        <Columns3 className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Columns</span>
+        <span className="rounded-full bg-secondary px-1.5 text-[9px] font-semibold tabular-nums text-muted-foreground">{visible.length}</span>
+      </Button>
+      {open && (
+        <div className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-card shadow-lg" role="menu">
+          <div className="border-b border-border px-3 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Visible Columns</span>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {CONCEPT_COLS.map(({ key, label, stage }) => (
+              <button key={key} type="button" role="menuitemcheckbox" aria-checked={isVis(key)} onClick={() => toggle(key)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-secondary/60">
+                <span className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded border", isVis(key) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card")}>
+                  {isVis(key) && <CheckCircle2 className="h-3 w-3" />}
+                </span>
+                <span className="truncate text-foreground">{label}</span>
+                <span className="ml-auto text-[9px] text-muted-foreground/50">{stage === "creation" ? "S1" : stage === "approval" ? "S2" : stage === "completion" ? "S3" : "S4"}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 border-t border-border px-2 py-2">
+            <button type="button" onClick={() => onChange(CONCEPT_COLS.map((c) => c.key))} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+              <Eye className="h-3 w-3" /> Show All
+            </button>
+            <button type="button" onClick={() => onChange([...CONCEPT_DEFAULT_COLS])} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+              <RotateCcw className="h-3 w-3" /> Reset
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dash() {
   return (
     <span

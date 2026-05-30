@@ -25,6 +25,10 @@ export interface UseNotifications {
   markAllAsRead: () => Promise<MutationResult<{ count: number }>>;
   /** Per-operation pending state (same pattern as useTaskMutations). */
   isPending: (op: NotificationOp, id?: string) => boolean;
+  /** Play the chime once on demand — bypasses the visibility check and 10s
+   *  debounce. Wire to a "Test sound" button so users can verify the chime
+   *  works after the browser's audio autoplay policy unlocks. */
+  testNotificationSound: () => void;
 }
 
 // ============================================================================
@@ -108,7 +112,8 @@ export function useNotifications(): UseNotifications {
   // ── Notification sound + tab flash ───────────────────────────────────
   // Two complementary cues for a fresh Realtime INSERT:
   //
-  //   • Tab is VISIBLE  → play a short A5 chime (Web Audio, debounced 10s)
+  //   • Tab is VISIBLE  → play a two-tone ding-dong (A5 → E6, ~250ms, Web
+  //                       Audio, debounced 10s)
   //   • Tab is HIDDEN   → flash the browser tab title for 10s
   //
   // These are mutually exclusive — we never play sound to a backgrounded
@@ -118,11 +123,107 @@ export function useNotifications(): UseNotifications {
   // Both fire only on the realtime INSERT moment. The initial fetch on
   // mount never plays sound or flashes — that would be annoying every page
   // load for users who haven't checked their unread queue.
+  //
+  // **Autoplay-policy gotcha (was silently breaking the chime):** Chrome,
+  // Safari and Firefox now require a user gesture before an AudioContext
+  // can produce sound. The old code created a *new* `AudioContext()` per
+  // chime, which always started in `suspended` state — `osc.start()`
+  // queued the tone but no audio came out. The fix: keep ONE shared
+  // context for the whole tab and `resume()` it on the first click /
+  // keypress / touch the user performs. After that gesture every future
+  // chime plays normally.
 
   const lastSoundTime = useRef<number>(0);
   const titleFlashIntervalRef = useRef<number | null>(null);
   const titleFlashTimeoutRef = useRef<number | null>(null);
   const originalTitleRef = useRef<string>("");
+
+  // Shared AudioContext — created lazily, kept for the life of the tab.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const ensureAudioCtx = useCallback((): AudioContext | null => {
+    if (typeof window === "undefined") return null;
+    if (audioCtxRef.current) return audioCtxRef.current;
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctx) return null; // Safari < 14.1 / no Web Audio
+    try {
+      audioCtxRef.current = new Ctx();
+      return audioCtxRef.current;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Unlock the AudioContext on the FIRST user gesture (any click / keypress
+  // / touchstart anywhere on the page). After this the chime is free to
+  // play whenever realtime fires, even without a fresh interaction.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function unlock() {
+      const ctx = ensureAudioCtx();
+      if (!ctx) return;
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {
+          /* still locked — will retry on next gesture */
+        });
+      }
+    }
+    // `passive: true` keeps scroll/touch perf untouched. We re-arm on every
+    // gesture so a context that gets re-suspended by the browser (mobile
+    // background tab eviction) gets resumed the next time the user taps.
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("keydown", unlock, { passive: true });
+    window.addEventListener("touchstart", unlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, [ensureAudioCtx]);
+
+  // Play a single tone on the shared context. Used by both the two-tone
+  // notification chime and the louder "Test sound" button.
+  const playTone = useCallback(
+    (ctx: AudioContext, freq: number, startOffset: number, duration: number, peakGain: number) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.value = freq;
+
+      const t = ctx.currentTime + startOffset;
+      // 20ms attack → hold → 60ms exponential release. Avoids the click
+      // you get from a hard square envelope.
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peakGain, t + 0.02);
+      g.gain.setValueAtTime(peakGain, t + Math.max(0.05, duration - 0.06));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+
+      osc.start(t);
+      osc.stop(t + duration + 0.02);
+    },
+    []
+  );
+
+  // Internal: play the chime *without* the visibility / debounce gates.
+  // Used both by realtime INSERT (with gates applied first) and the public
+  // `testNotificationSound` (which bypasses gates so the user can verify).
+  const ringChime = useCallback(() => {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    // If we missed the unlock somehow, try one more resume before playing.
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => { /* still locked */ });
+    }
+    // Two-tone ding-dong: A5 → E6. A noticeable, friendly notification
+    // sound rather than the old single beep.
+    playTone(ctx, 880, 0, 0.15, 0.4);   // A5
+    playTone(ctx, 1318.5, 0.12, 0.2, 0.35); // E6
+  }, [ensureAudioCtx, playTone]);
 
   const playNotificationSound = useCallback(() => {
     if (typeof document === "undefined") return;
@@ -134,39 +235,15 @@ export function useNotifications(): UseNotifications {
     if (now - lastSoundTime.current < 10_000) return;
     lastSoundTime.current = now;
 
-    try {
-      const Ctx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!Ctx) return; // Safari < 14.1 / no Web Audio
-      const ctx = new Ctx();
+    ringChime();
+  }, [ringChime]);
 
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.value = 880; // A5
-
-      const start = ctx.currentTime;
-      gain.gain.setValueAtTime(0.3, start);
-      // 200ms total: hold for 100ms, then exponential fade to silence.
-      gain.gain.setValueAtTime(0.3, start + 0.1);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
-
-      osc.start(start);
-      osc.stop(start + 0.2);
-
-      // Close context once the tone finishes so we don't leak audio nodes.
-      window.setTimeout(() => {
-        ctx.close().catch(() => { /* already closed */ });
-      }, 400);
-    } catch {
-      // AudioContext blocked (no user gesture yet) / browser unsupported —
-      // silent failure is the right behaviour, not a thrown error.
-    }
-  }, []);
+  // Public helper — wired to the Notifications page's "Test" button so the
+  // user can confirm the chime is working without waiting for a real INSERT.
+  // Bypasses the visibility check and the 10s debounce.
+  const testNotificationSound = useCallback(() => {
+    ringChime();
+  }, [ringChime]);
 
   // Clear any in-flight title flash and restore the original tab title.
   const stopTitleFlash = useCallback(() => {
@@ -340,5 +417,6 @@ export function useNotifications(): UseNotifications {
     markAsRead,
     markAllAsRead,
     isPending,
+    testNotificationSound,
   };
 }
