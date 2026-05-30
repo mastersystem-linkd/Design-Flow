@@ -36,9 +36,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
 const BUCKET = "sample-files";
-// Groq's fast Whisper-v3 turbo variant — same quality as OpenAI's whisper-1,
-// noticeably faster end-to-end. Auto-detects language.
-const WHISPER_MODEL = "whisper-large-v3-turbo";
+// `whisper-large-v3` (non-turbo) is the accuracy-first variant. Turbo is
+// faster but trims layers, which hurts on accented English + Hinglish
+// mid-sentence switches. For short voice notes the latency cost is
+// sub-second and the team needs the transcript to read correctly more
+// than they need it to land 0.5 s earlier.
+const WHISPER_MODEL = "whisper-large-v3";
 const WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 // Groq's per-request audio size limit on the free tier is 25 MB, same as
 // OpenAI. Reject obviously oversized blobs before they cost a round trip.
@@ -161,14 +164,36 @@ export default async function handler(
     return;
   }
 
-  // ── Send to OpenAI Whisper ───────────────────────────────────────────
+  // ── Send to Whisper (via Groq) ───────────────────────────────────────
   // FormData is global in Node 18+ (Vercel's default). Whisper sniffs the
   // audio container from the filename extension, so keep the .webm suffix.
   const form = new FormData();
   form.append("file", blob, "audio.webm");
   form.append("model", WHISPER_MODEL);
-  // No `language` param — Whisper auto-detects, which is what we want for
-  // teams that mix English + Hindi mid-sentence.
+
+  // **Force Romanized (Hinglish) output.** With no `language` param Whisper
+  // auto-detects the spoken language and writes Hindi in Devanagari script
+  // (मैं बोल रही हूँ), which the team doesn't read. Setting `language=en`
+  // tells Whisper "decode as if it's English" — for Hindi audio that means
+  // it phonetically Romanizes what it heard ("main bol rahi hu"). Combined
+  // with the prompt below it stays accurate for English chunks too, so the
+  // common Hinglish mid-sentence switching ("design approve karo") comes
+  // out cleanly.
+  form.append("language", "en");
+
+  // The prompt parameter primes Whisper's decoder. We seed it with examples
+  // of the team's actual vocabulary so domain-specific words stay correct
+  // and the style biases toward casual Hinglish rather than formal English.
+  // Whisper uses the LAST 224 tokens, so keep this short and dense.
+  form.append(
+    "prompt",
+    "Casual Hinglish conversation about textile design work. Mix of Hindi and English written in Roman script. Words like: concept, design, fabric, party, sample, sampling, kitting, mtr, qty, approve karo, hold karo, theek hai, achha, kal tak, abhi, main bol rahi hu, batao, dekho, banaya hai, complete ho gaya."
+  );
+
+  // A bit of temperature variation gives Whisper room to honour the prompt
+  // style on borderline calls instead of falling back to its default
+  // "translate Hindi to formal English" behaviour. 0.2 is conservative.
+  form.append("temperature", "0.2");
 
   let whisperRes: Response;
   try {
