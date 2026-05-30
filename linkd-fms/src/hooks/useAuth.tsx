@@ -58,17 +58,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       log("fetchProfile start", userId);
       // Race the Supabase call against a 10s watchdog so a hung fetch can't
       // wedge the UI in "Loading…" forever — it'll throw with a clear error.
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(
+      //
+      // **Clear the timeout in both branches** (win + throw). The previous
+      // version left the setTimeout running after Supabase resolved first;
+      // 10 s later it fired its reject() with no one awaiting, producing a
+      // spurious `[auth] fetchProfile threw Error: fetchProfile timed out
+      // after 10s` console error on EVERY successful page load. The data
+      // was there — the error was orphan noise.
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
           () => reject(new Error("fetchProfile timed out after 10s")),
           10_000
-        )
-      );
+        );
+      });
       try {
         const result = await Promise.race([
           supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
           timeout,
         ]);
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
         const { data, error } = result;
         if (error) {
           console.error("[auth] fetchProfile error", error);
@@ -77,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         log("fetchProfile done", { found: !!data });
         return data;
       } catch (e) {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
         console.error("[auth] fetchProfile threw", e);
         return null;
       }
