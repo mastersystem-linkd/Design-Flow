@@ -28,6 +28,11 @@ export function TextileHeroWrapper({
         className
       )}
     >
+      {/* Command-center corner glow — soft brand bloom for depth */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-primary/15 blur-3xl"
+      />
       {/* Woven dot grid */}
       <div
         aria-hidden
