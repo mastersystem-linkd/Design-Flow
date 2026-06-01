@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertOctagon, Zap, Clock, ArrowUpRight } from "lucide-react";
+import { AlertOctagon, Zap, ArrowUpRight, CheckCircle2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -73,12 +73,14 @@ export function AtRiskTasks({ tasks }: Props) {
   const urgentCount = urgent.length;
 
   return (
-    <Card className="h-full">
-      <CardContent className="flex h-full flex-col py-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <AlertOctagon className="h-4 w-4 text-destructive" />
-            <h3 className="text-sm font-semibold text-foreground">
+    <Card className="h-full shadow-card transition-shadow duration-200 hover:shadow-card-hover">
+      <CardContent className="flex h-full flex-col p-5">
+        <div className="mb-5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-destructive/12 text-destructive ring-1 ring-inset ring-destructive/30">
+              <AlertOctagon className="h-[18px] w-[18px]" />
+            </span>
+            <h3 className="font-display text-[17px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
               Needs Attention
             </h3>
           </div>
@@ -103,9 +105,9 @@ export function AtRiskTasks({ tasks }: Props) {
         {tab === "overdue" ? (
           overdue.length === 0 ? (
             <EmptyState
-              icon={<Clock className="h-8 w-8" />}
-              title="Nothing overdue"
-              description="Every active task is within its deadline."
+              icon={<CheckCircle2 className="h-8 w-8 text-success" />}
+              title="All on track"
+              description="Nothing past its deadline."
             />
           ) : (
             <ul className="space-y-2">
@@ -168,7 +170,7 @@ function TabBtn({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+        "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
         active
           ? toneActive[tone]
           : "text-muted-foreground hover:text-foreground"
@@ -217,21 +219,21 @@ function RiskRow({
       </Avatar>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium text-foreground">
+        <p className="truncate text-[13px] font-semibold text-foreground">
           {task.concept || task.task_code}
         </p>
-        <p className="truncate text-[10px] text-muted-foreground">
+        <p className="truncate text-[11px] font-medium text-muted-foreground">
           {task.task_code} · {task.client?.party_name ?? "—"} ·{" "}
           {STATUS_LABELS[task.status as keyof typeof STATUS_LABELS] ?? task.status}
         </p>
       </div>
 
       <div className="shrink-0 text-right">
-        <Badge className={cn("text-[10px] border", toneClass[subTone])}>
+        <Badge className={cn("text-[11px] font-semibold border", toneClass[subTone])}>
           {subValue}
         </Badge>
         {task.planned_deadline && (
-          <p className="mt-0.5 text-[9px] text-muted-foreground">
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             due {format(parseISO(task.planned_deadline), "MMM d")}
           </p>
         )}
