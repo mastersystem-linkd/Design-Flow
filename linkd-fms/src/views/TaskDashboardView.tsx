@@ -5,7 +5,7 @@ import {
   Package, Flame, Zap, Building2, Lightbulb, Activity,
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnalyticsView, type AnalyticsViewControls } from "@/views/AnalyticsView";
@@ -259,40 +259,51 @@ export function TaskDashboardView() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
       {tabsRow}
-      <div className="animate-fade-in space-y-3">
+      <div className="animate-fade-in space-y-6">
 
-      {/* ── Compact status bar — replaces the old decorative banner ── */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
-        <div className="flex items-center gap-2">
-          <LayoutGrid className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold text-foreground">Production Studio</span>
-          <span className="text-[11px] text-muted-foreground">· {a.periodLabel}</span>
+      {/* ── Page header — display title + accessible status chips ── */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-3 shadow-card">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/25">
+            <LayoutGrid className="h-[18px] w-[18px]" />
+          </span>
+          <div className="leading-tight">
+            <h1 className="font-display text-xl font-bold tracking-[-0.02em] text-foreground sm:text-2xl">
+              Production Studio
+            </h1>
+            <p className="text-[11px] font-medium text-muted-foreground">{a.periodLabel}</p>
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           {a.kpis.overdueCount > 0 && (
-            <Badge
-              className={cn(
-                "cursor-pointer border text-[10px]",
-                a.kpis.overdueCount > 3
-                  ? "bg-destructive/10 text-destructive border-destructive/20 animate-urgent-pulse"
-                  : "bg-warning/10 text-warning border-warning/20"
-              )}
+            <StatusChip
+              tone={a.kpis.overdueCount > 3 ? "destructive" : "warning"}
+              icon={Flame}
+              count={a.kpis.overdueCount}
+              label="overdue"
+              pulse={a.kpis.overdueCount > 3}
               onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
-            >
-              {a.kpis.overdueCount} overdue
-            </Badge>
+            />
           )}
           {a.kpis.urgentCount > 0 && (
-            <Badge className="cursor-pointer border border-destructive/20 bg-destructive/10 text-destructive text-[10px]" onClick={() => navigate(dashLink({ status: "in_progress" }))}>
-              {a.kpis.urgentCount} urgent
-            </Badge>
+            <StatusChip
+              tone="destructive"
+              icon={Zap}
+              count={a.kpis.urgentCount}
+              label="urgent"
+              onClick={() => navigate(dashLink({ status: "in_progress" }))}
+            />
           )}
           {a.kpis.activePipeline > 0 && (
-            <Badge className="cursor-pointer border border-primary/20 bg-primary/10 text-primary text-[10px]" onClick={() => navigate(dashLink({ status: "in_progress" }))}>
-              {a.kpis.activePipeline} in flight
-            </Badge>
+            <StatusChip
+              tone="primary"
+              icon={Activity}
+              count={a.kpis.activePipeline}
+              label="in flight"
+              onClick={() => navigate(dashLink({ status: "in_progress" }))}
+            />
           )}
         </div>
       </div>
@@ -419,8 +430,8 @@ export function TaskDashboardView() {
               KpiCards into one continuous row of 7 divided HeroKpiTiles.
               The textile wrapper is shared with every other dashboard so
               the visual language stays uniform. */}
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            <div className="grid grid-cols-2 divide-x divide-y divide-border/30 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-4 lg:grid-cols-7">
+          <TextileHeroWrapper className="p-0">
+            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 overflow-hidden rounded-xl sm:grid-cols-3 sm:divide-y-0 md:grid-cols-4 lg:grid-cols-7">
               <HeroKpiTile
                 icon={CheckCircle2}
                 label="Delivered"
@@ -522,38 +533,40 @@ export function TaskDashboardView() {
                 onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
               />
             </div>
-          </div>
+          </TextileHeroWrapper>
 
           {/* Charts */}
-          <div className="grid gap-3 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             {/* Volume chart */}
-            <Card className="lg:col-span-2 transition-shadow duration-300 hover:shadow-md">
-              <CardContent className="py-4">
-                <div className="mb-4 flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Activity className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {period === "week" ? "Daily Tasks" : period === "quarter" ? "Monthly Tasks" : "Weekly Tasks"}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">Created vs Completed</p>
+            <Card className={cn(CARD, "lg:col-span-2")}>
+              <CardContent className="p-5">
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/25">
+                      <Activity className="h-[18px] w-[18px]" />
+                    </span>
+                    <div className="leading-tight">
+                      <h3 className={SECTION_TITLE}>
+                        {period === "week" ? "Daily Throughput" : period === "quarter" ? "Monthly Throughput" : "Weekly Throughput"}
+                      </h3>
+                      <p className="text-[11px] font-medium text-muted-foreground">Created vs Completed · {a.periodLabel}</p>
+                    </div>
+                  </div>
+                  <div className="hidden items-center gap-4 sm:flex">
+                    <ChartTotal dot="bg-muted-foreground/40" label="Created" value={a.volumeData.reduce((s, d) => s + d.created, 0)} />
+                    <ChartTotal dot="bg-primary" label="Completed" value={a.volumeData.reduce((s, d) => s + d.completed, 0)} />
                   </div>
                 </div>
-                <div className="h-[220px] sm:h-[280px]">
+                <div className="h-[240px] sm:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                    <BarChart data={a.volumeData} barGap={4} barCategoryGap="28%" margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                    <BarChart data={a.volumeData} barGap={4} barCategoryGap="26%" margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                       <defs>
                         <linearGradient id="taskCompletedGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="rgb(var(--primary))" stopOpacity={0.95} />
-                          <stop offset="100%" stopColor="rgb(var(--primary))" stopOpacity={0.55} />
-                        </linearGradient>
-                        <linearGradient id="taskCreatedGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="rgb(var(--muted-foreground))" stopOpacity={0.28} />
-                          <stop offset="100%" stopColor="rgb(var(--muted-foreground))" stopOpacity={0.1} />
+                          <stop offset="100%" stopColor="rgb(var(--primary))" stopOpacity={0.6} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="2 4" stroke="rgb(var(--border))" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" strokeOpacity={0.6} vertical={false} />
                       <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }} axisLine={false} tickLine={false} dy={4} />
                       <YAxis allowDecimals={false} tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }} axisLine={false} tickLine={false} width={28} />
                       <Tooltip
@@ -561,9 +574,14 @@ export function TaskDashboardView() {
                         contentStyle={{ backgroundColor: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 10, fontSize: 12, color: "rgb(var(--foreground))", boxShadow: "var(--shadow-dropdown)", padding: "8px 10px" }}
                         labelStyle={{ fontWeight: 600, marginBottom: 2 }}
                       />
-                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} iconType="circle" iconSize={8} />
-                      <Bar dataKey="created" name="Created" fill="url(#taskCreatedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={700} isAnimationActive={chartAnimate} />
-                      <Bar dataKey="completed" name="Completed" fill="url(#taskCompletedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={900} isAnimationActive={chartAnimate} />
+                      <ReferenceLine
+                        y={a.volumeData.length ? Math.round(a.volumeData.reduce((s, d) => s + d.completed, 0) / a.volumeData.length) : 0}
+                        stroke="rgb(var(--primary))"
+                        strokeDasharray="4 4"
+                        strokeOpacity={0.5}
+                      />
+                      <Bar dataKey="created" name="Created" fill="rgb(var(--secondary))" radius={[6, 6, 0, 0]} maxBarSize={52} animationDuration={700} isAnimationActive={chartAnimate} />
+                      <Bar dataKey="completed" name="Completed" fill="url(#taskCompletedGrad)" radius={[6, 6, 0, 0]} maxBarSize={52} animationDuration={900} isAnimationActive={chartAnimate} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -579,7 +597,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Workload + At-risk */}
-          <div className="grid items-stretch gap-3 lg:grid-cols-2">
+          <div className="grid items-stretch gap-4 lg:grid-cols-2">
             <WorkloadDistribution
               data={a.designerStats}
               onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
@@ -591,7 +609,7 @@ export function TaskDashboardView() {
               These rollups were missing from the original dashboard. They
               cover the FK staffing question, the priority load, the actual
               effort distribution, and the demand-by-client view. */}
-          <div className="grid items-stretch gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid items-stretch gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
             <KittingMixCard data={a.kittingMix} />
             <PriorityMixCard data={a.priorityMix} />
             <CycleTimeCard data={a.cycleTimeDist} />
@@ -611,6 +629,85 @@ export function TaskDashboardView() {
         onClose={() => setScorecardDesignerId(null)}
       />
       </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Shared "LinkD Premium" surface tokens — uniform card elevation, section
+// titles, and focus rings so every widget on this screen reads as one system.
+// ----------------------------------------------------------------------------
+const CARD =
+  "h-full border-border bg-card shadow-card transition-shadow duration-200 hover:shadow-card-hover";
+const CARD_BODY = "flex h-full flex-col p-5";
+const SECTION_TITLE =
+  "font-display text-[17px] font-semibold leading-tight tracking-[-0.01em] text-foreground";
+const FOCUS_RING =
+  "outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
+const FOCUS_RING_INSET =
+  "outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40";
+
+// Header status chip — lucide icon + count + label, tone-tinted, accessible.
+// Replaces the old <Badge> washes; no emoji.
+function StatusChip({
+  icon: Icon,
+  count,
+  label,
+  tone,
+  pulse,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  count: number;
+  label: string;
+  tone: "primary" | "warning" | "destructive";
+  pulse?: boolean;
+  onClick: () => void;
+}) {
+  const map = {
+    primary: "bg-primary/10 text-primary ring-primary/25 hover:bg-primary/15",
+    warning: "bg-warning/10 text-warning ring-warning/25 hover:bg-warning/15",
+    destructive:
+      "bg-destructive/10 text-destructive ring-destructive/25 hover:bg-destructive/15",
+  } as const;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold tabular-nums ring-1 ring-inset transition-colors",
+        FOCUS_RING,
+        map[tone],
+        pulse && "animate-urgent-pulse"
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {count}
+      <span className="font-medium opacity-80">{label}</span>
+    </button>
+  );
+}
+
+// Chart total — a value + dotted label pair that replaces the recharts Legend
+// with a crisper, typographic readout.
+function ChartTotal({
+  dot,
+  label,
+  value,
+}: {
+  dot: string;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="text-right">
+      <p className="font-mono-data text-lg font-bold leading-none tabular-nums text-foreground">
+        {value}
+      </p>
+      <p className="mt-0.5 flex items-center justify-end gap-1 text-[11px] font-medium text-muted-foreground">
+        <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
+        {label}
+      </p>
     </div>
   );
 }
@@ -656,11 +753,19 @@ function HeroKpiTile({
     muted: "text-foreground",
   };
   const toneIconBg: Record<HeroTone, string> = {
-    primary: "bg-primary/10 text-primary",
-    success: "bg-success/10 text-success",
-    warning: "bg-warning/10 text-warning",
-    destructive: "bg-destructive/10 text-destructive",
+    primary: "bg-primary/12 text-primary",
+    success: "bg-success/12 text-success",
+    warning: "bg-warning/12 text-warning",
+    destructive: "bg-destructive/12 text-destructive",
     muted: "bg-secondary text-muted-foreground",
+  };
+  // Inset ring per tone so the icon chip reads as a crafted control, not a flat wash.
+  const toneRing: Record<HeroTone, string> = {
+    primary: "ring-primary/25",
+    success: "ring-success/30",
+    warning: "ring-warning/30",
+    destructive: "ring-destructive/30",
+    muted: "ring-border",
   };
   // Hover accent bar — slides in along the top of clickable tiles.
   const toneAccent: Record<HeroTone, string> = {
@@ -710,21 +815,44 @@ function HeroKpiTile({
           ? "rgb(var(--warning))"
           : "rgb(var(--primary))";
 
+  // `.metric-value` clips the numeral to a transparent indigo gradient, so it
+  // can ONLY be used for primary/muted tones — status tones must use a solid
+  // token colour instead (or they'd render invisible).
+  const isGradientTone = tone === "primary" || tone === "muted";
   const content = (
-    <div className="relative flex h-full flex-col justify-between px-3 py-3 text-left swatch-edge sm:px-4">
-      <div className="flex items-center justify-between">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Icon className="h-3.5 w-3.5" />
+    <div className="relative flex h-full flex-col justify-between gap-2.5 px-4 py-3.5 text-left swatch-edge">
+      <div className="flex items-start justify-between">
+        <div
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
+            toneIconBg[tone],
+            toneRing[tone]
+          )}
+        >
+          <Icon className="h-[18px] w-[18px]" />
         </div>
         {trendNode}
       </div>
-      <div className="mt-1.5">
-        <p className={cn("font-mono-data text-2xl leading-none tracking-tight", toneText[tone])}>{displayValue}</p>
-        <p className="mt-1 truncate text-[10px] font-medium text-muted-foreground">{label}</p>
-        {sub && <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/50 sm:block">{sub}</p>}
+      <div>
+        <p
+          className={cn(
+            "font-mono-data text-[30px] font-bold leading-[0.95] tracking-tight tabular-nums",
+            isGradientTone ? "metric-value" : toneText[tone]
+          )}
+        >
+          {displayValue}
+        </p>
+        <p className="mt-1.5 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {label}
+        </p>
+        {sub && (
+          <p className="mt-0.5 hidden truncate text-[11px] font-medium text-muted-foreground sm:block">
+            {sub}
+          </p>
+        )}
       </div>
       {sparklineData && sparklineData.length > 1 && (
-        <div className="mt-1.5 hidden h-5 sm:block">
+        <div className="-mb-0.5 mt-auto hidden h-6 sm:block">
           <Sparkline data={sparklineData} color={sparkColor} />
         </div>
       )}
@@ -736,7 +864,7 @@ function HeroKpiTile({
     <button
       type="button"
       onClick={onClick}
-      className="group h-full text-left swatch-edge-actionable transition-colors duration-200 hover:bg-secondary/40"
+      className="group h-full text-left swatch-edge-actionable outline-none transition-colors duration-200 hover:bg-secondary/50 focus-visible:bg-secondary/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
     >
       {content}
     </button>
@@ -770,13 +898,13 @@ function PipelineWidget({
   }, []);
 
   return (
-    <Card className="h-full transition-shadow duration-300 hover:shadow-md">
-      <CardContent className="flex h-full flex-col py-4">
+    <Card className={CARD}>
+      <CardContent className={CARD_BODY}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">Pipeline</h3>
-          <Badge variant="secondary" className="text-[10px]">
+          <h3 className={SECTION_TITLE}>Pipeline</h3>
+          <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">
             {total} total
-          </Badge>
+          </span>
         </div>
 
         <div className="flex flex-1 flex-col justify-center space-y-3 py-3">
@@ -796,15 +924,16 @@ function PipelineWidget({
                 className={cn(
                   "flex w-full items-center gap-2 rounded-lg border-l-[3px] px-1.5 py-2 transition-all sm:gap-3 sm:px-2",
                   "cursor-pointer hover:bg-secondary/40 hover:ring-1 hover:ring-primary/20",
+                  FOCUS_RING_INSET,
                   borderColor
                 )}
               >
-                <span className="w-[72px] shrink-0 truncate text-left text-xs font-medium text-foreground sm:w-[90px]">
+                <span className="w-[72px] shrink-0 truncate text-left text-[13px] font-semibold text-foreground sm:w-[90px]">
                   {label}
                 </span>
                 <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
                   <div
-                    className={cn("flex h-5 items-center justify-end rounded-md", barColor)}
+                    className={cn("flex h-6 items-center justify-end rounded-md", barColor)}
                     style={{
                       width: mounted ? `${barPct}%` : "0%",
                       transition: "width 600ms cubic-bezier(0.4,0,0.2,1)",
@@ -818,10 +947,10 @@ function PipelineWidget({
                   </div>
                 </div>
                 <div className="flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-16 sm:gap-1">
-                  <span className="text-sm font-semibold tabular-nums text-foreground">
+                  <span className="text-base font-bold tabular-nums text-foreground">
                     {item.count}
                   </span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                  <span className="text-[11px] tabular-nums text-muted-foreground">
                     ({pct}%)
                   </span>
                 </div>

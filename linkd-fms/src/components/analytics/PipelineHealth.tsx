@@ -40,10 +40,12 @@ export function PipelineHealth({ data }: { data: StatusDistribution[] }) {
           content. Header stays pinned at the top, bars settle in the middle. */}
       <CardContent className="flex h-full flex-col py-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">Concept Status</h3>
-          <Badge variant="secondary" className="text-[10px]">
+          <h3 className="font-display text-[17px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
+            Concept Status
+          </h3>
+          <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">
             {total} total
-          </Badge>
+          </span>
         </div>
 
         <div className="flex flex-1 flex-col justify-center space-y-2 py-3">
@@ -63,10 +65,11 @@ export function PipelineHealth({ data }: { data: StatusDistribution[] }) {
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg border-l-[3px] px-2 py-1.5 transition-all",
                   "hover:bg-secondary/40 hover:ring-1 hover:ring-primary/20 cursor-pointer",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40",
                   borderColor
                 )}
               >
-                <span className="w-[80px] shrink-0 text-left text-xs font-medium text-foreground">
+                <span className="w-[80px] shrink-0 text-left text-[13px] font-semibold text-foreground">
                   {label}
                 </span>
                 <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
@@ -85,10 +88,10 @@ export function PipelineHealth({ data }: { data: StatusDistribution[] }) {
                   </div>
                 </div>
                 <div className="flex w-16 shrink-0 items-center justify-end gap-1">
-                  <span className="text-sm font-semibold tabular-nums text-foreground">
+                  <span className="text-base font-bold tabular-nums text-foreground">
                     {item.count}
                   </span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                  <span className="text-[11px] tabular-nums text-muted-foreground">
                     ({pct}%)
                   </span>
                 </div>
