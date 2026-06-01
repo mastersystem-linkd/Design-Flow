@@ -33,10 +33,26 @@ import { cn } from "@/lib/utils";
 const dialogCloseStack: Array<() => void> = [];
 let popstateListenerInstalled = false;
 
+// When *we* call history.back() (programmatic close cleanup) the browser
+// also fires popstate. Without coordination, the popstate listener would
+// then pop the NEXT dialog off the stack — which is fatal for dialog →
+// dialog transitions like Danger Zone's stage 1 → stage 2. By the time
+// popstate fires after our history.back(), stage 2 has already mounted
+// and pushed its handler, so popstate happily closes it immediately.
+//
+// `pendingProgrammaticPops` counts our own history.back() calls. The
+// popstate listener decrements and ignores them; only "real" user back
+// gestures get through to actually close a dialog.
+let pendingProgrammaticPops = 0;
+
 function installPopstateListener(): void {
   if (popstateListenerInstalled || typeof window === "undefined") return;
   popstateListenerInstalled = true;
   window.addEventListener("popstate", () => {
+    if (pendingProgrammaticPops > 0) {
+      pendingProgrammaticPops--;
+      return;
+    }
     const top = dialogCloseStack.pop();
     if (top) top();
   });
@@ -65,9 +81,12 @@ function useDialogBackButton(open: boolean, close: () => void): void {
 
       // Programmatic close (X / Esc / outside click): the marker is still
       // the top of history because no popstate fired. Pop it so future
-      // back gestures don't first hit a phantom entry.
+      // back gestures don't first hit a phantom entry. The counter above
+      // tells the popstate listener "we just triggered this — don't close
+      // whatever's next on the stack."
       const state = window.history.state as { dialogMarker?: string } | null;
       if (state?.dialogMarker === marker) {
+        pendingProgrammaticPops++;
         window.history.back();
       }
     };
