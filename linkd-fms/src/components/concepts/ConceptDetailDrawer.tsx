@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/avatar";
 import { ConceptImage } from "@/components/ui/ConceptImage";
 import { useAuth } from "@/hooks/useAuth";
-import { VoiceFeedback } from "@/components/ui/VoiceFeedback";
 import { FeedbackDisplay } from "@/components/ui/FeedbackDisplay";
 import { MarkDoneDialog } from "@/components/concepts/MarkDoneDialog";
 import {
@@ -239,24 +238,15 @@ export function ConceptDetailDrawer({
 }: Props) {
   const { profile } = useAuth();
   const [reviewNotes, setReviewNotes] = useState("");
-  const [reviewAudioUrl, setReviewAudioUrl] = useState<string | null>(null);
   const [finalNotes, setFinalNotes] = useState("");
-  // Storage path for the audio recorded in the Final Approval revision form.
-  // Set by VoiceFeedback's onAudioUrl callback after upload; appended to the
-  // submitted notes so the recipient can play it back and the activity log
-  // keeps both transcript + audio side-by-side.
-  const [finalAudioUrl, setFinalAudioUrl] = useState<string | null>(null);
   const [approvedCount, setApprovedCount] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   // Work-status lifecycle dialogs
   const [holdOpen, setHoldOpen] = useState(false);
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [holdReason, setHoldReason] = useState("");
-  const [voiceBusy, setVoiceBusy] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestFeedback, setSuggestFeedback] = useState("");
-  // Same idea for the standalone "Suggest changes" dialog.
-  const [suggestAudioUrl, setSuggestAudioUrl] = useState<string | null>(null);
 
   if (!concept) {
     return (
@@ -293,24 +283,15 @@ export function ConceptDetailDrawer({
 
   // Handlers
   async function handleReview(status: ReviewInput["status"]) {
-    if (voiceBusy) {
-      toast.error("Please wait — audio is still processing");
-      return;
-    }
     setBusy(status);
-    const feedbackText = reviewAudioUrl
-      ? `${reviewNotes || ""}\n\n🎙 Voice feedback: ${reviewAudioUrl}`.trim()
-      : reviewNotes || null;
-    console.log("[Review] Sending feedback:", { status, hasAudio: !!reviewAudioUrl, textLength: feedbackText?.length, feedbackText });
     const { error } = await onReview(concept!.id, {
       status,
-      notes: feedbackText,
+      notes: reviewNotes || null,
     });
     setBusy(null);
     if (error) return void toast.error(error);
     toast.success(`Marked as ${CONCEPT_STATUS_LABELS[status]}`);
     setReviewNotes("");
-    setReviewAudioUrl(null);
     onOpenChange(false);
   }
 
@@ -343,19 +324,11 @@ export function ConceptDetailDrawer({
   async function handleFinalRevise() {
     if (!onFinalRevise) return;
     setBusy("final_revise");
-    // Pack the transcript and the audio path into a single string so both
-    // get persisted on `final_approval_notes`. FeedbackDisplay splits them
-    // back out at read time — text shown as prose, audio shown as a player.
-    // Same envelope the initial-review path at handleReview() uses.
-    const payload = finalAudioUrl
-      ? `${finalNotes || ""}\n\n🎙 Voice feedback: ${finalAudioUrl}`.trim()
-      : finalNotes || null;
-    const { error } = await onFinalRevise(concept!.id, payload);
+    const { error } = await onFinalRevise(concept!.id, finalNotes || null);
     setBusy(null);
     if (error) return void toast.error(error);
     toast.success("Revision feedback sent");
     setFinalNotes("");
-    setFinalAudioUrl(null);
     onOpenChange(false);
   }
 
@@ -464,18 +437,11 @@ export function ConceptDetailDrawer({
   async function handleSuggestChangesSubmit() {
     if (!onSuggestChanges || busy !== null) return;
     setBusy("suggest_changes");
-    // Same audio + transcript envelope as handleReview / handleFinalRevise
-    // so FeedbackDisplay can render the saved log entry with the transcript
-    // as prose and the audio as an inline player.
-    const payload = suggestAudioUrl
-      ? `${suggestFeedback || ""}\n\n🎙 Voice feedback: ${suggestAudioUrl}`.trim()
-      : suggestFeedback;
-    const { error } = await onSuggestChanges(concept!.id, payload);
+    const { error } = await onSuggestChanges(concept!.id, suggestFeedback);
     setBusy(null);
     if (error) return void toast.error(error);
     toast.success("Feedback sent to designer");
     setSuggestFeedback("");
-    setSuggestAudioUrl(null);
     setSuggestOpen(false);
   }
 
@@ -563,7 +529,7 @@ export function ConceptDetailDrawer({
                         "h-1 flex-1 rounded-full transition-all",
                         status === "done" && cfg.bgColor,
                         status === "active" &&
-                          `${cfg.bgColor} animate-pulse opacity-70`,
+                          `${cfg.bgColor} opacity-70`,
                         status === "blocked" && "bg-destructive",
                         status === "upcoming" && "bg-border"
                       )}
@@ -821,29 +787,20 @@ export function ConceptDetailDrawer({
                   This concept is awaiting your review.
                 </p>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">
-                    Feedback <span className="font-normal text-muted-foreground">(type or record voice)</span>
-                  </Label>
-                  <VoiceFeedback
+                  <Label className="text-xs">Feedback</Label>
+                  <textarea
                     value={reviewNotes}
-                    onChange={setReviewNotes}
-                    onAudioUrl={setReviewAudioUrl}
-                    onBusyChange={setVoiceBusy}
-                    placeholder="Type feedback or tap 🎤 to record voice…"
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                    placeholder="Type your feedback…"
                     disabled={busy !== null}
                     rows={2}
+                    className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </div>
-                {voiceBusy && (
-                  <p className="flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[11px] text-warning">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Recording in progress — stop recording before submitting
-                  </p>
-                )}
                 <div className="flex gap-2">
                   <Button
                     onClick={() => handleReview("approved")}
-                    disabled={busy !== null || voiceBusy}
+                    disabled={busy !== null}
                     size="sm"
                     className="flex-1 gap-1.5"
                   >
@@ -856,7 +813,7 @@ export function ConceptDetailDrawer({
                   </Button>
                   <Button
                     onClick={() => handleReview("revision_requested")}
-                    disabled={busy !== null || voiceBusy}
+                    disabled={busy !== null}
                     variant="outline"
                     size="sm"
                     className="flex-1 gap-1.5"
@@ -870,7 +827,7 @@ export function ConceptDetailDrawer({
                   </Button>
                   <Button
                     onClick={() => handleReview("rejected")}
-                    disabled={busy !== null || voiceBusy}
+                    disabled={busy !== null}
                     variant="destructive"
                     size="sm"
                     className="gap-1.5"
@@ -1391,18 +1348,15 @@ export function ConceptDetailDrawer({
                           </div>
                           <div className="space-y-1.5">
                             <Label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                              What needs to change?{" "}
-                              <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
-                                (type or record voice)
-                              </span>
+                              What needs to change?
                             </Label>
-                            <VoiceFeedback
+                            <textarea
                               value={finalNotes}
-                              onChange={setFinalNotes}
-                              onAudioUrl={setFinalAudioUrl}
-                              placeholder="Describe what needs to change or tap 🎤 to record…"
+                              onChange={(e) => setFinalNotes(e.target.value)}
+                              placeholder="Describe what needs to change…"
                               disabled={busy !== null}
                               rows={2}
+                              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                             />
                           </div>
                           <Button
@@ -1623,13 +1577,13 @@ export function ConceptDetailDrawer({
               </span>
               <h3 className="text-[13px] font-semibold tracking-tight text-foreground">Feedback <span className="text-destructive">*</span></h3>
             </div>
-            <VoiceFeedback
+            <textarea
               value={suggestFeedback}
-              onChange={setSuggestFeedback}
-              onAudioUrl={setSuggestAudioUrl}
+              onChange={(e) => setSuggestFeedback(e.target.value)}
               placeholder="What should the designer change?"
               disabled={busy === "suggest_changes"}
               rows={3}
+              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
           </section>
           <div className="flex items-center justify-between gap-3 border-t border-border pt-2">

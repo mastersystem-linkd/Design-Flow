@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 
@@ -8,6 +9,13 @@ export function TextileHeroWrapper({
   children: ReactNode;
   className?: string;
 }) {
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   return (
     <div
       className={cn(
@@ -30,17 +38,26 @@ export function TextileHeroWrapper({
           backgroundSize: "16px 16px",
         }}
       />
-      {/* Warp-line accent */}
+      {/* Warp-line accent — draws in on mount */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/50 via-warning/30 to-success/40"
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/50 via-warning/30 to-success/40",
+          entered ? "warp-draw" : "opacity-0"
+        )}
       />
       {/* Bottom edge shimmer */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/10 to-transparent"
       />
-      <div className="relative">{children}</div>
+      {/* Children stagger in after warp draws */}
+      <div
+        className={cn("relative", entered ? "weft-in" : "opacity-0")}
+        style={entered ? { animationDelay: "200ms" } : undefined}
+      >
+        {children}
+      </div>
     </div>
   );
 }

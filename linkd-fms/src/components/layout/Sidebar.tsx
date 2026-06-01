@@ -122,9 +122,9 @@ function getNavGroups(role: UserRole): NavGroup[] {
 
 /** Background tint for the avatar inside the sidebar. */
 const ROLE_AVATAR_CLASS: Record<UserRole, string> = {
-  admin: "bg-primary text-white",
+  admin: "bg-primary text-primary-foreground",
   design_coordinator: "bg-primary/20 text-primary",
-  designer: "bg-white/20 text-white",
+  designer: "bg-primary/10 text-primary",
   deo: "bg-warning/30 text-foreground",
 };
 
@@ -188,11 +188,9 @@ export function Sidebar({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         className={cn(
-          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col bg-sidebar text-white transition-[transform,width] duration-200",
+          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col border-r border-border bg-card text-foreground transition-[transform,width] duration-200 dark:bg-sidebar dark:text-white",
           "md:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
-          // Desktop width: pinned-collapsed → slim rail; hover peeks back to
-          // full width as an overlay (with a shadow so it floats over content).
           collapsed
             ? railed
               ? "md:w-16"
@@ -206,7 +204,7 @@ export function Sidebar({
           type="button"
           onClick={handleLogoClick}
           className={cn(
-            "flex w-full items-start gap-1.5 border-b border-white/[0.06] px-4 py-4 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10",
+            "flex w-full items-start gap-1.5 border-b border-border px-4 py-4 text-left transition-colors duration-200 hover:bg-foreground/5 focus:outline-none",
             railed && "md:items-center md:justify-center md:px-0"
           )}
           aria-label="Go to home"
@@ -214,7 +212,7 @@ export function Sidebar({
           {/* Railed brand mark (desktop, collapsed) — compact "LD" tile. */}
           <span
             className={cn(
-              "hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm font-extrabold tracking-tight text-white",
+              "hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-extrabold tracking-tight text-primary",
               railed && "md:flex"
             )}
             aria-hidden
@@ -234,7 +232,7 @@ export function Sidebar({
               className="block h-auto w-[100px] max-w-full"
               draggable={false}
             />
-            <span className="pl-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-white whitespace-nowrap">
+            <span className="pl-0.5 text-[12px] font-bold uppercase tracking-[0.08em] text-foreground whitespace-nowrap">
               Design Flow System
             </span>
           </span>
@@ -249,7 +247,7 @@ export function Sidebar({
               title={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
               aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg pl-4 pr-3 py-2 text-[13px] font-medium text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white",
+                "flex w-full items-center gap-3 rounded-lg pl-4 pr-3 py-2 text-[13px] font-medium text-muted-foreground transition-colors duration-200 hover:bg-foreground/5 hover:text-foreground",
                 railed && "md:justify-center md:px-0"
               )}
             >
@@ -270,12 +268,12 @@ export function Sidebar({
           {groups.map((group, i) => (
             <div key={i}>
               {i > 0 && (
-                <div className="my-2 h-px bg-white/[0.06]" aria-hidden />
+                <div className="my-2 h-px bg-border" aria-hidden />
               )}
               {group.label && (
                 <p
                   className={cn(
-                    "mb-1.5 mt-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/30",
+                    "mb-1.5 mt-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/60",
                     railed && "md:hidden"
                   )}
                 >
@@ -315,7 +313,7 @@ export function Sidebar({
         <div className="px-3 pb-1">
           <ThemeToggle
             className={cn(
-              "w-full justify-start text-white/50 hover:text-white",
+              "w-full justify-start text-muted-foreground hover:text-foreground",
               railed && "md:justify-center"
             )}
             labelClassName={cn(railed && "md:hidden")}
@@ -328,7 +326,7 @@ export function Sidebar({
             <button
               type="button"
               className={cn(
-                "flex w-full items-center gap-3 border-t border-white/[0.06] px-4 py-3 text-left transition-colors hover:bg-white/5 focus:outline-none focus-visible:bg-white/10",
+                "flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left transition-colors duration-200 hover:bg-foreground/5 focus:outline-none",
                 railed && "md:justify-center md:px-0"
               )}
               aria-label={`Account menu for ${profile.full_name}`}
@@ -350,16 +348,16 @@ export function Sidebar({
                   railed && "md:hidden"
                 )}
               >
-                <div className="truncate text-sm font-medium text-white">
+                <div className="truncate text-sm font-medium text-foreground">
                   {profile.full_name}
                 </div>
-                <div className="truncate text-[10px] text-white/40">
+                <div className="truncate text-[10px] text-muted-foreground">
                   {ROLE_LABELS[profile.role]}
                 </div>
               </div>
               <ChevronUp
                 className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-white/30",
+                  "h-3.5 w-3.5 shrink-0 text-muted-foreground",
                   railed && "md:hidden"
                 )}
                 aria-hidden
@@ -438,10 +436,10 @@ function NavRow({
         onClick={onNavigate}
         className={({ isActive }) =>
           cn(
-            "relative flex min-h-[40px] items-center gap-3 rounded-lg pl-4 pr-3 py-2.5 text-[13px] font-medium transition-all duration-150",
+            "relative flex min-h-[40px] items-center gap-3 rounded-lg pl-4 pr-3 py-2.5 text-[13px] font-medium transition-colors duration-200",
             isActive
-              ? "bg-[rgba(129,140,248,0.15)] text-[#A5B4FC] before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-r-full before:bg-[#6366F1]"
-              : "text-white/60 hover:bg-white/[0.07] hover:text-white",
+              ? "nav-selvedge-active"
+              : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
             collapsed && "md:justify-center md:px-0",
             isComingSoon && "pointer-events-none opacity-40"
           )
@@ -453,7 +451,7 @@ function NavRow({
           <Icon className="h-[18px] w-[18px]" />
           {/* On the slim rail, a count shows as a small dot on the icon. */}
           {hasCount && collapsed && (
-            <span className="absolute -right-1 -top-1 hidden h-2 w-2 rounded-full bg-destructive ring-2 ring-sidebar md:block" />
+            <span className="absolute -right-1 -top-1 hidden h-2 w-2 rounded-full bg-destructive ring-2 ring-card dark:ring-sidebar md:block" />
           )}
         </span>
         <span className={cn("flex-1 truncate", collapsed && "md:hidden")}>
@@ -462,7 +460,7 @@ function NavRow({
         {hasCount && (
           <span
             className={cn(
-              "rounded-full bg-destructive px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-destructive-foreground",
+              "rounded-full bg-destructive px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-white",
               collapsed && "md:hidden"
             )}
           >

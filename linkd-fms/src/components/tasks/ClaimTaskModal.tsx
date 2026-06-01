@@ -184,7 +184,7 @@ export function ClaimTaskModal({
             </div>
             {hasTask && (
               isUrgent ? (
-                <Badge className="animate-pulse border border-destructive/30 bg-destructive/15 text-destructive text-[10px]">
+                <Badge className="animate-urgent-pulse border border-destructive/30 bg-destructive/15 text-destructive text-[10px]">
                   <AlertTriangle className="mr-1 h-3 w-3" /> Urgent
                 </Badge>
               ) : (

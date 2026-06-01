@@ -118,7 +118,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/50 backdrop-blur-sm",
+      "fixed inset-0 z-50 bg-foreground/40 backdrop-blur-sm",
       "data-[state=open]:animate-in data-[state=closed]:animate-out",
       "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className
@@ -155,10 +155,10 @@ const DialogContent = React.forwardRef<
         // `w-[calc(100%-2rem)]` keeps a 1rem gutter on phones so dialogs never
         // touch the screen edges; `max-w-lg` still caps width on desktop and
         // any caller's `max-w-*` / `w-[…vw]` overrides via tailwind-merge.
-        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 rounded-lg border border-border bg-card shadow-lg duration-200",
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 rounded-lg sm:rounded-2xl border border-border bg-card shadow-lg dialog-panel dialog-ease",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-        "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        "data-[state=closed]:zoom-out-95",
         className
       )}
       {...props}

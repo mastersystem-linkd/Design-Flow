@@ -25,6 +25,7 @@ import {
   Calendar,
   FilterX,
   ArrowDownToLine,
+  Rows3,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -242,7 +243,7 @@ export function KanbanView() {
   const { profiles: designers } = useProfiles({
     roles: ["designer"],
   });
-  const { visibleColumns, setVisibleColumns } = useUserPreferences();
+  const { visibleColumns, setVisibleColumns, tableDensity, setTableDensity } = useUserPreferences();
 
   // ── Kitting status per task ──────────────────────────────────────────
   // Used to color the FK badge in the task row: red when pending DEO,
@@ -964,6 +965,7 @@ export function KanbanView() {
         onToggleRow={toggleRowSelection}
         onToggleAll={toggleAllVisible}
         visibleColumns={visibleColumns}
+        tableDensity={tableDensity}
       />
     );
   }
@@ -1043,6 +1045,8 @@ export function KanbanView() {
         }
         onNewBrief={() => setNewBriefOpen(true)}
         onOpenShortcuts={() => setShortcutsHelpOpen(true)}
+        tableDensity={tableDensity}
+        onToggleDensity={() => setTableDensity(tableDensity === "compact" ? "comfortable" : "compact")}
         columnMenuSlot={
           kittingView ? (
             <FkColumnMenu
@@ -1330,6 +1334,8 @@ interface TopBarProps {
   onOpenShortcuts: () => void;
   /** Column-visibility control, rendered in the action cluster (desktop). */
   columnMenuSlot?: React.ReactNode;
+  tableDensity: string;
+  onToggleDensity: () => void;
 }
 
 function TopBar({
@@ -1353,6 +1359,8 @@ function TopBar({
   onNewBrief,
   onOpenShortcuts,
   columnMenuSlot,
+  tableDensity,
+  onToggleDensity,
 }: TopBarProps) {
   const canCreate = canCreateBriefs(role);
 
@@ -1438,6 +1446,15 @@ function TopBar({
         <div className="hidden sm:flex sm:items-center sm:gap-1.5">
           <button type="button" onClick={onOpenShortcuts} className={iconBtn} title="Keyboard shortcuts">
             <Keyboard className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleDensity}
+            className={cn(iconBtn, tableDensity === "compact" && "border-primary/40 bg-primary/10 text-primary")}
+            title={tableDensity === "compact" ? "Comfortable rows" : "Compact rows"}
+            aria-label="Toggle row density"
+          >
+            <Rows3 className="h-3.5 w-3.5" />
           </button>
           {columnMenuSlot}
           {onExport && (
@@ -1665,7 +1682,7 @@ function FilterTabs({
               <span
                 className={cn(
                   "h-1.5 w-1.5 rounded-full",
-                  active ? "bg-card animate-pulse" : "bg-destructive"
+                  active ? "bg-card" : "bg-destructive"
                 )}
                 aria-hidden
               />
@@ -1721,13 +1738,14 @@ interface SectionProps {
   isPending: ReturnType<typeof useTaskMutations>["isPending"];
   /** Column keys the viewer wants visible (from useUserPreferences). */
   visibleColumns: string[];
+  tableDensity: string;
   /** When set, replaces the default section header — used to mount the
    *  pipeline stepper at the table-header level. */
   headerSlot?: React.ReactNode;
 }
 
 function TaskTableSection(props: SectionProps) {
-  const { status, tasks, sort, canBulk, selectedIds, onToggleAll, visibleColumns } =
+  const { status, tasks, sort, canBulk, selectedIds, onToggleAll, visibleColumns, tableDensity } =
     props;
   const showCol = (key: string) => visibleColumns.includes(key);
   const sorted = useMemo(() => sortTasks(tasks, sort), [tasks, sort]);
@@ -1785,7 +1803,7 @@ function TaskTableSection(props: SectionProps) {
       ) : isMobile ? (
         <MobileCardList rows={sorted} sectionProps={props} />
       ) : (
-        <div className="overflow-x-auto">
+        <div className={cn("overflow-x-auto", props.tableDensity === "compact" && "table-compact")}>
           <table className="w-full min-w-[720px] text-sm">
             <caption className="sr-only">Tasks organized by status</caption>
             <thead>

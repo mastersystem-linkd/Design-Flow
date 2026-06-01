@@ -69,14 +69,18 @@ export function PipelineHealth({ data }: { data: StatusDistribution[] }) {
                 </span>
                 <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
                   <div
-                    className={cn("h-7 rounded-md", barColor)}
+                    className={cn("flex h-7 items-center justify-end rounded-md", barColor)}
                     style={{
                       width: mounted ? `${barPct}%` : "0%",
                       transition: "width 600ms cubic-bezier(0.4,0,0.2,1)",
                       transitionDelay: `${i * 80}ms`,
                       minWidth: 4,
                     }}
-                  />
+                  >
+                    {item.status === "pending" && item.count > 0 && (
+                      <span className="shuttle-dot mr-1.5 text-white" />
+                    )}
+                  </div>
                 </div>
                 <div className="flex w-16 shrink-0 items-center justify-end gap-1">
                   <span className="text-sm font-semibold tabular-nums text-foreground">

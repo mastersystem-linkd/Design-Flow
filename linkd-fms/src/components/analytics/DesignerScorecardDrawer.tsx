@@ -925,13 +925,13 @@ function TrendChart({
           />
           <XAxis
             dataKey="month"
-            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             allowDecimals={false}
-            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
             width={40}
@@ -942,6 +942,7 @@ function TrendChart({
               border: "1px solid rgb(var(--border))",
               borderRadius: 10,
               fontSize: 12,
+              fontFamily: '"JetBrains Mono", ui-monospace, monospace',
               color: "rgb(var(--foreground))",
               boxShadow: "var(--shadow-dropdown)",
               padding: "8px 10px",

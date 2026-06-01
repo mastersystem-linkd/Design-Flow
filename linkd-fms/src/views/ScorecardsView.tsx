@@ -32,6 +32,7 @@ import {
   ConfirmDialog,
   toast,
 } from "@/components/ui";
+import { ScoreRing } from "@/components/analytics/ScoreRing";
 import { useAuth } from "@/hooks/useAuth";
 import {
   useAnalytics,
@@ -579,52 +580,27 @@ function DesignerScorecardCard({
         <DesignerCardMenu isAdmin={isAdmin} onView={onOpen} onDelete={onDelete} />
       </div>
 
-      {/* Big composite score */}
-      <div className="flex items-end justify-between">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Composite Score
+      {/* Composite score ring + verdict */}
+      <div className="flex items-center gap-3">
+        <ScoreRing score={row.compositeScore} size={80} strokeWidth={5}>
+          <p className={cn("text-xl font-bold tabular-nums leading-none", scoreColor)}>
+            {row.compositeScore}
           </p>
-          <p
+          <p className="text-[9px] text-muted-foreground">/100</p>
+        </ScoreRing>
+        <div className="flex flex-1 flex-col items-start gap-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Composite
+          </p>
+          <Badge
             className={cn(
-              "text-4xl font-bold tabular-nums leading-none",
-              scoreColor
+              "border text-[10px] font-semibold",
+              verdict.badgeClass
             )}
           >
-            {row.compositeScore}
-            <span className="text-base font-normal text-muted-foreground">
-              /100
-            </span>
-          </p>
+            {verdict.label}
+          </Badge>
         </div>
-        <Badge
-          className={cn(
-            "border text-[10px] font-semibold",
-            verdict.badgeClass
-          )}
-        >
-          {verdict.label}
-        </Badge>
-      </div>
-
-      {/* Score progress bar */}
-      <div className="h-2 overflow-hidden rounded bg-secondary">
-        <div
-          className={cn(
-            "h-full rounded transition-[width]",
-            row.compositeScore >= 80
-              ? "bg-success"
-              : row.compositeScore >= 60
-              ? "bg-primary"
-              : row.compositeScore >= 40
-              ? "bg-warning"
-              : "bg-destructive"
-          )}
-          style={{
-            width: `${row.compositeScore}%`,
-            transitionDuration: "600ms",
-          }}
-        />
       </div>
 
       {/* Concept + Task mini blocks */}

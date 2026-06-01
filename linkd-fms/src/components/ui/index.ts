@@ -62,7 +62,7 @@ export {
   type ToastOptions,
   type ToastItem,
 } from "./Toaster";
-export { Skeleton, SkeletonCard, SkeletonTable, SkeletonText } from "./Skeleton";
+export { Skeleton, SkeletonCard, SkeletonTable, SkeletonText, SkeletonScoreRing } from "./Skeleton";
 export {
   EmptyState,
   type EmptyStateProps,

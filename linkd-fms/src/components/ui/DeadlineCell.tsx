@@ -28,7 +28,7 @@ export function DeadlineCell({
         className={cn(
           "h-1.5 w-1.5 shrink-0 rounded-full",
           DAYS_DOT_CLASS[sev],
-          pulse && "animate-pulse"
+          pulse && "animate-urgent-pulse"
         )}
         aria-hidden
       />

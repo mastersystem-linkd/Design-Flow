@@ -76,7 +76,7 @@ export function ConceptWorkflowStage({
                     className={cn(
                       "h-3 w-3 rounded-full border-2 transition-all",
                       completed && "bg-success border-success",
-                      isCurrent && "bg-primary border-primary animate-pulse",
+                      isCurrent && "bg-primary border-primary",
                       isFuture && "bg-transparent border-border"
                     )}
                   />
@@ -138,7 +138,7 @@ function MdDecisionDot({
     );
   }
   if (isCurrent) {
-    return <div className={cn(base, "bg-primary border-primary animate-pulse")} />;
+    return <div className={cn(base, "bg-primary border-primary")} />;
   }
   return <div className={cn(base, "bg-transparent border-border")} />;
 }

@@ -82,7 +82,7 @@ function StagePill({
       className={cn(
         "group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 backdrop-blur-sm transition-all duration-200",
         isActive
-          ? cn("shadow-sm", ACTIVE_PILL[tone] ?? ACTIVE_PILL.primary)
+          ? cn("shadow-sm pill-gradient-ring", ACTIVE_PILL[tone] ?? ACTIVE_PILL.primary)
           : "border-border/60 bg-card/50 hover:border-border hover:bg-secondary/50"
       )}
     >
@@ -135,22 +135,26 @@ export function TaskPipelineStepper({
   return (
     <div className="no-scrollbar touch-scroll-x flex items-center gap-1.5 overflow-x-auto px-3 py-2 sm:px-4">
       {stages.map((stage, i) => {
-        // Connector "fills" once the stage to its left has items.
         const lineFilled = i > 0 && stages[i - 1].count > 0;
+        const isActive = activeStage === stage.key;
         return (
           <Fragment key={stage.key}>
             {i > 0 && (
-              <ChevronRight
-                aria-hidden
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 transition-colors",
-                  lineFilled ? "text-primary" : "text-border"
+              <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
+                <ChevronRight
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 transition-colors",
+                    lineFilled ? "text-primary" : "text-border"
+                  )}
+                />
+                {isActive && lineFilled && (
+                  <span className="shuttle-dot text-primary" />
                 )}
-              />
+              </span>
             )}
             <StagePill
               stage={stage}
-              isActive={activeStage === stage.key}
+              isActive={isActive}
               onClick={() => onStageClick(stage.key)}
             />
           </Fragment>

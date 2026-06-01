@@ -1196,8 +1196,7 @@ function YourTurnPill() {
   return (
     <span
       title="This concept is waiting for your review"
-      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white shadow-sm ring-1 ring-inset ring-primary/40 animate-pulse"
-      style={{ animationDuration: "2.5s" }}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white shadow-sm ring-1 ring-inset ring-primary/40"
     >
       <Zap className="h-2.5 w-2.5" />
       Your turn
@@ -1251,7 +1250,7 @@ function StatusPill({ status, label }: { status: ConceptStatus; label?: string }
   const pillCls = isResubmit
     ? "bg-primary/10 text-primary ring-primary/25 shadow-[0_0_0_3px_rgb(var(--primary)/0.04)]"
     : s.cls;
-  const dotCls = isResubmit ? "bg-primary animate-pulse" : s.dot;
+  const dotCls = isResubmit ? "bg-primary" : s.dot;
   return (
     <span
       className={cn(
@@ -1260,7 +1259,7 @@ function StatusPill({ status, label }: { status: ConceptStatus; label?: string }
       )}
     >
       <span
-        className={cn("h-1.5 w-1.5 rounded-full", dotCls, status === "pending" && !isResubmit && "animate-pulse")}
+        className={cn("h-1.5 w-1.5 rounded-full", dotCls)}
         aria-hidden
       />
       {label ?? s.label}
@@ -1499,7 +1498,7 @@ function HoldCell({ concept }: { concept: ConceptWithRelations }) {
         <span className="font-semibold tabular-nums text-foreground">{count}</span>
         {totalLabel && <span className="text-muted-foreground">· {totalLabel}</span>}
         {isOnHold && (
-          <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+          <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-warning" />
         )}
       </button>
 
@@ -1526,7 +1525,7 @@ function HoldCell({ concept }: { concept: ConceptWithRelations }) {
           </div>
           {isOnHold && concept.work_held_at && (
             <p className="mt-2 flex items-center gap-1 text-[10px] text-warning">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+              <span className="h-1.5 w-1.5 rounded-full bg-warning" />
               On hold since {new Date(concept.work_held_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" })}
             </p>
           )}

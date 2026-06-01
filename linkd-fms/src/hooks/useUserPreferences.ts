@@ -95,6 +95,8 @@ async function fetchOrCreatePreferences(
   return created;
 }
 
+export type TableDensity = "comfortable" | "compact";
+
 export function useUserPreferences() {
   const { profile } = useAuth();
   const userId = profile?.id ?? null;
@@ -121,8 +123,6 @@ export function useUserPreferences() {
       if (error) throw error;
       return columns;
     },
-    // Optimistic — the menu saves immediately and the table reflects the
-    // change without waiting for the round-trip.
     onMutate: async (columns) => {
       await queryClient.cancelQueries({ queryKey: key });
       const prev = queryClient.getQueryData<UserPreferences>(key);
@@ -142,13 +142,52 @@ export function useUserPreferences() {
     },
   });
 
+  const updateDensity = useMutation({
+    mutationFn: async (density: TableDensity) => {
+      if (!userId) throw new Error("Not signed in");
+      const { error } = await supabase
+        .from("user_preferences")
+        .update({
+          table_density: density,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+      if (error) throw error;
+      return density;
+    },
+    onMutate: async (density) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const prev = queryClient.getQueryData<UserPreferences>(key);
+      if (prev) {
+        queryClient.setQueryData<UserPreferences>(key, {
+          ...prev,
+          table_density: density,
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _d, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(key, ctx.prev);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+
   const visibleColumns =
     (data?.visible_columns as string[] | undefined) ?? DEFAULT_COLUMNS;
 
+  const tableDensity: TableDensity =
+    (data?.table_density as TableDensity | undefined) === "compact"
+      ? "compact"
+      : "comfortable";
+
   return {
     visibleColumns,
+    tableDensity,
     isLoading: !!userId && isPending,
     setVisibleColumns: (columns: string[]) => updateColumns.mutate(columns),
-    isSaving: updateColumns.isPending,
+    setTableDensity: (d: TableDensity) => updateDensity.mutate(d),
+    isSaving: updateColumns.isPending || updateDensity.isPending,
   };
 }

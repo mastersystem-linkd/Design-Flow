@@ -148,20 +148,22 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          /** Ordered list of column keys the user wants visible in tables. */
           visible_columns: string[];
+          table_density: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
           visible_columns?: string[];
+          table_density?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
           visible_columns?: string[];
+          table_density?: string;
           updated_at?: string;
         };
         Relationships: [

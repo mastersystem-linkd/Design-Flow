@@ -15,10 +15,12 @@ import {
   CHART_AXIS_PROPS,
   CHART_TOOLTIP_STYLE,
   CHART_TOOLTIP_LABEL_STYLE,
+  useChartAnimation,
 } from "@/lib/chartConfig";
 import type { ApprovalSpeedItem } from "@/hooks/useAnalytics";
 
 export function ConceptTurnaround({ data }: { data: ApprovalSpeedItem[] }) {
+  const animate = useChartAnimation();
   const hasData = data.some((d) => d.avgHours > 0);
   const maxHours = Math.max(72, ...data.map((d) => d.avgHours));
 
@@ -75,6 +77,7 @@ export function ConceptTurnaround({ data }: { data: ApprovalSpeedItem[] }) {
                   fill="url(#turnaroundArea)"
                   dot={{ r: 4, fill: CHART_THEME.primary, stroke: CHART_THEME.card, strokeWidth: 2 }}
                   activeDot={{ r: 5 }}
+                  isAnimationActive={animate}
                 />
               </AreaChart>
             </ResponsiveContainer>

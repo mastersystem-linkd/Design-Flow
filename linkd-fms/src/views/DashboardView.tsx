@@ -319,7 +319,7 @@ function QuickAction({
       >
         <Icon className="h-4 w-4" />
         {pulse && (
-          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive animate-pulse" />
+          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive" />
         )}
       </div>
       <div className="min-w-0 flex-1">

@@ -75,7 +75,7 @@ export function ConceptFunnel({
 
                   {/* Stale review warning */}
                   {isUnderReview && count > 0 && oldestPendingDays > 0 && (
-                    <p className="mt-1 text-[9px] text-warning animate-pulse">
+                    <p className="mt-1 text-[9px] text-warning">
                       Oldest: {oldestPendingDays}d waiting
                     </p>
                   )}

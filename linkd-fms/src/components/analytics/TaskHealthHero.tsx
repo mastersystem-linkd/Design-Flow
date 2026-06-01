@@ -271,7 +271,7 @@ function DockStat({
       className={cn(
         "flex min-w-[72px] flex-col items-center justify-center rounded-xl border px-3 py-2",
         toneClass[tone],
-        pulse && "animate-pulse",
+        pulse && "animate-urgent-pulse",
         onClick && "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-sm"
       )}
     >

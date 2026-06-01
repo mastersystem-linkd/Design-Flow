@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { Card, CardContent } from "@/components/ui";
+import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import type { TaskWithRelations, UserRole, ConceptWithRelations } from "@/types/database";
@@ -250,14 +251,18 @@ function KpiCard({
   spark,
   valueColor,
 }: KpiDef) {
+  const numericValue = typeof value === "number" ? value : 0;
+  const animated = useAnimatedNumber(numericValue);
+  const displayValue = typeof value === "number" ? animated : value;
+
   return (
     <Link to={to} className="group">
-      <Card className="relative overflow-hidden transition-all hover:border-primary/30 hover:shadow-md">
+      <Card className="swatch-edge swatch-edge-actionable transition-all duration-200 hover:border-primary/30 hover:shadow-md">
         <CardContent className="p-4">
           {/* Header: icon + trend */}
           <div className="flex items-center justify-between">
-            <div className={cn("rounded-lg p-2", ACCENT_BG[accent])}>
-              <Icon className="h-4 w-4" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <Icon className="h-4 w-4 text-primary" />
             </div>
             {trend != null && trend !== 0 && (
               <span
@@ -281,11 +286,11 @@ function KpiCard({
           {/* Value */}
           <p
             className={cn(
-              "mt-2 text-3xl font-bold tabular-nums tracking-tight",
+              "mt-2 font-mono-data text-3xl tracking-tight",
               valueColor ?? "text-foreground"
             )}
           >
-            {value}
+            {displayValue}
           </p>
           <p className="text-sm text-muted-foreground">{label}</p>
           {sub && (

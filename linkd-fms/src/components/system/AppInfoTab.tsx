@@ -110,7 +110,7 @@ export function AppInfoTab() {
             <div className="flex items-center gap-3">
               <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-success/15">
                 <CheckCircle2 className="h-[18px] w-[18px] text-success" />
-                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-success animate-pulse" />
+                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-success" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-foreground">All Systems Operational</p>

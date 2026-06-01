@@ -37,6 +37,8 @@ import {
 import { TrendingUp, TrendingDown } from "lucide-react";
 import type { KpiMetric } from "@/hooks/useAnalytics";
 import { STATUS_LABELS } from "@/lib/constants";
+import { useChartAnimation } from "@/lib/chartConfig";
+import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { cn } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 
@@ -70,6 +72,7 @@ type DashTab = "tasks" | "concepts";
 export function TaskDashboardView() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const chartAnimate = useChartAnimation();
   const [urlParams, setUrlParams] = useSearchParams();
   const role = profile?.role ?? "designer";
   const isAdmin = isAdminOrCoordinator(role);
@@ -271,7 +274,7 @@ export function TaskDashboardView() {
               className={cn(
                 "cursor-pointer border text-[10px]",
                 a.kpis.overdueCount > 3
-                  ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
+                  ? "bg-destructive/10 text-destructive border-destructive/20 animate-urgent-pulse"
                   : "bg-warning/10 text-warning border-warning/20"
               )}
               onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
@@ -549,16 +552,16 @@ export function TaskDashboardView() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="2 4" stroke="rgb(var(--border))" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} dy={4} />
-                      <YAxis allowDecimals={false} tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
+                      <XAxis dataKey="label" tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }} axisLine={false} tickLine={false} dy={4} />
+                      <YAxis allowDecimals={false} tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }} axisLine={false} tickLine={false} width={28} />
                       <Tooltip
                         cursor={{ fill: "rgb(var(--secondary))", opacity: 0.5, radius: 6 }}
                         contentStyle={{ backgroundColor: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 10, fontSize: 12, color: "rgb(var(--foreground))", boxShadow: "var(--shadow-dropdown)", padding: "8px 10px" }}
                         labelStyle={{ fontWeight: 600, marginBottom: 2 }}
                       />
                       <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} iconType="circle" iconSize={8} />
-                      <Bar dataKey="created" name="Created" fill="url(#taskCreatedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={700} />
-                      <Bar dataKey="completed" name="Completed" fill="url(#taskCompletedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={900} />
+                      <Bar dataKey="created" name="Created" fill="url(#taskCreatedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={700} isAnimationActive={chartAnimate} />
+                      <Bar dataKey="completed" name="Completed" fill="url(#taskCompletedGrad)" radius={[5, 5, 0, 0]} maxBarSize={46} animationDuration={900} isAnimationActive={chartAnimate} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -692,6 +695,10 @@ function HeroKpiTile({
     }
   }
 
+  const numericValue = typeof value === "number" ? value : 0;
+  const animated = useAnimatedNumber(numericValue);
+  const displayValue = typeof value === "number" ? animated : value;
+
   const sparkColor =
     tone === "success"
       ? "rgb(var(--success))"
@@ -702,15 +709,15 @@ function HeroKpiTile({
           : "rgb(var(--primary))";
 
   const content = (
-    <div className="flex h-full flex-col justify-between px-3 py-3 text-left sm:px-4">
+    <div className="relative flex h-full flex-col justify-between px-3 py-3 text-left swatch-edge sm:px-4">
       <div className="flex items-center justify-between">
-        <div className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md", toneIconBg[tone], pulse && "animate-pulse")}>
-          <Icon className="h-3 w-3" />
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="h-3.5 w-3.5" />
         </div>
         {trendNode}
       </div>
       <div className="mt-1.5">
-        <p className={cn("text-2xl font-bold leading-none tracking-tight tabular-nums", toneText[tone])}>{value}</p>
+        <p className={cn("font-mono-data text-2xl leading-none tracking-tight", toneText[tone])}>{displayValue}</p>
         <p className="mt-1 truncate text-[10px] font-medium text-muted-foreground">{label}</p>
         {sub && <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/50 sm:block">{sub}</p>}
       </div>
@@ -727,15 +734,8 @@ function HeroKpiTile({
     <button
       type="button"
       onClick={onClick}
-      className="group relative h-full overflow-hidden text-left transition-colors hover:bg-secondary/40"
+      className="group h-full text-left swatch-edge-actionable transition-colors duration-200 hover:bg-secondary/40"
     >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100",
-          toneAccent[tone]
-        )}
-      />
       {content}
     </button>
   );
@@ -802,14 +802,18 @@ function PipelineWidget({
                 </span>
                 <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
                   <div
-                    className={cn("h-5 rounded-md", barColor)}
+                    className={cn("flex h-5 items-center justify-end rounded-md", barColor)}
                     style={{
                       width: mounted ? `${barPct}%` : "0%",
                       transition: "width 600ms cubic-bezier(0.4,0,0.2,1)",
                       transitionDelay: `${i * 80}ms`,
                       minWidth: 4,
                     }}
-                  />
+                  >
+                    {item.status === "in_progress" && item.count > 0 && (
+                      <span className="shuttle-dot mr-1.5 text-white" />
+                    )}
+                  </div>
                 </div>
                 <div className="flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-16 sm:gap-1">
                   <span className="text-sm font-semibold tabular-nums text-foreground">

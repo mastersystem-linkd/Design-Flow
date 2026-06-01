@@ -7,17 +7,35 @@
 //
 // Usage:
 //   import { CHART_THEME, CHART_GRID_PROPS, CHART_AXIS_PROPS,
-//            CHART_TOOLTIP_STYLE, CHART_BAR_RADIUS } from "@/lib/chartConfig";
+//            CHART_TOOLTIP_STYLE, CHART_BAR_RADIUS,
+//            useChartAnimation } from "@/lib/chartConfig";
 //
+//   const animate = useChartAnimation();
 //   <BarChart>
 //     <CartesianGrid {...CHART_GRID_PROPS} />
 //     <XAxis dataKey="label" {...CHART_AXIS_PROPS} />
 //     <YAxis {...CHART_AXIS_PROPS} />
 //     <Tooltip contentStyle={CHART_TOOLTIP_STYLE}
 //              cursor={{ fill: CHART_THEME.primaryLight }} />
-//     <Bar dataKey="value" fill={CHART_THEME.primary} radius={CHART_BAR_RADIUS} />
+//     <Bar dataKey="value" fill={CHART_THEME.primary} radius={CHART_BAR_RADIUS}
+//          isAnimationActive={animate} />
 //   </BarChart>
 // ---------------------------------------------------------------------------
+
+import { useEffect, useState } from "react";
+
+/** Animate charts on first render only — returns true once, then false.
+ *  StrictMode-safe: uses rAF so cleanup cancels correctly on double-mount. */
+export function useChartAnimation(): boolean {
+  const [animate, setAnimate] = useState(true);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setAnimate(false));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return animate;
+}
+
+const MONO_FONT = '"JetBrains Mono", ui-monospace, monospace';
 
 /** Tokenised colours for Recharts `fill` / `stroke` props. */
 export const CHART_THEME = {
@@ -53,10 +71,11 @@ export const CHART_GRID_PROPS = {
   vertical: false,
 } as const;
 
-/** Axis tick text — uses muted-foreground so it auto-flips. */
+/** Axis tick text — mono numerals, muted-foreground so it auto-flips. */
 export const CHART_AXIS_TICK = {
   fontSize: 11,
   fill: CHART_THEME.mutedForeground,
+  fontFamily: MONO_FONT,
 } as const;
 
 /** Default XAxis / YAxis props — no axis line, no tick marks, tokenised tick. */
@@ -75,6 +94,7 @@ export const CHART_TOOLTIP_STYLE = {
   borderRadius: 10,
   boxShadow: "var(--shadow-dropdown)",
   fontSize: 12,
+  fontFamily: MONO_FONT,
   color: CHART_THEME.foreground,
   padding: "8px 10px",
 } as const;

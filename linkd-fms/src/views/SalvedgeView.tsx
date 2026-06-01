@@ -177,7 +177,7 @@ export function SalvedgeView() {
                 className={cn(
                   "border transition-colors",
                   stats.pending > 3
-                    ? "bg-destructive/10 text-destructive border-destructive/20 animate-pulse"
+                    ? "bg-destructive/10 text-destructive border-destructive/20"
                     : "bg-warning/10 text-warning border-warning/20"
                 )}
               >
@@ -291,12 +291,12 @@ export function SalvedgeView() {
                 ) : (
                   <ResponsiveContainer width="100%" height={Math.max(160, analytics.partyData.length * 36)}>
                     <BarChart data={analytics.partyData} layout="vertical" margin={{ left: 0, right: 12, top: 4, bottom: 4 }}>
-                      <XAxis type="number" tick={{ fontSize: 10, fill: "rgb(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                      <XAxis type="number" tick={{ fontSize: 10, fill: "rgb(var(--muted-foreground))", fontFamily: '"JetBrains Mono", ui-monospace, monospace' }} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11, fill: "rgb(var(--foreground))" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip
-                        contentStyle={{ background: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 8, fontSize: 12 }}
+                        contentStyle={{ background: "rgb(var(--card))", border: "1px solid rgb(var(--border))", borderRadius: 8, fontSize: 12, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
                       />
-                      <Bar dataKey="qty" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                      <Bar dataKey="qty" radius={[0, 4, 4, 0]} maxBarSize={20} isAnimationActive={false}>
                         {analytics.partyData.map((_, i) => (
                           <Cell key={i} fill={i === 0 ? "rgb(var(--primary))" : i < 3 ? "rgb(var(--primary) / 0.7)" : "rgb(var(--primary) / 0.4)"} />
                         ))}

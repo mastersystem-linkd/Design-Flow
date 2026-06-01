@@ -46,6 +46,7 @@ import { SamplingFormDialog } from "@/components/sampling/SamplingFormDialog";
 import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
 import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
+import { useChartAnimation } from "@/lib/chartConfig";
 import {
   Badge,
   Button,
@@ -987,6 +988,7 @@ function SampleDashboard({
   chartData,
   aggregates,
 }: SampleDashboardProps) {
+  const chartAnimate = useChartAnimation();
   // Designer view: hide most rollups (RLS already trims to their data, but
   // the KPIs/charts are coordinator-oriented). Keep just the personal volume.
   if (!isAdmin) {
@@ -1117,13 +1119,13 @@ function SampleDashboard({
                 <BarChart data={chartData}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10 }}
+                    tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10 }}
+                    tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
                     axisLine={false}
                     tickLine={false}
                     width={25}
@@ -1134,12 +1136,14 @@ function SampleDashboard({
                       border: "1px solid rgb(var(--border))",
                       borderRadius: 8,
                       fontSize: 12,
+                      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
                     }}
                   />
                   <Bar
                     dataKey="count"
                     fill="rgb(var(--primary))"
                     radius={[4, 4, 0, 0]}
+                    isAnimationActive={chartAnimate}
                   />
                 </BarChart>
               </ResponsiveContainer>

@@ -25,6 +25,17 @@ const BAR_COLORS: Record<TaskStatus, string> = {
   completed: "bg-success",
 };
 
+const BORDER_COLORS: Record<TaskStatus, string> = {
+  pool: "border-l-muted",
+  todo: "border-l-foreground/30",
+  in_progress: "border-l-primary",
+  full_kitting: "border-l-primary",
+  approved: "border-l-primary",
+  sampling: "border-l-warning",
+  done: "border-l-success",
+  completed: "border-l-success",
+};
+
 // Simplified visual pipeline (matches Kanban tabs): Pool → In Progress → Done.
 // Legacy statuses (todo, full_kitting, approved, sampling) are not surfaced
 // in dashboards; any historical rows in those buckets fold into In Progress.
@@ -85,26 +96,20 @@ export function DashboardPipeline({
             <Link
               key={status}
               to={status === "sampling" ? ROUTES.sampling : ROUTES.dashboard}
-              className="group flex items-center gap-3 rounded-lg px-1 py-1 -mx-1 transition-all hover:bg-secondary/40 hover:ring-1 hover:ring-primary/20 cursor-pointer"
+              className={cn(
+                "group flex items-center gap-2 rounded-lg border-l-[3px] px-1.5 py-1.5 transition-all sm:gap-3 sm:px-2",
+                "cursor-pointer hover:bg-secondary/40 hover:ring-1 hover:ring-primary/20",
+                BORDER_COLORS[status]
+              )}
             >
-              {/* Status dot + label */}
-              <div className="flex w-24 shrink-0 items-center gap-2">
-                <span
-                  className={cn(
-                    "h-2 w-2 shrink-0 rounded-full",
-                    COLUMN_DOT[status]
-                  )}
-                />
-                <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                  {STATUS_LABELS[status]}
-                </span>
-              </div>
+              <span className="w-[72px] shrink-0 truncate text-left text-xs font-medium text-foreground sm:w-[90px]">
+                {STATUS_LABELS[status]}
+              </span>
 
-              {/* Bar */}
-              <div className="relative h-7 flex-1 overflow-hidden rounded-md bg-secondary/60">
+              <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
                 <div
                   className={cn(
-                    "absolute inset-y-0 left-0 rounded-md",
+                    "flex h-5 items-center justify-end rounded-md",
                     BAR_COLORS[status]
                   )}
                   style={{
@@ -112,11 +117,14 @@ export function DashboardPipeline({
                     transition: `width 500ms ease-out`,
                     transitionDelay: `${i * 60}ms`,
                   }}
-                />
+                >
+                  {status === "in_progress" && count > 0 && (
+                    <span className="shuttle-dot mr-1.5 text-white" />
+                  )}
+                </div>
               </div>
 
-              {/* Count + percentage */}
-              <div className="flex w-16 shrink-0 items-center justify-end gap-1.5">
+              <div className="flex w-14 shrink-0 items-center justify-end gap-0.5 sm:w-16 sm:gap-1">
                 <span className="text-sm font-semibold tabular-nums text-foreground">
                   {count}
                 </span>

@@ -49,7 +49,7 @@ export function MdReviewPanel({ stats }: { stats: MdReviewStats }) {
             valueClass={stats.revisionCount > 0 ? "text-warning" : "text-foreground"}
           />
           <StatTile
-            icon={<Clock className={cn("h-3 w-3", stats.pendingCount > 0 ? "text-warning animate-pulse" : "text-muted-foreground")} />}
+            icon={<Clock className={cn("h-3 w-3", stats.pendingCount > 0 ? "text-warning" : "text-muted-foreground")} />}
             value={stats.pendingCount}
             label="Pending"
             valueClass={stats.pendingCount > 0 ? "text-warning" : "text-foreground"}

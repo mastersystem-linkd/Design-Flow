@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Menu, LogOut } from "lucide-react";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
@@ -21,6 +21,13 @@ import type { Profile } from "@/types/database";
 // heading, so a topnav title would just repeat it and waste space.
 // ============================================================================
 
+const GREETING_GRADIENTS: Record<string, string> = {
+  morning: "linear-gradient(90deg, rgb(var(--warning)), rgb(var(--primary)))",
+  afternoon: "linear-gradient(90deg, rgb(var(--primary)), rgb(var(--primary) / 0.6))",
+  evening: "linear-gradient(90deg, rgb(var(--primary)), rgb(var(--warning)))",
+  night: "linear-gradient(90deg, rgb(var(--primary) / 0.55), rgb(var(--primary) / 0.35))",
+};
+
 export interface TopNavProps {
   profile: Profile;
   onMobileMenuClick: () => void;
@@ -33,11 +40,24 @@ export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNav
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    function onScroll() {
+      setScrolled(window.scrollY > 4);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const now = new Date();
   const hour = now.getHours();
+  const timeBand =
+    hour < 5 ? "night" : hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
   const greeting =
-    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    timeBand === "night" ? "Good night" : timeBand === "morning" ? "Good morning" : timeBand === "afternoon" ? "Good afternoon" : "Good evening";
+  const greetingGradient = GREETING_GRADIENTS[timeBand];
   const dateLabel = now.toLocaleDateString(undefined, {
     weekday: "long",
     day: "numeric",
@@ -55,11 +75,9 @@ export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNav
     <>
       <header
         className={cn(
-          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b px-4 transition-[left] duration-200 md:px-6",
-          // Track the pinned sidebar width so the topnav reflows when the
-          // user collapses it. Same values + transition as AppLayout's
-          // content padding so they animate together.
-          collapsed ? "md:left-[64px]" : "md:left-[220px]"
+          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b px-4 transition-[left,background-color,box-shadow] duration-200 md:px-6",
+          collapsed ? "md:left-[64px]" : "md:left-[220px]",
+          scrolled && "topnav-scrolled"
         )}
         style={{ borderColor: "var(--border-default)" }}
       >
@@ -76,7 +94,13 @@ export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNav
         {/* ----- LEFT: greeting + date (anchors the bar) ----- */}
         <div className="flex min-w-0 flex-col justify-center leading-tight">
           <span className="truncate text-sm font-semibold text-foreground">
-            {greeting}, {profile.full_name.split(" ")[0]}
+            <span
+              className="greeting-gradient"
+              style={{ backgroundImage: greetingGradient }}
+            >
+              {greeting}
+            </span>
+            , {profile.full_name.split(" ")[0]}
           </span>
           <span className="hidden truncate text-xs text-muted-foreground sm:block">
             {dateLabel}

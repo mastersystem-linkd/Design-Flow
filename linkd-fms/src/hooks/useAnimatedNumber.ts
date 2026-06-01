@@ -1,54 +1,56 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
- * Animates a number from 0 (or previous value) to `target` using
- * requestAnimationFrame with cubic ease-out.
+ * Count-up 0 → target, ~800ms cubic ease-out, ON MOUNT ONLY.
  *
- * - Only animates on first mount or when target changes by > 10%.
- * - Returns 0 immediately if target is 0.
+ * - Refetches (target changes after the first animation) snap instantly.
+ * - StrictMode-safe: `done` is state (re-initialized on remount) so the
+ *   animation plays on the "real" mount, not just the discarded first one.
+ * - Reduced-motion: shows the final number instantly.
+ * - Pair with `tabular-nums` to prevent digit jitter.
  */
 export function useAnimatedNumber(target: number, duration = 800): number {
   const [display, setDisplay] = useState(0);
-  const prevTarget = useRef(0);
-  const rafRef = useRef(0);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (target === 0) {
-      setDisplay(0);
-      prevTarget.current = 0;
-      return;
-    }
-
-    const from = prevTarget.current;
-    const delta = target - from;
-
-    // Skip animation if change is < 10% (avoid micro-jitter)
-    if (from > 0 && Math.abs(delta / from) < 0.1) {
+    if (done) {
       setDisplay(target);
-      prevTarget.current = target;
       return;
     }
 
-    const startTime = performance.now();
+    if (target === 0) return;
+
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (reducedMotion) {
+      setDisplay(target);
+      setDone(true);
+      return;
+    }
+
+    const start = performance.now();
+    let cancelled = false;
 
     function tick(now: number) {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      // Cubic ease-out: 1 - (1 - t)^3
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(from + delta * eased));
-
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(tick);
+      if (cancelled) return;
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - (1 - t) ** 3;
+      setDisplay(Math.round(eased * target));
+      if (t < 1) {
+        requestAnimationFrame(tick);
       } else {
-        prevTarget.current = target;
+        setDone(true);
       }
     }
 
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [target, duration]);
+    requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+    };
+  }, [target, duration, done]);
 
   return display;
 }

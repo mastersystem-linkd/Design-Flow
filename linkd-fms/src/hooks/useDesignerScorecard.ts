@@ -61,6 +61,9 @@ export interface ScorecardActivity {
     | "task_completed"
     | "revision_requested";
   title: string;
+  /** Secondary context line — code, party, qty, timing, feedback snippet —
+   *  so an admin reading the feed gets the full picture without drilling in. */
+  sub?: string;
   status?: string;
   at: string;
 }
@@ -838,32 +841,70 @@ export function useDesignerScorecard(
     if (!designerId) return [];
     const events: ScorecardActivity[] = [];
 
+    // Join the non-empty context fragments into a single "· "-separated line.
+    const join = (...parts: (string | null | undefined | false)[]) =>
+      parts.filter(Boolean).join(" · ");
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    // Short MD-feedback preview so admins see WHY without opening the concept.
+    const snippet = (c: ConceptWithRelations) => {
+      const note = (c.md_feedback ?? c.md_notes ?? "").trim();
+      if (!note) return null;
+      return `"${note.length > 48 ? note.slice(0, 48) + "…" : note}"`;
+    };
+    // Review turnaround (submit → MD decision), humanised.
+    const turnaround = (from: string, to: string) => {
+      try {
+        const h = differenceInHours(parseISO(to), parseISO(from));
+        if (h < 0) return null;
+        return h < 48 ? `reviewed in ${h}h` : `reviewed in ${Math.round(h / 24)}d`;
+      } catch {
+        return null;
+      }
+    };
+
     for (const c of concepts) {
       if (c.submitted_by !== designerId) continue;
+      const party = c.client?.party_name ?? null;
+      const prio =
+        c.priority && c.priority !== "normal"
+          ? `${cap(c.priority)} priority`
+          : null;
       events.push({
         type: "concept_submitted",
-        title: `Submitted concept '${c.title}'`,
+        title: `Submitted concept "${c.title}"`,
+        sub: join(c.concept_code, party && `for ${party}`, prio),
         at: c.created_at,
       });
+      const rounds =
+        c.revision_count > 0
+          ? `after ${c.revision_count} revision${c.revision_count !== 1 ? "s" : ""}`
+          : null;
       if (c.md_status === "approved" && c.md_actual_date) {
         events.push({
           type: "concept_reviewed",
-          title: `Concept '${c.title}' approved`,
+          title: `Concept "${c.title}" approved`,
           status: "approved",
+          sub: join(c.concept_code, rounds, turnaround(c.created_at, c.md_actual_date)),
           at: c.md_actual_date,
         });
       } else if (c.md_status === "rejected" && c.md_actual_date) {
         events.push({
           type: "concept_reviewed",
-          title: `Concept '${c.title}' rejected`,
+          title: `Concept "${c.title}" rejected`,
           status: "rejected",
+          sub: join(c.concept_code, snippet(c)),
           at: c.md_actual_date,
         });
       } else if (c.md_status === "revision_requested" && c.md_actual_date) {
         events.push({
           type: "revision_requested",
-          title: `Revision requested on '${c.title}'`,
+          title: `Revision requested on "${c.title}"`,
           status: "revision_requested",
+          sub: join(
+            c.concept_code,
+            c.revision_count > 0 && `round ${c.revision_count}`,
+            snippet(c)
+          ),
           at: c.md_actual_date,
         });
       }
@@ -871,18 +912,32 @@ export function useDesignerScorecard(
 
     for (const t of tasks) {
       if (t.assigned_to !== designerId) continue;
+      const party =
+        t.client?.party_name ?? (t.brief_type === "ld" ? "LD" : null);
+      const type = t.concept?.trim() || null; // design type
+      const qty = t.qty != null ? `Qty ${t.qty}` : null;
       if (t.assigned_at) {
         events.push({
           type: "task_assigned",
-          title: `Assigned to task ${t.task_code}`,
+          title: type
+            ? `Started "${type}" (${t.task_code})`
+            : `Started task ${t.task_code}`,
+          sub: join(party && `for ${party}`, qty),
           at: t.assigned_at,
         });
       }
       const done = completionDate(t);
       if (done) {
+        const late = (t.delay_days ?? 0) > 1;
+        const timing =
+          t.delay_days == null ? null : late ? `${t.delay_days}d late` : "on time";
         events.push({
           type: "task_completed",
-          title: `Completed task ${t.task_code}`,
+          title: type
+            ? `Completed "${type}" (${t.task_code})`
+            : `Completed task ${t.task_code}`,
+          status: late ? "late" : "on_time",
+          sub: join(party && `for ${party}`, qty, timing),
           at: done,
         });
       }
