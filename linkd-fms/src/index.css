@@ -79,16 +79,32 @@
     --border-hover: rgba(0, 0, 0, 0.1);
     --border-strong: rgba(0, 0, 0, 0.15);
 
-    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-    --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.06);
-    --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.1);
-    --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.12);
+    /* Layered, premium depth — soft close shadow + a wider lifted one so
+       cards read as floating panels rather than flat outlined boxes. */
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 10px -2px rgba(15, 23, 42, 0.06), 0 12px 28px -10px rgba(15, 23, 42, 0.08);
+    --shadow-card-hover: 0 6px 14px -4px rgba(15, 23, 42, 0.10), 0 20px 40px -12px rgba(67, 56, 202, 0.18);
+    --shadow-dropdown: 0 10px 30px -6px rgba(15, 23, 42, 0.14);
+    --shadow-overlay: 0 28px 60px -12px rgba(15, 23, 42, 0.22);
 
     --dot-color: rgba(67, 56, 202, 0.04);
 
     --chart-bar-primary: rgba(67, 56, 202, 0.7);
     --chart-bar-secondary: rgba(67, 56, 202, 0.2);
     --chart-grid: rgba(0, 0, 0, 0.04);
+
+    /* ── Depth + focus tokens ────────────────────────────────── */
+    --selvedge: linear-gradient(90deg, #4338CA, #6366F1);
+    --selvedge-warm: linear-gradient(90deg, rgb(var(--primary)), rgb(var(--warning)));
+    --brand-glow: 0 0 8px rgb(var(--primary) / 0.12);
+    --ring-focus: rgb(var(--ring));
+    --ruler-tick: rgb(var(--border));
+    /* Command-Center depth kit — glass surfaces + brand glow + viz grid */
+    --glass-bg: rgba(255, 255, 255, 0.66);
+    --glass-border: rgba(15, 23, 42, 0.08);
+    --glow-primary: 0 0 0 1px rgb(var(--primary) / 0.08), 0 8px 30px -8px rgb(var(--primary) / 0.22);
+    --glow-soft: 0 0 24px -6px rgb(var(--primary) / 0.18);
+    --grid-line: rgba(15, 23, 42, 0.05);
+    --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0));
 
     /* ── Status pill palette (direct CSS values) ─────────────── */
     --status-pool-dot: #94A3B8;
@@ -199,6 +215,20 @@
     --chart-bar-secondary: rgba(129, 140, 248, 0.2);
     --chart-grid: rgba(255, 255, 255, 0.04);
 
+    /* ── Depth + focus tokens — dark ─────────────────────────── */
+    --selvedge: linear-gradient(90deg, #6366F1, #818CF8);
+    --selvedge-warm: linear-gradient(90deg, rgb(var(--primary)), rgb(var(--warning)));
+    --brand-glow: 0 0 20px rgb(var(--primary) / 0.3);
+    --ring-focus: rgb(var(--ring));
+    --ruler-tick: rgb(var(--border));
+    /* Command-Center depth kit — dark glass + stronger brand glow */
+    --glass-bg: rgba(24, 25, 30, 0.62);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glow-primary: 0 0 0 1px rgb(var(--primary) / 0.18), 0 10px 36px -8px rgb(var(--primary) / 0.40);
+    --glow-soft: 0 0 28px -4px rgb(var(--primary) / 0.35);
+    --grid-line: rgba(255, 255, 255, 0.05);
+    --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0));
+
     /* ── Status pill palette — dark ──────────────────────────── */
     --status-pool-dot: #64748B;
     --status-pool-bg: rgba(148, 163, 184, 0.1);
@@ -226,11 +256,12 @@
   }
 
   html {
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-family: "Manrope", system-ui, -apple-system, sans-serif;
     color: rgb(var(--foreground));
     background-color: rgb(var(--background));
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   body {
@@ -249,9 +280,9 @@
   }
 
   h1, h2, h3, h4 {
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-family: "Sora", system-ui, -apple-system, sans-serif;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 
   /* Make native selects readable in both themes */
@@ -328,6 +359,37 @@
   ::-webkit-scrollbar-thumb:hover {
     background: rgb(var(--muted));
   }
+
+  /* ── Reduced motion ────────────────────────────────────────────
+     Kill all animation + transition for users who ask for calm.
+     !important overrides per-element durations set in Tailwind/JS. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ── Focus-visible ring ────────────────────────────────────────
+     Visible keyboard-focus on every interactive element. Uses the
+     --ring-focus token (indigo-700 light / indigo-400 dark) which
+     clears 3:1 contrast on card, secondary, and background surfaces
+     in both themes. Mouse/touch focus is untouched. */
+  a:focus-visible,
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--ring-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 @layer components {
@@ -356,12 +418,300 @@
     box-shadow: var(--shadow-dropdown);
   }
 
+  /* ── Display font utility ─────────────────────────────────── */
+  .font-display {
+    font-family: "Sora", system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  /* ── Command-Center premium surfaces ──────────────────────────
+     Opt-in classes that layer glass + brand glow on top of the base
+     card tokens. Adapt per-theme via the --glass-* / --glow-* vars.
+     Used by hero strips, KPI tiles, and elevated panels. */
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid var(--glass-border);
+  }
+  .card-glow {
+    box-shadow: var(--glow-primary);
+  }
+  /* Hover lift + brand glow — for actionable cards/tiles. */
+  .hover-glow {
+    transition: box-shadow 260ms cubic-bezier(.16,1,.3,1),
+      transform 260ms cubic-bezier(.16,1,.3,1),
+      border-color 260ms ease;
+  }
+  .hover-glow:hover {
+    box-shadow: var(--glow-primary);
+    transform: translateY(-2px);
+  }
+  /* Brand-gradient text — hero numerals / accent headings only. */
+  .text-gradient {
+    color: rgb(var(--primary));
+  }
+  @supports (-webkit-background-clip: text) or (background-clip: text) {
+    .text-gradient {
+      background: var(--brand-gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+  /* A faint glow on chart curves so data lifts off the surface even
+     in light mode (the dark rule below adds a stronger version). */
+  .recharts-area-curve,
+  .recharts-line-curve {
+    filter: drop-shadow(0 1px 2px rgb(var(--primary) / 0.14));
+  }
+
+  /* ── Warp Draw — dashboard hero entrance ────────────────────
+     The warp line draws in, then KPI tiles stagger-fade. All
+     transform+opacity only. Fully removed under reduced-motion. */
+  @keyframes warp-draw {
+    from { transform: scaleX(0); opacity: 0; }
+    to   { transform: scaleX(1); opacity: 1; }
+  }
+  @keyframes weft-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .warp-draw {
+    animation: warp-draw 400ms cubic-bezier(.16, 1, .3, 1) both;
+    transform-origin: left;
+  }
+  .weft-in {
+    animation: weft-in 350ms cubic-bezier(.16, 1, .3, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .warp-draw, .weft-in {
+      animation: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  }
+
   /* TopNav glassmorphism — themed background that frosts the canvas
      dot-grid behind it. */
   .topnav-glass {
     background: var(--bg-topnav);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+  }
+  /* Scrolled state: firms up like pressed cloth (more opaque + shadow). */
+  .topnav-scrolled {
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--shadow-card);
+  }
+  :is(.dark .topnav-scrolled) {
+    background: rgba(9, 9, 11, 0.94);
+  }
+
+  /* ── Time-woven greeting gradient ───────────────────────────── */
+  .greeting-gradient {
+    color: rgb(var(--primary));
+  }
+  @supports (-webkit-background-clip: text) or (background-clip: text) {
+    .greeting-gradient {
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  /* ── Sidebar nav-item selvedge active state ───────────────────
+     A gradient left-edge (the loom's selvedge thread) + inset brand
+     glow. The ::before is positioned with top/bottom — no translateX
+     so it cooperates with the collapse rail/overlay. */
+  .nav-selvedge-active {
+    background: rgb(var(--primary) / 0.08);
+    color: rgb(var(--primary));
+    box-shadow: inset var(--brand-glow);
+  }
+  .nav-selvedge-active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 15%;
+    bottom: 15%;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background-image: var(--selvedge);
+  }
+
+  /* ── Data numeral face (opt-in) ─────────────────────────────── */
+  .font-mono-data {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Dialog panel — selvedge top edge + entrance easing ────── */
+  .dialog-panel {
+    background-image: var(--selvedge);
+    background-size: 100% 2px;
+    background-repeat: no-repeat;
+    background-position: top;
+  }
+  .dialog-ease[data-state="open"] {
+    --tw-enter-scale: .96 !important;
+    animation-timing-function: cubic-bezier(.16, 1, .3, 1) !important;
+    animation-duration: 350ms !important;
+  }
+  .dialog-ease[data-state="closed"] {
+    animation-duration: 200ms !important;
+  }
+
+  /* ── Dark-mode chart glow — lifts indigo fills off the canvas ─ */
+  :is(.dark) .recharts-area-curve,
+  :is(.dark) .recharts-line-curve {
+    filter: brightness(1.15) drop-shadow(0 0 4px rgb(var(--primary) / 0.3));
+  }
+  :is(.dark) .recharts-bar-rectangle path {
+    filter: brightness(1.1);
+  }
+
+  /* ── Table density: compact override ─────────────────────────
+     Applied via .table-compact on a table or its wrapper. Overrides
+     the comfortable defaults from tableStyles constants. */
+  .table-compact th {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    font-size: 10px;
+  }
+  .table-compact td {
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+  .table-compact .sticky {
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+  }
+
+  /* ── Table woven-row selvedge hover ─────────────────────────── */
+  .row-selvedge:hover {
+    box-shadow: inset 2px 0 0 rgb(var(--primary));
+  }
+  .thead-selvedge {
+    background-image: var(--selvedge);
+    background-size: 100% 2px;
+    background-repeat: no-repeat;
+    background-position: top;
+  }
+
+  /* ── Shuttle dot (active pipeline connector) ───────────────────
+     A small dot that pulses on the active flow connector. Hidden
+     entirely under reduced-motion. */
+  @keyframes shuttle {
+    0%, 100% { transform: translateX(0); opacity: 0.5; }
+    50% { transform: translateX(3px); opacity: 1; }
+  }
+  .shuttle-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: shuttle 1.8s ease-in-out infinite;
+    box-shadow: 0 0 6px currentColor;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shuttle-dot { display: none !important; }
+  }
+
+  /* ── Gradient ring on active stepper pill ──────────────────── */
+  .pill-gradient-ring {
+    position: relative;
+    z-index: 0;
+  }
+  .pill-gradient-ring::after {
+    content: "";
+    position: absolute;
+    inset: -1.5px;
+    border-radius: 9999px;
+    padding: 1.5px;
+    background-image: var(--selvedge);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* ── Swatch edge for KPI tiles ────────────────────────────────
+     A gradient left-edge that frames each metric tile like a
+     bound fabric swatch. Resting = indigo (--selvedge), hover on
+     actionable tiles warms to indigo→madder (--selvedge-warm).
+     Reduced-motion kills the transition via the blanket rule. */
+  .swatch-edge {
+    position: relative;
+    overflow: hidden;
+  }
+  .swatch-edge::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-image: var(--selvedge);
+    border-radius: 0 1px 1px 0;
+    transition: background-image 300ms ease;
+    z-index: 1;
+  }
+  .swatch-edge-actionable:hover::before {
+    background-image: var(--selvedge-warm);
+  }
+
+  /* ── Thread-count gradient numerals ───────────────────────────
+     Gradient-clipped display figures (≥28px / 700+). Fallback to
+     solid foreground when background-clip: text is unsupported.
+     Use on hero KPIs and large stat values only — never on body
+     text, labels, or small numerals. */
+  .metric-value {
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--foreground));
+    position: relative;
+  }
+
+  @supports (-webkit-background-clip: text) or (background-clip: text) {
+    .metric-value {
+      background: var(--brand-gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  .metric-value-ruled {
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--foreground));
+    position: relative;
+    padding-bottom: 4px;
+  }
+
+  @supports (-webkit-background-clip: text) or (background-clip: text) {
+    .metric-value-ruled {
+      background: var(--brand-gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  .metric-value-ruled::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: var(--ruler-tick);
   }
 }
 

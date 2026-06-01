@@ -6,6 +6,9 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { AuthProvider } from "@/hooks/useAuth";
 import { LoaderProvider } from "@/components/ui";
+// Display (Sora) + body (Manrope) load via the Google Fonts <link> in
+// index.html. JetBrains Mono is self-hosted for the tabular data numerals.
+import "@fontsource/jetbrains-mono/700.css";
 import "@/index.css";
 
 const queryClient = new QueryClient({

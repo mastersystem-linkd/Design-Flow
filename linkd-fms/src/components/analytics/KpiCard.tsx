@@ -76,18 +76,15 @@ export function KpiCard({
   /* ── Flat mode — compact tiles for divided grid strips ── */
   if (flat) {
     const inner = (
-      <div className="flex h-full flex-col justify-center gap-0.5 px-3 py-1.5 sm:px-4 sm:py-2">
+      <div className="relative flex h-full flex-col justify-center gap-0.5 px-3 py-1.5 swatch-edge sm:px-4 sm:py-2">
         <div className="flex items-center justify-between gap-2">
-          <div className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
-            tintClass
-          )}>
-            {icon}
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
+            <span className="text-primary">{icon}</span>
           </div>
           {trendPill}
         </div>
         <p className={cn(
-          "text-lg font-bold leading-none tabular-nums sm:text-xl",
+          "font-mono-data text-lg leading-none tracking-tight sm:text-xl",
           valueColor ?? "text-foreground"
         )}>
           {displayValue}
@@ -108,7 +105,7 @@ export function KpiCard({
 
     if (!to) return inner;
     return (
-      <Link to={to} className="h-full transition-colors hover:bg-secondary/40">
+      <Link to={to} className="h-full swatch-edge-actionable transition-colors duration-200 hover:bg-secondary/40">
         {inner}
       </Link>
     );
@@ -118,30 +115,28 @@ export function KpiCard({
   const card = (
     <Card
       className={cn(
-        "group/kpi relative h-full overflow-hidden border-border/60 transition-all duration-200",
-        to && "cursor-pointer hover:border-primary/25 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/[0.04]"
+        "group/kpi relative h-full overflow-hidden border-border/60 bg-gradient-to-br from-card via-card to-secondary/20 swatch-edge transition-all duration-200",
+        to && "cursor-pointer swatch-edge-actionable hover-glow hover:border-primary/30"
       )}
     >
-      <div aria-hidden className={cn(
-        "pointer-events-none absolute -left-4 -top-4 h-20 w-20 rounded-full opacity-[0.07] blur-2xl transition-opacity",
-        tintClass.replace("/10", "").replace("bg-", "bg-"),
-        to && "group-hover/kpi:opacity-[0.12]"
-      )} />
-
+      {/* Corner brand glow — blooms on hover for an actionable tile. */}
+      {to && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/20 blur-2xl opacity-0 transition-opacity duration-300 group-hover/kpi:opacity-60"
+        />
+      )}
       <CardContent className="relative flex h-full flex-col gap-1.5 px-3.5 py-3 sm:px-4 sm:py-3.5">
         <div className="flex items-center justify-between gap-2">
-          <div className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-lg",
-            tintClass
-          )}>
-            {icon}
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-inset ring-primary/15 shadow-[0_0_14px_-3px_rgb(var(--primary)/0.35)]">
+            <span className="text-primary">{icon}</span>
           </div>
           {trendPill}
         </div>
 
         <div>
           <p className={cn(
-            "text-xl font-bold leading-tight tabular-nums sm:text-2xl",
+            "font-mono-data text-xl leading-tight tracking-tight sm:text-2xl",
             valueColor ?? "text-foreground"
           )}>
             {displayValue}

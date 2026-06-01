@@ -21,11 +21,14 @@ import {
   CHART_TOOLTIP_CURSOR,
   CHART_LEGEND_STYLE,
   CHART_BAR_RADIUS,
+  useChartAnimation,
 } from "@/lib/chartConfig";
+import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
 import type { VolumePoint } from "@/hooks/useAnalytics";
 
 export function VolumeChart({ data, title }: { data: VolumePoint[]; title?: string }) {
   const navigate = useNavigate();
+  const animate = useChartAnimation();
 
   function handleBarClick() {
     navigate(ROUTES.concepts);
@@ -41,6 +44,7 @@ export function VolumeChart({ data, title }: { data: VolumePoint[]; title?: stri
         <div className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
             <BarChart data={data} barGap={3} barCategoryGap="26%">
+              <ChartGradients />
               <CartesianGrid {...CHART_GRID_PROPS} />
               <XAxis dataKey="label" {...CHART_AXIS_PROPS} dy={4} />
               <YAxis allowDecimals={false} width={30} {...CHART_AXIS_PROPS} />
@@ -58,15 +62,17 @@ export function VolumeChart({ data, title }: { data: VolumePoint[]; title?: stri
                 maxBarSize={44}
                 cursor="pointer"
                 onClick={handleBarClick}
+                isAnimationActive={animate}
               />
               <Bar
                 dataKey="approved"
                 name="Approved"
-                fill={CHART_THEME.success}
+                fill={`url(#${CHART_GRAD.barSuccess})`}
                 radius={CHART_BAR_RADIUS}
                 maxBarSize={44}
                 cursor="pointer"
                 onClick={handleBarClick}
+                isAnimationActive={animate}
               />
               <Bar
                 dataKey="rejected"
@@ -77,6 +83,7 @@ export function VolumeChart({ data, title }: { data: VolumePoint[]; title?: stri
                 maxBarSize={44}
                 cursor="pointer"
                 onClick={handleBarClick}
+                isAnimationActive={animate}
               />
             </BarChart>
           </ResponsiveContainer>

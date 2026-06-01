@@ -89,7 +89,9 @@ import { ROLE_LABELS } from "@/lib/constants";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { KpiCard } from "@/components/analytics/KpiCard";
+import { ScoreRing } from "@/components/analytics/ScoreRing";
 import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
+import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
 import type { TaskWithRelations } from "@/types/database";
 
 // ============================================================================
@@ -1924,23 +1926,15 @@ function ScoreCard({
               </p>
             </div>
           </div>
-          <div className="flex flex-col items-end leading-none">
-            <div className="flex items-baseline gap-0.5">
-              <span
-                className={cn(
-                  "text-3xl font-bold tabular-nums tracking-tight sm:text-[34px]",
-                  tone.textClass
-                )}
-              >
+          <div className="flex flex-col items-center">
+            <ScoreRing score={score} size={72} strokeWidth={5}>
+              <span className={cn("text-lg font-bold tabular-nums leading-none", tone.textClass)}>
                 {score}
               </span>
-              <span className="text-base font-medium text-muted-foreground/60">
-                /100
-              </span>
-            </div>
+            </ScoreRing>
             <span
               className={cn(
-                "mt-1 text-[10px] font-bold uppercase tracking-[0.14em]",
+                "mt-1 text-[9px] font-bold uppercase tracking-[0.14em]",
                 tone.textClass
               )}
             >
@@ -2254,6 +2248,7 @@ function MomentumChart({
     <div className="h-[220px] w-full">
       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
         <AreaChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+          <ChartGradients />
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="rgb(var(--border))"
@@ -2261,13 +2256,13 @@ function MomentumChart({
           />
           <XAxis
             dataKey="month"
-            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             allowDecimals={false}
-            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 11, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
             axisLine={false}
             tickLine={false}
             width={40}
@@ -2278,6 +2273,7 @@ function MomentumChart({
               border: "1px solid rgb(var(--border))",
               borderRadius: 10,
               fontSize: 12,
+              fontFamily: '"JetBrains Mono", ui-monospace, monospace',
               color: "rgb(var(--foreground))",
               boxShadow: "var(--shadow-dropdown)",
               padding: "8px 10px",
@@ -2295,20 +2291,20 @@ function MomentumChart({
             dataKey="conceptsApproved"
             name="Concepts Approved"
             stroke="rgb(var(--success))"
-            fill="rgb(var(--success))"
-            fillOpacity={0.12}
-            strokeWidth={2}
-            dot={{ r: 3 }}
+            fill={`url(#${CHART_GRAD.areaSuccess})`}
+            strokeWidth={2.5}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
           />
           <Area
             type="monotone"
             dataKey="tasksCompleted"
             name="Tasks Completed"
             stroke="rgb(var(--primary))"
-            fill="rgb(var(--primary))"
-            fillOpacity={0.12}
-            strokeWidth={2}
-            dot={{ r: 3 }}
+            fill={`url(#${CHART_GRAD.areaPrimary})`}
+            strokeWidth={2.5}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -2895,7 +2891,7 @@ function ActivityInsightsRow({
             <p className="text-xs text-muted-foreground">
               {activity.length === 0
                 ? "No events yet"
-                : `${activity.length} events — tap to view`}
+                : `${activity.length} event${activity.length !== 1 ? "s" : ""} — tap to view`}
             </p>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -2933,7 +2929,7 @@ function ActivityInsightsRow({
               <DialogHeader className="p-0">
                 <DialogTitle className="text-base">Recent Activity</DialogTitle>
                 <DialogDescription className="text-xs">
-                  Last {activity.length} events in this period
+                  Last {activity.length} event{activity.length !== 1 ? "s" : ""} in this period
                 </DialogDescription>
               </DialogHeader>
             </div>
@@ -2994,12 +2990,19 @@ function ActivityRow({ ev }: { ev: ScorecardActivity }) {
     when = "";
   }
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 px-3 py-2.5">
-      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", bg)} />
+    <div className="flex items-start gap-3 rounded-lg border border-border/50 bg-secondary/20 px-3 py-2.5">
+      <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", bg)} />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">{ev.title}</p>
+        {ev.sub && (
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+            {ev.sub}
+          </p>
+        )}
       </div>
-      <span className={cn("shrink-0 text-[10px] tabular-nums", text)}>{when}</span>
+      <span className={cn("mt-0.5 shrink-0 text-[10px] tabular-nums", text)}>
+        {when}
+      </span>
     </div>
   );
 }
@@ -3010,7 +3013,10 @@ function activityTone(ev: ScorecardActivity): { bg: string; text: string } {
     if (ev.status === "rejected") return { bg: "bg-destructive", text: "text-destructive" };
     return { bg: "bg-warning", text: "text-warning" };
   }
-  if (ev.type === "task_completed") return { bg: "bg-success", text: "text-success" };
+  if (ev.type === "task_completed")
+    return ev.status === "late"
+      ? { bg: "bg-warning", text: "text-warning" }
+      : { bg: "bg-success", text: "text-success" };
   if (ev.type === "revision_requested") return { bg: "bg-warning", text: "text-warning" };
   return { bg: "bg-primary", text: "text-muted-foreground" };
 }

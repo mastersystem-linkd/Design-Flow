@@ -59,8 +59,10 @@ const config: Config = {
         ring: "rgb(var(--ring) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
-        serif: ["Inter", "system-ui", "-apple-system", "sans-serif"],
+        sans: ["Manrope", "system-ui", "-apple-system", "sans-serif"],
+        serif: ["Manrope", "system-ui", "-apple-system", "sans-serif"],
+        display: ["Sora", "system-ui", "-apple-system", "sans-serif"],
+        "mono-data": ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       borderRadius: {
         lg: "12px",
@@ -75,11 +77,22 @@ const config: Config = {
         "card-hover": "var(--shadow-card-hover)",
         dropdown: "var(--shadow-dropdown)",
         overlay: "var(--shadow-overlay)",
+        // Command-Center brand glow — `shadow-glow` / `shadow-glow-soft`.
+        glow: "var(--glow-primary)",
+        "glow-soft": "var(--glow-soft)",
       },
       backgroundImage: {
         // Brand-anchor gradient used by hero KPIs. Same in light + dark
         // — see LINKD-FMS-UI-REDESIGN.md §5.3.
         "hero-gradient": "var(--brand-gradient)",
+        // Radial brand glow + faint data-grid for premium panel backdrops.
+        "glow-radial":
+          "radial-gradient(circle at 50% 0%, rgb(var(--primary) / 0.10), transparent 70%)",
+        "grid-fade":
+          "linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px)",
+      },
+      backgroundSize: {
+        grid: "32px 32px",
       },
     },
   },
