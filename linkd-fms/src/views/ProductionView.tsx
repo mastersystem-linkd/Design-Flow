@@ -47,6 +47,7 @@ import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel"
 import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
 import { useChartAnimation } from "@/lib/chartConfig";
+import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
 import {
   Badge,
   Button,
@@ -1117,6 +1118,7 @@ function SampleDashboard({
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
                 <BarChart data={chartData}>
+                  <ChartGradients />
                   <XAxis
                     dataKey="date"
                     tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
@@ -1141,8 +1143,8 @@ function SampleDashboard({
                   />
                   <Bar
                     dataKey="count"
-                    fill="rgb(var(--primary))"
-                    radius={[4, 4, 0, 0]}
+                    fill={`url(#${CHART_GRAD.barPrimary})`}
+                    radius={[5, 5, 0, 0]}
                     isAnimationActive={chartAnimate}
                   />
                 </BarChart>

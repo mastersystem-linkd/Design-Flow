@@ -61,6 +61,7 @@ import type { UserRole } from "@/types/database";
 import { scorecardDetailPath } from "@/lib/routes";
 import { useConcepts } from "@/hooks/useConcepts";
 import { useTasks } from "@/hooks/useTasks";
+import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
@@ -918,6 +919,7 @@ function TrendChart({
     <div className="h-[160px] w-full">
       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
         <AreaChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+          <ChartGradients />
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="rgb(var(--border))"
@@ -959,20 +961,20 @@ function TrendChart({
             dataKey="conceptsApproved"
             name="Concepts Approved"
             stroke="rgb(var(--success))"
-            fill="rgb(var(--success))"
-            fillOpacity={0.1}
-            strokeWidth={2}
-            dot={{ r: 3 }}
+            fill={`url(#${CHART_GRAD.areaSuccess})`}
+            strokeWidth={2.5}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
           />
           <Area
             type="monotone"
             dataKey="tasksCompleted"
             name="Tasks Completed"
             stroke="rgb(var(--primary))"
-            fill="rgb(var(--primary))"
-            fillOpacity={0.1}
-            strokeWidth={2}
-            dot={{ r: 3 }}
+            fill={`url(#${CHART_GRAD.areaPrimary})`}
+            strokeWidth={2.5}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 0 }}
           />
         </AreaChart>
       </ResponsiveContainer>
