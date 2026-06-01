@@ -84,16 +84,16 @@ export function KpiCard({
           {trendPill}
         </div>
         <p className={cn(
-          "font-mono-data text-lg leading-none tracking-tight sm:text-xl",
-          valueColor ?? "text-foreground"
+          "font-mono-data text-xl font-bold leading-none tracking-tight sm:text-2xl",
+          valueColor ?? "metric-value"
         )}>
           {displayValue}
         </p>
-        <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {label}
         </p>
         {sub && (
-          <p className="hidden truncate text-[9px] leading-tight text-muted-foreground/60 sm:block">{sub}</p>
+          <p className="mt-0.5 hidden truncate text-[11px] font-medium leading-tight text-muted-foreground sm:block">{sub}</p>
         )}
         {sparklineData && sparklineData.length >= 2 && (
           <div className="-mb-0.5 mt-auto hidden h-3.5 sm:block">
@@ -105,7 +105,7 @@ export function KpiCard({
 
     if (!to) return inner;
     return (
-      <Link to={to} className="h-full swatch-edge-actionable transition-colors duration-200 hover:bg-secondary/40">
+      <Link to={to} className="h-full swatch-edge-actionable outline-none transition-colors duration-200 hover:bg-secondary/40 focus-visible:bg-secondary/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">
         {inner}
       </Link>
     );
@@ -136,14 +136,14 @@ export function KpiCard({
 
         <div>
           <p className={cn(
-            "font-mono-data text-xl leading-tight tracking-tight sm:text-2xl",
-            valueColor ?? "text-foreground"
+            "font-mono-data text-[26px] font-bold leading-none tracking-tight sm:text-[28px]",
+            valueColor ?? "metric-value"
           )}>
             {displayValue}
           </p>
-          <p className="truncate text-[11px] font-medium text-muted-foreground sm:text-xs">{label}</p>
+          <p className="mt-1 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
           {sub && (
-            <p className="hidden truncate text-[10px] text-muted-foreground/60 sm:block">{sub}</p>
+            <p className="mt-0.5 hidden truncate text-[11px] font-medium text-muted-foreground sm:block">{sub}</p>
           )}
         </div>
 
@@ -156,6 +156,6 @@ export function KpiCard({
     </Card>
   );
 
-  if (to) return <Link to={to}>{card}</Link>;
+  if (to) return <Link to={to} className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{card}</Link>;
   return card;
 }
