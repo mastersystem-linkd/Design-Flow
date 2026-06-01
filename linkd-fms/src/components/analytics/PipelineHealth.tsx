@@ -6,11 +6,13 @@ import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import type { StatusDistribution } from "@/hooks/useAnalytics";
 
+// Gradient fills + a soft colored glow so the bars read as lit data, not
+// flat blocks. Each glow is tinted to its own status colour.
 const STATUS_BAR_COLOR: Record<string, string> = {
-  pending: "bg-warning",
-  approved: "bg-success",
-  rejected: "bg-destructive",
-  revision_requested: "bg-primary",
+  pending: "bg-gradient-to-r from-warning/60 to-warning shadow-[0_0_12px_-2px_rgb(var(--warning)/0.55)]",
+  approved: "bg-gradient-to-r from-success/60 to-success shadow-[0_0_12px_-2px_rgb(var(--success)/0.55)]",
+  rejected: "bg-gradient-to-r from-destructive/60 to-destructive shadow-[0_0_12px_-2px_rgb(var(--destructive)/0.55)]",
+  revision_requested: "bg-gradient-to-r from-primary/60 to-primary shadow-[0_0_12px_-2px_rgb(var(--primary)/0.55)]",
 };
 
 const STATUS_BORDER: Record<string, string> = {

@@ -16,15 +16,16 @@ export function densityClass(d: TableDensity): string {
 
 /** Outer wrapper for a self-contained data table card. */
 export const TABLE_CONTAINER =
-  "overflow-hidden rounded-xl border border-border bg-card shadow-sm";
+  "overflow-hidden rounded-xl border border-border bg-card shadow-card";
 
 /** Scroll wrapper that goes immediately inside TABLE_CONTAINER (or used
  *  standalone when the parent already supplies the card). */
 export const TABLE_SCROLL = "overflow-x-auto";
 
-/** `<thead>` background + text token. Thin selvedge gradient at top edge. */
+/** `<thead>` background + text token. Thin selvedge gradient at top edge,
+ *  with a subtle top-down tint so the header reads as a raised surface. */
 export const TABLE_HEAD =
-  "thead-selvedge border-b border-border bg-secondary/60 text-left text-[11px] font-bold uppercase tracking-wider text-foreground whitespace-nowrap";
+  "thead-selvedge border-b border-border bg-gradient-to-b from-secondary/80 to-secondary/40 text-left text-[11px] font-bold uppercase tracking-wider text-foreground whitespace-nowrap";
 
 /** `<th>` cell — tight padding matching the All Tasks table. */
 export const TABLE_TH = "px-3 py-2 text-left font-bold";

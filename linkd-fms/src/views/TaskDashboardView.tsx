@@ -48,10 +48,12 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: "quarter", label: "Quarter" },
 ];
 
+// Gradient fills + soft status-tinted glow — mirrors PipelineHealth so both
+// pipeline widgets read as lit data, not flat blocks.
 const PIPELINE_BAR_COLOR: Record<string, string> = {
-  pool: "bg-muted",
-  in_progress: "bg-primary",
-  done: "bg-success",
+  pool: "bg-gradient-to-r from-muted/60 to-muted",
+  in_progress: "bg-gradient-to-r from-primary/60 to-primary shadow-[0_0_12px_-2px_rgb(var(--primary)/0.55)]",
+  done: "bg-gradient-to-r from-success/60 to-success shadow-[0_0_12px_-2px_rgb(var(--success)/0.55)]",
 };
 
 // Matches the per-status accent on the left border of each Pipeline row —
