@@ -203,11 +203,11 @@ export function VoiceFeedback({
   // (especially with `lang=hi-IN`) the engine often records the audio fine
   // but produces zero transcript callbacks. To make the textarea reliably
   // fill in across devices we POST the uploaded audio to /api/transcribe
-  // (OpenAI Whisper) and overwrite whatever the live SR managed to capture.
+  // (Groq Whisper) and overwrite whatever the live SR managed to capture.
   // Whisper auto-detects English / Hindi mid-sentence, which is the common
   // case for this team.
   //
-  // If the server returns 503 (no OPENAI_API_KEY configured) we keep the
+  // If the server returns 503 (no GROQ_API_KEY configured) we keep the
   // live-SR partial silently — the audio is still saved either way.
   useEffect(() => {
     if (!audioBlob || !onAudioUrl) return;

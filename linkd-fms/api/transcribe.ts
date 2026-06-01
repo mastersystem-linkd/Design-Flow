@@ -8,19 +8,15 @@
 //   transcript at all (especially with `lang=hi-IN` on devices that don't
 //   have Google Speech Services tuned for that locale). After the audio is
 //   uploaded to Supabase Storage, the client POSTs the path here and we run
-//   the file through **OpenAI Whisper**, which auto-detects English / Hindi
-//   and is consistent across devices. Browser SR stays as a "live preview"
-//   while recording; this endpoint returns the authoritative transcript.
+//   the file through **Groq Whisper** (whisper-large-v3), which auto-detects
+//   English / Hindi and is consistent across devices. Browser SR stays as a
+//   "live preview" while recording; this endpoint returns the authoritative
+//   transcript.
 //
-//   Provider chain:
-//     1. If OPENAI_API_KEY is set → use api.openai.com + whisper-1.
-//     2. Else if GROQ_API_KEY is set → use api.groq.com + whisper-large-v3
-//        (kept as a free-tier fallback so a missing/expired OpenAI key
-//        doesn't take transcription offline).
-//     3. Else → 503 with an actionable hint and the client falls back to
-//        "audio only".
-//   Both providers expose the same Audio Transcriptions request body, so
-//   only the URL + model name + auth key swap between them.
+//   Provider:
+//     • If GROQ_API_KEY is set → use api.groq.com + whisper-large-v3.
+//     • Else → 503 with an actionable hint and the client falls back to
+//       "audio only".
 //
 // Request:  { path: string }     storage path inside `sample-files`
 // Response: { transcript: string }
@@ -29,30 +25,15 @@
 //   • SUPABASE_URL                — same as VITE_SUPABASE_URL
 //   • SUPABASE_ANON_KEY           — same as VITE_SUPABASE_ANON_KEY
 //   • SUPABASE_SERVICE_ROLE_KEY   — to download the audio bypassing RLS
-//   • OPENAI_API_KEY              — `sk-…` from platform.openai.com/api-keys.
-//                                   Primary provider. Requires an account
-//                                   with credit balance (~$5 covers months).
-//   • GROQ_API_KEY (optional)     — `gsk_…` from console.groq.com/keys.
-//                                   Free fallback; used when OPENAI_API_KEY
-//                                   isn't set.
+//   • GROQ_API_KEY                — `gsk_…` from console.groq.com/keys.
+//                                   Transcription provider (whisper-large-v3).
 // ============================================================================
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
 const BUCKET = "sample-files";
-// Per-provider config. OpenAI is primary; Groq is a free fallback. Both
-// expose the same Audio Transcriptions request body so the only differences
-// are the host, model name, and which env var holds the auth token.
-const OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
-// `gpt-4o-mini-transcribe` is OpenAI's small / cost-tuned transcription
-// model (~$0.003/min, half of whisper-1). It outperforms whisper-1 on
-// accented English and short Hinglish snippets while supporting the same
-// `prompt` / `language` / `temperature` parameters the rest of this file
-// relies on. To swap: `gpt-4o-transcribe` for ~2× cost + slightly higher
-// accuracy, or `whisper-1` for the legacy / cheapest-with-language-`en`-trick
-// behaviour.
-const OPENAI_WHISPER_MODEL = "gpt-4o-mini-transcribe";
+// Groq's OpenAI-compatible Audio Transcriptions endpoint.
 const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_WHISPER_MODEL = "whisper-large-v3"; // accuracy-first variant — better than turbo for accented English + Hinglish
 // Both providers cap per-request audio at 25 MB. Reject obviously oversized
@@ -86,14 +67,10 @@ export default async function handler(
   const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const ANON = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
   const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  // Provider selection: OpenAI is primary, Groq is the free-tier fallback.
-  // We pick at request time so flipping providers is just "add the env var
-  // and redeploy" — no code change needed.
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  // Transcription provider: Groq Whisper. Picked at request time so enabling
+  // it is just "add GROQ_API_KEY and redeploy" — no code change needed.
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  const provider = OPENAI_API_KEY
-    ? { name: "openai" as const, key: OPENAI_API_KEY, url: OPENAI_WHISPER_URL, model: OPENAI_WHISPER_MODEL }
-    : GROQ_API_KEY
+  const provider = GROQ_API_KEY
     ? { name: "groq" as const, key: GROQ_API_KEY, url: GROQ_WHISPER_URL, model: GROQ_WHISPER_MODEL }
     : null;
 
@@ -109,7 +86,7 @@ export default async function handler(
     // Surface a clear, actionable error so the client can present a hint.
     res.status(503).json({
       error:
-        "Transcription is not configured on this deployment. Add OPENAI_API_KEY (sk-…) to Vercel env vars to enable. GROQ_API_KEY (gsk_…) also works as a free fallback.",
+        "Transcription is not configured on this deployment. Add GROQ_API_KEY (gsk_…) to Vercel env vars to enable.",
     });
     return;
   }
