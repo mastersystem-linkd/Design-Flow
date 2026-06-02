@@ -1928,8 +1928,21 @@ function MessageTimeInput({
   const [min, setMin] = useState("");
   const [period, setPeriod] = useState<"AM" | "PM">("AM");
 
-  // Keep local parts in sync with the stored 24h value (draft restore / reset).
+  // Keep local parts in sync with the stored 24h value (draft restore / reset /
+  // editing an existing record). Crucially, skip when `value` is just our OWN
+  // emit echoing back — otherwise it would re-pad an in-progress single digit
+  // (e.g. minute "5") to "05" and block typing the second digit ("59").
   useEffect(() => {
+    const current =
+      h12 && min
+        ? (() => {
+            let h = parseInt(h12, 10) % 12;
+            if (period === "PM") h += 12;
+            return `${String(h).padStart(2, "0")}:${min.padStart(2, "0")}`;
+          })()
+        : "";
+    if ((value ?? "") === current) return;
+
     const m = /^(\d{1,2}):(\d{2})$/.exec(value ?? "");
     if (!m) {
       setH12("");
@@ -1941,8 +1954,9 @@ function MessageTimeInput({
     setPeriod(h >= 12 ? "PM" : "AM");
     h = h % 12;
     if (h === 0) h = 12;
-    setH12(String(h));
+    setH12(String(h).padStart(2, "0"));
     setMin(m[2]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   function update(nextH: string, nextMin: string, nextPeriod: "AM" | "PM") {
@@ -1955,55 +1969,73 @@ function MessageTimeInput({
     }
     let h = parseInt(nextH, 10) % 12;
     if (nextPeriod === "PM") h += 12;
-    onChange(`${String(h).padStart(2, "0")}:${nextMin}`);
+    onChange(`${String(h).padStart(2, "0")}:${nextMin.padStart(2, "0")}`);
+  }
+
+  const minRef = useRef<HTMLInputElement>(null);
+
+  // Typed entry — digits only, clamped to range. Hour auto-advances to minute
+  // once it can't take more digits (2 chars, or a leading 2-9 that must be a
+  // single-digit hour). Blur zero-pads for a tidy "05" display.
+  function onHourInput(raw: string) {
+    const d = raw.replace(/\D/g, "").slice(0, 2);
+    const next = d === "" ? "" : String(Math.min(12, parseInt(d, 10) || 0));
+    update(next, min, period);
+    if (next && (next.length === 2 || parseInt(next, 10) > 1)) {
+      minRef.current?.focus();
+      minRef.current?.select();
+    }
+  }
+  function onMinInput(raw: string) {
+    const d = raw.replace(/\D/g, "").slice(0, 2);
+    const next = d === "" ? "" : d.length === 2 ? String(Math.min(59, parseInt(d, 10))).padStart(2, "0") : d;
+    update(h12, next, period);
   }
 
   // Borderless part-selects that live inside the single unified field. The
   // native control still drives the value (great mobile pickers); we just hide
   // its chrome so the whole thing reads as one crafted time input.
   const partCls =
-    "h-9 cursor-pointer appearance-none rounded-md bg-transparent px-1.5 text-center text-sm font-semibold tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/40 disabled:cursor-not-allowed";
-  const placeholderCls = !h12 || !min ? "text-muted-foreground" : "";
+    "h-9 w-9 rounded-md bg-transparent text-center text-sm font-semibold tabular-nums text-foreground placeholder:font-medium placeholder:text-muted-foreground focus:bg-secondary/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/40 disabled:opacity-50";
 
   return (
     <div
       className={cn(
-        "flex h-11 w-full items-center gap-1 rounded-lg border border-input bg-card pl-2.5 pr-1.5 transition-colors",
+        "flex h-11 w-full items-center gap-0.5 rounded-lg border border-input bg-card pl-2.5 pr-1.5 transition-colors",
         "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30",
         disabled && "opacity-50"
       )}
     >
-      <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <select
+      <Clock className="mr-1 h-4 w-4 shrink-0 text-muted-foreground" />
+      <input
         id={id}
+        type="text"
+        inputMode="numeric"
         aria-label="Hour"
-        className={cn(partCls, !h12 && "text-muted-foreground")}
+        placeholder="HH"
+        maxLength={2}
+        className={partCls}
         value={h12}
-        onChange={(e) => update(e.target.value, min, period)}
+        onChange={(e) => onHourInput(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={() => h12 && update(h12.padStart(2, "0"), min, period)}
         disabled={disabled}
-      >
-        <option value="" disabled>HH</option>
-        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((h) => (
-          <option key={h} value={h}>
-            {h.padStart(2, "0")}
-          </option>
-        ))}
-      </select>
-      <span className={cn("text-sm font-bold text-muted-foreground", placeholderCls)}>:</span>
-      <select
+      />
+      <span className="text-sm font-bold text-muted-foreground">:</span>
+      <input
+        ref={minRef}
+        type="text"
+        inputMode="numeric"
         aria-label="Minute"
-        className={cn(partCls, !min && "text-muted-foreground")}
+        placeholder="MM"
+        maxLength={2}
+        className={partCls}
         value={min}
-        onChange={(e) => update(h12, e.target.value, period)}
+        onChange={(e) => onMinInput(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={() => min && update(h12, min.padStart(2, "0"), period)}
         disabled={disabled}
-      >
-        <option value="" disabled>MM</option>
-        {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map((m) => (
-          <option key={m} value={m}>
-            {m}
-          </option>
-        ))}
-      </select>
+      />
       {/* Segmented AM/PM — sits on a recessed track, active pill lifts. */}
       <div className="ml-auto inline-flex shrink-0 items-center rounded-md bg-secondary p-0.5">
         {(["AM", "PM"] as const).map((p) => (
