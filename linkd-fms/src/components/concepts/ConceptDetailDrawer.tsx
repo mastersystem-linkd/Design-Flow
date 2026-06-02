@@ -67,6 +67,7 @@ import {
   ChevronDown,
   Sparkles,
   ShieldCheck,
+  Trophy,
 } from "lucide-react";
 import {
   Dialog,
@@ -85,6 +86,20 @@ function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
   try {
     return format(parseISO(d), "dd MMM yyyy");
+  } catch {
+    return "—";
+  }
+}
+
+/** Like fmtDate but appends the time when the stored value carries one. Legacy
+ *  date-only entries (no "T..:.." part) stay date-only so we don't render a
+ *  misleading midnight. Used by the Activity Timeline so same-day events are
+ *  distinguishable and ordered legibly. */
+function fmtDateTime(d: string | null | undefined): string {
+  if (!d) return "—";
+  try {
+    const hasTime = /T\d{2}:\d{2}/.test(d);
+    return format(parseISO(d), hasTime ? "dd MMM yyyy, h:mm a" : "dd MMM yyyy");
   } catch {
     return "—";
   }
@@ -1885,7 +1900,8 @@ type TimelineEntryType =
   | "created"
   | "md_concept_approved"
   | "md_concept_revision"
-  | "md_concept_rejected";
+  | "md_concept_rejected"
+  | "completed";
 
 interface TimelineEntry {
   type: TimelineEntryType;
@@ -1951,6 +1967,9 @@ const HISTORY_CONFIG: Record<
   resubmit: { icon: ArrowRight, label: "Re-submitted", tone: "primary" },
   approved: { icon: CheckCircle2, label: "Final Approval", tone: "success" },
 
+  // ── Terminal capstone — concept fully closed after final approval ──
+  completed: { icon: Trophy, label: "Completed", tone: "success" },
+
   // ── Work-status lifecycle event types (added 0026) ──
   started: { icon: PlayCircle, label: "Started Working", tone: "primary" },
   held: { icon: Pause, label: "Put On Hold", tone: "warning" },
@@ -1961,10 +1980,60 @@ const HISTORY_CONFIG: Record<
   start_changes: { icon: PlayCircle, label: "Started Changes", tone: "primary" },
 };
 
+// Lifecycle phase rank. The timeline sorts by stage FIRST (Concept → MD →
+// Designer → Final) and only then by recorded order, so it always reads in
+// correct stage sequence — even for older concepts whose history entries were
+// stored date-only (and therefore can't be ordered by timestamp alone, since
+// they'd all collapse to midnight and sort against the precise synthetic rows).
+const PHASE_RANK: Record<TimelineEntryType, number> = {
+  // Stage 1 — Concept
+  created: 0,
+  // Stage 2 — MD review of the concept
+  md_concept_approved: 1,
+  md_concept_revision: 1,
+  md_concept_rejected: 1,
+  // Stage 3 — Designer work + design-review loop. Ordered within by recorded
+  // sequence so repeated hold / resume / changes cycles stay in true order.
+  started: 2,
+  held: 2,
+  resumed: 2,
+  marked_done: 2,
+  done: 2,
+  design_approved: 2,
+  changes_requested: 2,
+  start_changes: 2,
+  revision: 2,
+  resubmit: 2,
+  // Stage 4 — Final approval
+  approved: 3,
+  // Terminal — concept fully completed (sorts above everything → newest/top)
+  completed: 4,
+};
+
+// Per-STAGE colour set for the timeline. Each log is tinted to the lifecycle
+// stage it belongs to (via PHASE_RANK), so the activity log mirrors the
+// pipeline bar: Concept = indigo, MD = violet, Designer = green, Final =
+// orange, and the terminal Completed capstone gets a solid green chip.
+const STAGE_TONE_CLASSES: Record<
+  number,
+  { chip: string; ring: string; text: string; feedback: string; hover: string }
+> = {
+  0: { chip: "bg-primary/10 text-primary", ring: "ring-primary/30", text: "text-primary", feedback: "bg-primary/[0.06] border-primary/40", hover: "hover:bg-primary/[0.04]" },
+  1: { chip: "bg-[#7C5CFC]/10 text-[#7C5CFC]", ring: "ring-[#7C5CFC]/30", text: "text-[#7C5CFC]", feedback: "bg-[#7C5CFC]/[0.06] border-[#7C5CFC]/40", hover: "hover:bg-[#7C5CFC]/[0.04]" },
+  2: { chip: "bg-success/10 text-success", ring: "ring-success/30", text: "text-success", feedback: "bg-success/[0.06] border-success/40", hover: "hover:bg-success/[0.04]" },
+  3: { chip: "bg-warning/10 text-warning", ring: "ring-warning/30", text: "text-warning", feedback: "bg-warning/[0.06] border-warning/40", hover: "hover:bg-warning/[0.04]" },
+  4: { chip: "bg-success text-white", ring: "ring-success/40", text: "text-success", feedback: "bg-success/[0.06] border-success/40", hover: "hover:bg-success/[0.04]" },
+};
+
+function stageRankOf(type: TimelineEntryType): number {
+  return PHASE_RANK[type] ?? 2;
+}
+
 // ----------------------------------------------------------------------------
 // buildConceptTimeline — merges synthesised early-lifecycle events with the
-// persisted completion_history, sorts chronologically. Always returns at
-// least the "Concept Submitted" event so brand-new concepts still show a row.
+// persisted completion_history, ordered newest-first BY LIFECYCLE STAGE (then
+// by recorded order within a stage). Always returns at least the "Concept
+// Submitted" event so brand-new concepts still show a row.
 // ----------------------------------------------------------------------------
 function buildConceptTimeline(
   concept: {
@@ -1972,6 +2041,7 @@ function buildConceptTimeline(
     md_status: ConceptStatus;
     md_reviewed_at: string | null;
     md_notes: string | null;
+    work_started_at?: string | null;
     completion_history: CompletionHistoryEntry[] | null | undefined;
   },
   submitter: { full_name: string } | null,
@@ -2011,11 +2081,54 @@ function buildConceptTimeline(
   const history = Array.isArray(concept.completion_history)
     ? (concept.completion_history as TimelineEntry[])
     : [];
+
+  // 2b) Designer started working — synthesised from `work_started_at` so the
+  //     Designer stage always appears, even for older records created before
+  //     the `started` event was logged to history. Skipped when history
+  //     already carries a real `started` entry (avoids a duplicate row).
+  if (
+    concept.work_started_at &&
+    !history.some((h) => h.type === "started")
+  ) {
+    items.push({
+      type: "started",
+      date: concept.work_started_at,
+      synthetic: true,
+    });
+  }
+
   items.push(...history);
 
-  // 4) Chronological. ISO date strings sort lexicographically.
-  items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  return items;
+  // 3b) Terminal "Completed" capstone — once FINAL approval has happened
+  //     (an `approved` event exists), the concept is fully closed. Synthesise
+  //     a Completed row dated at the final approval so it sits at the very top
+  //     (newest-first) as the lifecycle's closing event.
+  const finalApproval = items.find((i) => i.type === "approved");
+  if (finalApproval) {
+    items.push({
+      type: "completed",
+      date: finalApproval.date,
+      synthetic: true,
+    });
+  }
+
+  // 4) Order by lifecycle stage, then by recorded order within a stage.
+  //    `items` is built in chronological insertion order (created → MD review →
+  //    started → history-as-appended), so the index reflects true sequence and
+  //    is the reliable within-stage key — far more dependable than timestamps,
+  //    which are imprecise (date-only) on older records.
+  const ordered = items
+    .map((entry, seq) => ({ entry, seq }))
+    .sort((a, b) => {
+      const pa = PHASE_RANK[a.entry.type] ?? 2;
+      const pb = PHASE_RANK[b.entry.type] ?? 2;
+      if (pa !== pb) return pa - pb;
+      return a.seq - b.seq;
+    });
+  // Ascending (Concept → Final) → reverse for newest-first: Final Approval on
+  // top, Concept Submitted at the bottom, designer events newest-first between.
+  ordered.reverse();
+  return ordered.map((x) => x.entry);
 }
 
 function HistoryEntry({
@@ -2030,7 +2143,9 @@ function HistoryEntry({
   // row rather than crash the drawer.
   if (!cfg) return null;
   const Icon = cfg.icon;
-  const tone = TONE_CLASSES[cfg.tone];
+  // Colour each log by its lifecycle STAGE (Concept/MD/Designer/Final/Completed)
+  // so the activity log mirrors the pipeline bar above it.
+  const tone = STAGE_TONE_CLASSES[stageRankOf(entry.type)] ?? STAGE_TONE_CLASSES[2];
   return (
     <div
       className={cn(
@@ -2060,7 +2175,7 @@ function HistoryEntry({
             {cfg.label}
           </span>
           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-            {fmtDate(entry.date)}
+            {fmtDateTime(entry.date)}
           </span>
         </div>
         {entry.by && (
@@ -2127,7 +2242,7 @@ function StageSection({
   const stageNum = stage === "creation" ? "1" : stage === "approval" ? "2" : stage === "completion" ? "3" : "4";
 
   return (
-    <div className={cn("px-4 py-1.5", isUpcoming && "opacity-40")}>
+    <div className={cn("px-4 py-1.5", isUpcoming && "opacity-50")}>
       <div
         onClick={(e) => {
           const target = e.target as HTMLElement;
@@ -2135,29 +2250,40 @@ function StageSection({
           setExpanded((prev) => !prev);
         }}
         className={cn(
-          "cursor-pointer rounded-lg border bg-card shadow-sm transition-colors",
-          isDone && "border-success/30",
-          isActive && "border-primary/30",
-          isBlocked && "border-destructive/30",
+          "relative cursor-pointer overflow-hidden rounded-xl border bg-card shadow-sm transition-all duration-200",
+          isDone && "border-success/25",
+          isActive && "border-primary/30 shadow-card ring-1 ring-primary/10",
+          isBlocked && "border-destructive/30 ring-1 ring-destructive/10",
           isUpcoming && "border-border"
         )}
       >
+        {/* Status accent — left edge bar (read stage state at a glance) */}
+        <div
+          aria-hidden
+          className={cn(
+            "absolute inset-y-0 left-0 w-[3px]",
+            isDone && "bg-success",
+            isActive && "bg-primary",
+            isBlocked && "bg-destructive",
+            isUpcoming && "bg-border"
+          )}
+        />
+
         {/* Stage header */}
         <div
           className={cn(
-            "flex w-full items-center gap-2.5 px-3 py-3 transition-colors",
-            expanded ? "" : "rounded-lg",
-            isDone && "hover:bg-success/5",
-            isActive && "hover:bg-primary/5"
+            "flex w-full items-center gap-3 px-4 py-3.5 transition-colors",
+            isDone && "hover:bg-success/[0.04]",
+            isActive && "hover:bg-primary/[0.04]"
           )}
         >
           <div
             className={cn(
-              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl shadow-sm",
               isDone && `${cfg.bgColor} text-white`,
-              isActive && `${cfg.bgColor}/15 ${cfg.color}`,
-              isBlocked && "bg-destructive/15 text-destructive",
-              isUpcoming && "bg-secondary text-muted-foreground"
+              isActive && `${cfg.bgColor}/12 ${cfg.color}`,
+              isBlocked && "bg-destructive/12 text-destructive",
+              isUpcoming && "bg-secondary text-muted-foreground shadow-none"
             )}
           >
             {isDone ? (
@@ -2165,12 +2291,12 @@ function StageSection({
             ) : isBlocked ? (
               <X className="h-4 w-4" />
             ) : (
-              <span className="text-[12px] font-bold">{stageNum}</span>
+              <span className="text-[13px] font-bold tabular-nums">{stageNum}</span>
             )}
           </div>
           <h3
             className={cn(
-              "flex-1 text-sm font-semibold tracking-tight",
+              "flex-1 text-[15px] font-semibold tracking-tight",
               isDone && cfg.color,
               isActive && cfg.color,
               isBlocked && "text-destructive",
@@ -2180,15 +2306,19 @@ function StageSection({
             {cfg.label}
           </h3>
           {isDone && (
-            <span className="rounded-md bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">Complete</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-[10px] font-semibold text-success">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" />Complete
+            </span>
           )}
           {isActive && (
-            <span className={cn("rounded-md px-2 py-0.5 text-[10px] font-semibold", `${cfg.bgColor}/10 ${cfg.color}`)}>
-              In Progress
+            <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold", `${cfg.bgColor}/10 ${cfg.color}`)}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", cfg.bgColor)} />In Progress
             </span>
           )}
           {isBlocked && (
-            <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">Blocked</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-[10px] font-semibold text-destructive">
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive" />Blocked
+            </span>
           )}
           <ChevronDown className={cn(
             "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
@@ -2228,12 +2358,12 @@ function DetailItem({
   className?: string;
 }) {
   return (
-    <div className={className}>
-      <div className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+    <div className={cn("rounded-lg border border-border/50 bg-secondary/30 px-3 py-2 transition-colors", className)}>
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {icon}
         {label}
       </div>
-      <div className="text-sm text-foreground">{children}</div>
+      <div className="text-sm font-medium text-foreground">{children}</div>
     </div>
   );
 }
