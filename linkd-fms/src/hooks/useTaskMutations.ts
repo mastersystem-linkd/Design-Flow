@@ -64,6 +64,15 @@ export interface UseTaskMutations {
     newQty: number
   ) => Promise<MutationResult<Task>>;
   assignTask: (taskId: string, designerId: string) => Promise<MutationResult<Task>>;
+  /** Hand off a partially-completed task to another designer or back to the
+   *  open pool. Preserves qty_completed / fabric / deadline; stores a required
+   *  carry-forward note + the previous designer (carry_forward_*) so the next
+   *  person sees a "carried forward" banner. Admin/coordinator action. */
+  handoffTask: (
+    taskId: string,
+    target: HandoffTarget,
+    note: string
+  ) => Promise<MutationResult<Task>>;
   /** Designer self-assigns a SPECIFIC Pool task. Only if status=pool AND
    *  started_at IS NULL. Legacy per-row claim — the FIFO flow below supersedes
    *  it for designers, but admins/manual paths may still use it. */
@@ -114,12 +123,20 @@ export interface UseTaskMutations {
   isPending: (op: TaskMutationOp, id?: string) => boolean;
 }
 
+/** Hand-off target: a specific designer, or back to the open pool. */
+export type HandoffTarget =
+  | { kind: "designer"; designerId: string }
+  | { kind: "pool" };
+
 /** Fields the edit dialog can update. All optional — only changed values sent. */
 export interface UpdateTaskFields {
   brief_type?: BriefType;
   concept?: string;
   description?: string | null;
   fabric?: string;
+  /** Completion fabric (set at completion). Kept in sync when editing the
+   *  fabric of an already-completed task so the completion view matches. */
+  completion_fabric?: string | null;
   qty?: number;
   qty_completed?: number;
   mtr?: number | null;
@@ -145,6 +162,7 @@ export type TaskMutationOp =
   | "updateQty"
   | "updateTask"
   | "assign"
+  | "handoff"
   | "selfAssign"
   | "claimNext"
   | "markDone"
@@ -726,6 +744,117 @@ export function useTaskMutations(): UseTaskMutations {
   );
 
   // --------------------------------------------------------------------
+  // handoffTask — admin/coordinator hands a partially-done task to another
+  // designer or back to the open pool, WITH a required carry-forward note.
+  // Progress (qty_completed, fabric, deadline, files) is preserved; only the
+  // owner + carry_forward_* context change.
+  // --------------------------------------------------------------------
+  const handoffTask = useCallback<UseTaskMutations["handoffTask"]>(
+    async (taskId, target, note) => {
+      if (!profile) return { data: null, error: "Not authenticated" };
+      const reason = note?.trim();
+      if (!reason) return { data: null, error: "A carry-forward note is required." };
+      if (target.kind === "designer" && !target.designerId?.trim()) {
+        return { data: null, error: "Pick a designer to hand off to." };
+      }
+
+      const key = `handoff:${taskId}`;
+      setOpPending(key, true);
+      try {
+        const { data: current, error: fetchErr } = await supabase
+          .from("tasks")
+          .select("status, task_code, concept, qty, assigned_to")
+          .eq("id", taskId)
+          .single();
+        if (fetchErr) return { data: null, error: fetchErr.message };
+        if (!current) return { data: null, error: "Task not found" };
+
+        const prevAssignee = (current.assigned_to as string | null) ?? null;
+        const nowIso = new Date().toISOString();
+
+        const update: {
+          carry_forward_note: string;
+          carry_forward_from: string | null;
+          carry_forward_at: string;
+          assigned_to?: string | null;
+          status?: TaskStatus;
+          assigned_at?: string;
+          task_code?: string;
+        } = {
+          carry_forward_note: reason,
+          carry_forward_from: prevAssignee,
+          carry_forward_at: nowIso,
+        };
+
+        if (target.kind === "designer") {
+          if (target.designerId === prevAssignee) {
+            return { data: null, error: "That designer already holds this task." };
+          }
+          // Keep the ORIGINAL task_code (stable through hand-off, per spec).
+          update.assigned_to = target.designerId;
+          update.status = "in_progress";
+          update.assigned_at = nowIso;
+        } else {
+          // Return to the open pool — rebrand the code to the Pool letter so the
+          // FIFO queue / claim flow reads it as unassigned. Sequence + concept +
+          // qty preserved; qty_completed is untouched so progress carries over.
+          update.assigned_to = null;
+          update.status = "pool";
+          const seq = extractSeq(current.task_code);
+          update.task_code = buildTaskCode({
+            designerLetter: "P",
+            seq,
+            concept: current.concept,
+            qty: current.qty,
+          });
+        }
+
+        const { data, error } = await supabase
+          .from("tasks")
+          .update(update)
+          .eq("id", taskId)
+          .select("*")
+          .maybeSingle();
+        if (error) return { data: null, error: error.message };
+        if (!data) {
+          return {
+            data: null,
+            error: "Couldn't hand off this task. Refresh and try again.",
+          };
+        }
+
+        // Activity log — shows in the task's timeline.
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: current.status as TaskStatus,
+          status_to: (update.status as TaskStatus) ?? (current.status as TaskStatus),
+          changed_by: profile.id,
+          note:
+            target.kind === "designer"
+              ? `Handed off — ${reason}`
+              : `Returned to pool — ${reason}`,
+        });
+
+        // Notify the receiving designer (pool hand-offs have no single owner).
+        if (target.kind === "designer" && target.designerId !== profile.id) {
+          void sendNotification(
+            target.designerId,
+            "Task carried forward to you",
+            `${data.task_code ?? "A task"} was handed to you (${data.qty_completed}/${data.qty} done). Note: ${reason}`,
+            "info",
+            "/dashboard"
+          );
+        }
+
+        return { data, error: null };
+      } finally {
+        setOpPending(key, false);
+      }
+    },
+    [profile, setOpPending]
+  );
+
+  // --------------------------------------------------------------------
   // selfAssignTask — Designer claims a Pool task
   // --------------------------------------------------------------------
   const selfAssignTask = useCallback<UseTaskMutations["selfAssignTask"]>(
@@ -1196,6 +1325,7 @@ export function useTaskMutations(): UseTaskMutations {
     updateTaskStatus,
     updateQtyCompleted,
     assignTask,
+    handoffTask,
     selfAssignTask,
     claimPoolTask,
     getNextPoolTasks,

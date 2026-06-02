@@ -181,6 +181,7 @@ export function TaskDetailDrawer({
                 editMode && "bg-primary/[0.02]"
               )}
             >
+              {!editMode && <CarryForwardBanner task={task} />}
               {!editMode && (
                 isConceptTrackTask(task) ? (
                   <ConceptStagesPipeline current={task.status} />
@@ -227,6 +228,8 @@ export function TaskDetailDrawer({
                   onAddDetails={() => void handleComplete()}
                 />
               )}
+
+              {!editMode && <HandoffControl task={task} onChanged={handleChanged} />}
 
               {/* Full Kitting reference — visible to ALL roles. Shows the
                   coordinator-uploaded photo + any DEO progress so designers
@@ -855,6 +858,7 @@ function EditableBriefDetails({
   const [whatsappGroup, setWhatsappGroup] = useState(task.whatsapp_group ?? "");
   const [qty, setQty] = useState(String(task.qty ?? ""));
   const [mtr, setMtr] = useState(task.mtr != null ? String(task.mtr) : "");
+  const [fabric, setFabric] = useState(task.fabric ?? "");
   const [err, setErr] = useState<string | null>(null);
 
   async function handleSave() {
@@ -879,6 +883,7 @@ function EditableBriefDetails({
       whatsapp_group: whatsappGroup.trim() || null,
       qty: qtyNum,
       mtr: Number.isFinite(mtrNum as number) ? (mtrNum as number) : null,
+      fabric: fabric.trim(),
     };
 
     await onSave(fields);
@@ -995,6 +1000,20 @@ function EditableBriefDetails({
           />
         </div>
 
+        {/* Fabric — editable so a mistyped entry can be corrected here. */}
+        <div className="space-y-1">
+          <Label htmlFor="ed-fabric" className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Fabric
+          </Label>
+          <Input
+            id="ed-fabric"
+            value={fabric}
+            onChange={(e) => setFabric(e.target.value)}
+            disabled={isPending}
+            placeholder="e.g. Cotton 60×60"
+          />
+        </div>
+
         {/* Description */}
         <div className="space-y-1">
           <Label htmlFor="ed-desc" className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -1029,7 +1048,6 @@ function EditableBriefDetails({
         <div className="rounded-lg border border-border bg-card/50 p-3 text-xs text-muted-foreground">
           <p className="text-[10px] uppercase tracking-wider font-medium mb-1">Read-only</p>
           <div className="grid grid-cols-2 gap-1">
-            <span>Fabric: {task.fabric}</span>
             <span>Client: {task.client?.party_name ?? (task.brief_type === "ld" ? "LD Silk Mills" : "—")}</span>
             <span>Concept: {task.concept}</span>
             <span>Code: {task.task_code}</span>
@@ -1302,6 +1320,148 @@ function InfoCard({
  * leave. Forcing them into the Edit drawer was an extra step that hid the
  * action.
  */
+// ============================================================================
+// CarryForwardBanner — shown to the (new) owner when a task was handed off
+// mid-progress. Tells them why + by whom so they continue from where it was
+// left. Only relevant while the task is still being worked.
+// ============================================================================
+function CarryForwardBanner({ task }: { task: TaskWithRelations }) {
+  if (!task.carry_forward_note) return null;
+  if (task.status !== "in_progress" && task.status !== "pool") return null;
+  const from = task.carry_forwarder?.full_name;
+  return (
+    <div className="flex gap-2.5 rounded-lg border border-warning/30 border-l-[3px] border-l-warning bg-warning/[0.06] p-3">
+      <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-warning">
+          Carried forward{from ? ` from ${from}` : ""} · continue from{" "}
+          {task.qty_completed}/{task.qty}
+        </p>
+        <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
+          {task.carry_forward_note}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// HandoffControl — admin/coordinator hands a partially-done IN-PROGRESS task to
+// another designer or back to the open pool, with a REQUIRED note. Progress
+// (qty_completed / fabric / deadline / files) is preserved by the mutation.
+// ============================================================================
+function HandoffControl({
+  task,
+  onChanged,
+}: {
+  task: TaskWithRelations;
+  onChanged: () => void;
+}) {
+  const { profile } = useAuth();
+  const { handoffTask, isPending } = useTaskMutations();
+  const { profiles: designers } = useProfiles({ roles: ["designer"] });
+  const [open, setOpen] = useState(false);
+  const [targetId, setTargetId] = useState(""); // "" = open pool
+  const [note, setNote] = useState("");
+  const busy = isPending("handoff", task.id);
+
+  if (!isAdminOrCoordinator(profile?.role)) return null;
+  if (task.status !== "in_progress") return null;
+
+  const others = designers.filter((d) => d.id !== task.assigned_to);
+
+  async function submit() {
+    const target = targetId
+      ? ({ kind: "designer", designerId: targetId } as const)
+      : ({ kind: "pool" } as const);
+    const { error } = await handoffTask(task.id, target, note);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success(targetId ? "Task handed off" : "Task returned to the pool");
+    setOpen(false);
+    setNote("");
+    setTargetId("");
+    onChanged();
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/[0.04] hover:text-primary"
+      >
+        <HandPlatter className="h-3.5 w-3.5" />
+        Hand off / carry forward
+      </button>
+
+      <Dialog open={open} onOpenChange={(o) => { if (!busy) setOpen(o); }}>
+        <DialogContent className="max-w-md p-0" srTitle="Hand off task">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <HandPlatter className="h-4 w-4 text-primary" /> Hand off this task
+            </h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Progress is preserved — the next designer continues from{" "}
+              {task.qty_completed}/{task.qty}.
+            </p>
+          </div>
+          <div className="space-y-4 px-5 py-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Hand off to</Label>
+              <select
+                value={targetId}
+                onChange={(e) => setTargetId(e.target.value)}
+                disabled={busy}
+                className="h-10 w-full rounded-md border border-input bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="">Open Pool (anyone can claim)</option>
+                {others.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Note / reason <span className="text-destructive">*</span>
+              </Label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                disabled={busy}
+                rows={3}
+                placeholder="e.g. Designer unavailable — please continue the remaining designs in the same style."
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                The next designer sees this as a “carried forward” note.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <LoadingButton
+              loading={busy}
+              disabled={!note.trim()}
+              onClick={() => void submit()}
+              className="gap-1.5"
+            >
+              <Send className="h-3.5 w-3.5" />
+              {targetId ? "Hand off" : "Return to pool"}
+            </LoadingButton>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function AssigneeRow({
   task,
   isAdmin,

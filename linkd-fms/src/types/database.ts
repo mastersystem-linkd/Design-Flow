@@ -148,21 +148,24 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          visible_columns: string[];
+          // Legacy: a flat string[]. Current: `{ current, defaults }` per-stage
+          // maps keyed by pipeline stage (pool / in_progress / completed). The
+          // hook (`normalizeStored`) tolerates all historical shapes — see §14.
+          visible_columns: string[] | Record<string, unknown>;
           table_density: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
-          visible_columns?: string[];
+          visible_columns?: string[] | Record<string, unknown>;
           table_density?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
-          visible_columns?: string[];
+          visible_columns?: string[] | Record<string, unknown>;
           table_density?: string;
           updated_at?: string;
         };
@@ -555,6 +558,10 @@ export type Database = {
           completion_filled_by: string | null;
           completion_filled_at: string | null;
           requirement_received_at: string | null;
+          // Hand-off / carry-forward context (migration 0056)
+          carry_forward_note: string | null;
+          carry_forward_from: string | null;
+          carry_forward_at: string | null;
           created_by: string;
           created_at: string;
           updated_at: string;
@@ -599,6 +606,9 @@ export type Database = {
           completion_filled_by?: string | null;
           completion_filled_at?: string | null;
           requirement_received_at?: string | null;
+          carry_forward_note?: string | null;
+          carry_forward_from?: string | null;
+          carry_forward_at?: string | null;
           created_by: string;
           created_at?: string;
           updated_at?: string;
@@ -643,6 +653,9 @@ export type Database = {
           completion_filled_by?: string | null;
           completion_filled_at?: string | null;
           requirement_received_at?: string | null;
+          carry_forward_note?: string | null;
+          carry_forward_from?: string | null;
+          carry_forward_at?: string | null;
           created_by?: string;
           created_at?: string;
           updated_at?: string;
@@ -666,6 +679,13 @@ export type Database = {
           {
             foreignKeyName: "tasks_assigned_to_fkey";
             columns: ["assigned_to"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tasks_carry_forward_from_fkey";
+            columns: ["carry_forward_from"];
             isOneToOne: false;
             referencedRelation: "profiles";
             referencedColumns: ["id"];
@@ -1363,6 +1383,8 @@ export interface TaskWithRelations extends Task {
   creator?: ProfileLite | null;
   /** Who filled the completion details (done → completed). */
   filler?: ProfileLite | null;
+  /** The designer who previously held a carried-forward (handed-off) task. */
+  carry_forwarder?: ProfileLite | null;
   concept_ref?: ConceptLite | null;
   task_logs?: TaskLog[];
   files?: FileRecord[];

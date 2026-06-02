@@ -36,6 +36,7 @@ const TASK_SELECT = `
   assignee:profiles!tasks_assigned_to_fkey(id, full_name, role, avatar_url),
   creator:profiles!tasks_created_by_fkey(id, full_name, role, avatar_url),
   filler:profiles!completion_filled_by(id, full_name, role, avatar_url),
+  carry_forwarder:profiles!tasks_carry_forward_from_fkey(id, full_name, role, avatar_url),
   files(id, file_name)
 `;
 
