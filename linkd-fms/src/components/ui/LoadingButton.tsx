@@ -26,7 +26,7 @@ export const LoadingButton = forwardRef<HTMLButtonElement, LoadingButtonProps>(
         {...props}
       >
         {loading && (
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          <Loader2 className="h-4 w-4 animate-spin [animation-duration:0.8s]" aria-hidden />
         )}
         {loading ? (loadingText ?? "…") : children}
       </Button>

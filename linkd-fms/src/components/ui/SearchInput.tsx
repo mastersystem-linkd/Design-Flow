@@ -79,7 +79,8 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(functi
         className={cn(
           "h-10 w-full rounded-md border border-input bg-card pl-9 pr-9 text-sm",
           "placeholder:text-muted-foreground",
-          "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40",
+          "transition-[border-color,box-shadow] duration-normal ease-spring",
+          "focus:border-ring focus:outline-none focus:shadow-input-focus",
           "disabled:cursor-not-allowed disabled:opacity-50"
         )}
       />

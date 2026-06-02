@@ -251,10 +251,10 @@ export function Combobox<TValue extends string = string>({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex h-10 w-full items-center justify-between gap-2 rounded-md border bg-card px-3 text-sm transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex h-10 w-full items-center justify-between gap-2 rounded-md border bg-card px-3 text-sm transition-[colors,box-shadow,border-color] duration-normal ease-spring",
+          "focus-visible:outline-none focus-visible:border-ring focus-visible:shadow-input-focus",
           "disabled:cursor-not-allowed disabled:opacity-50",
-          open && "ring-2 ring-ring",
+          open && "border-ring shadow-input-focus",
           error ? "border-destructive" : "border-input",
           // Subtle hover when not open
           !open && !disabled && "hover:bg-secondary/40"
@@ -301,18 +301,11 @@ export function Combobox<TValue extends string = string>({
         <div
           style={{ maxHeight: menuPos.maxHeight }}
           className={cn(
-            "absolute left-0 right-0 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-[0_8px_24px_-4px_rgba(0,0,0,0.16),0_4px_8px_-2px_rgba(0,0,0,0.08)]",
-            "animate-[combobox-in_140ms_ease-out]",
+            "absolute left-0 right-0 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-dropdown",
+            "animate-spring-slide-up",
             menuPos.placement === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5"
           )}
         >
-          <style>{`
-            @keyframes combobox-in {
-              from { opacity: 0; transform: translateY(-4px); }
-              to   { opacity: 1; transform: translateY(0); }
-            }
-          `}</style>
-
           {/* Search bar */}
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

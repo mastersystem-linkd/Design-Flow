@@ -177,7 +177,7 @@ export function Sidebar({
       {/* Mobile backdrop */}
       <div
         className={cn(
-          "fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity md:hidden",
+          "fixed inset-0 z-30 bg-foreground/50 backdrop-blur-md transition-opacity md:hidden",
           mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={onClose}
@@ -188,13 +188,13 @@ export function Sidebar({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         className={cn(
-          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col border-r border-border bg-card text-foreground transition-[transform,width] duration-200 dark:bg-sidebar dark:text-white",
+          "fixed left-0 top-0 z-40 flex h-screen w-[220px] max-w-[80vw] flex-col border-r border-border bg-card text-foreground transition-[transform,width] duration-slow ease-spring dark:bg-sidebar dark:text-white",
           "md:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           collapsed
             ? railed
               ? "md:w-16"
-              : "md:w-[220px] md:shadow-2xl md:shadow-black/50"
+              : "md:w-[220px] md:shadow-card-elevated"
             : "md:w-[220px]"
         )}
         aria-label="Primary navigation"
@@ -436,7 +436,7 @@ function NavRow({
         onClick={onNavigate}
         className={({ isActive }) =>
           cn(
-            "relative flex min-h-[40px] items-center gap-3 rounded-lg pl-4 pr-3 py-2.5 text-[13px] font-medium transition-colors duration-200",
+            "relative flex min-h-[40px] items-center gap-3 rounded-lg pl-4 pr-3 py-2.5 text-[13px] font-medium transition-[colors,background-color,transform] duration-normal ease-spring",
             isActive
               ? "nav-selvedge-active"
               : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",

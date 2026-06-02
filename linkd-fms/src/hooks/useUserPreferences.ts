@@ -12,14 +12,15 @@ import type { UserPreferences } from "@/types/database";
 // NOT toggleable (always visible) so they're absent from ALL_COLUMNS.
 // ============================================================================
 
-// NOTE: the "Reference" column (reference files) is NOT toggleable — it is
-// always rendered as its own column in KanbanView (like the Action column), so
-// it's intentionally absent from ALL_COLUMNS / DEFAULT_COLUMNS below.
+// NOTE: only the bulk-select checkbox and the sticky Action column are NOT
+// toggleable (always visible) — they're absent from ALL_COLUMNS below. The
+// "Reference" column (reference files, key "files") IS toggleable.
 export type ColumnKey =
   | "date"
   | "designer"
   | "concept"
   | "description"
+  | "files"
   | "party_name"
   | "fabric"
   | "whatsapp_group"
@@ -40,6 +41,7 @@ export const ALL_COLUMNS: readonly { key: ColumnKey; label: string }[] = [
   { key: "designer", label: "Designer" },
   { key: "concept", label: "Concept" },
   { key: "description", label: "Description" },
+  { key: "files", label: "Reference" },
   { key: "party_name", label: "Party Name" },
   { key: "fabric", label: "Fabric" },
   { key: "whatsapp_group", label: "WhatsApp Group" },
@@ -63,12 +65,144 @@ export const DEFAULT_COLUMNS: ColumnKey[] = [
   "date",
   "designer",
   "concept",
+  "files",
   "party_name",
   "message_date",
   "message_time",
   "qty",
   "deadline",
 ];
+
+// ----------------------------------------------------------------------------
+// Per-stage column visibility (see §14).
+// Column choices persist independently for each pipeline stage. Each stage
+// starts from its own default set; once a user tweaks a stage in the Columns
+// menu, that stage's selection is remembered.
+// ----------------------------------------------------------------------------
+export type PipelineStage = "pool" | "in_progress" | "completed";
+
+export const PIPELINE_STAGES: readonly PipelineStage[] = [
+  "pool",
+  "in_progress",
+  "completed",
+];
+
+/** In Progress shows the active-work columns by default (designer / fabric /
+ *  who assigned it / full-kitting), and drops the completion + message
+ *  columns that only matter once a task is closed. */
+export const IN_PROGRESS_DEFAULT_COLUMNS: ColumnKey[] = [
+  "date",
+  "designer",
+  "concept",
+  "description",
+  "party_name",
+  "fabric",
+  "whatsapp_group",
+  "assigned_by",
+  "qty",
+  "pending",
+  "full_kitting",
+];
+
+/** Completed is a terminal view: it keeps the identifying + context columns
+ *  and surfaces the completion data (completion timestamp / completed /
+ *  completed-late), while dropping message dates, planned deadline, pending,
+ *  and full-kitting. */
+export const COMPLETED_DEFAULT_COLUMNS: ColumnKey[] = [
+  "date",
+  "designer",
+  "concept",
+  "description",
+  "party_name",
+  "fabric",
+  "whatsapp_group",
+  "assigned_by",
+  "qty",
+  "completion_timestamp",
+  "completed",
+  "started_late",
+];
+
+/** Default visible columns for a given stage. Pool reuses the generic
+ *  DEFAULT_COLUMNS; In Progress and Completed have their own tailored sets. */
+export function defaultColumnsForStage(stage: PipelineStage): ColumnKey[] {
+  if (stage === "in_progress") return [...IN_PROGRESS_DEFAULT_COLUMNS];
+  if (stage === "completed") return [...COMPLETED_DEFAULT_COLUMNS];
+  return [...DEFAULT_COLUMNS];
+}
+
+export type VisibleColumnsByStage = Record<PipelineStage, string[]>;
+
+/** Shape persisted in the `visible_columns` JSONB:
+ *  - `current`  — the live per-stage selection (what the table shows).
+ *  - `defaults` — the user's *own* per-stage default (the Reset target). A
+ *    stage absent here falls back to the built-in `defaultColumnsForStage`. */
+export interface StoredColumnPrefs {
+  current: VisibleColumnsByStage;
+  defaults: Partial<Record<PipelineStage, string[]>>;
+}
+
+function freshStageMap(): VisibleColumnsByStage {
+  return {
+    pool: defaultColumnsForStage("pool"),
+    in_progress: defaultColumnsForStage("in_progress"),
+    completed: defaultColumnsForStage("completed"),
+  };
+}
+
+/** Fill any missing stage in a partial map with its built-in default. */
+function fillStageMap(partial: unknown): VisibleColumnsByStage {
+  const obj =
+    partial && typeof partial === "object"
+      ? (partial as Record<string, unknown>)
+      : {};
+  const map = freshStageMap();
+  for (const stage of PIPELINE_STAGES) {
+    if (Array.isArray(obj[stage])) map[stage] = obj[stage] as string[];
+  }
+  return map;
+}
+
+/** Keep only the stages that carry an explicit array (used for `defaults`). */
+function pickStageArrays(
+  partial: unknown
+): Partial<Record<PipelineStage, string[]>> {
+  const obj =
+    partial && typeof partial === "object"
+      ? (partial as Record<string, unknown>)
+      : {};
+  const out: Partial<Record<PipelineStage, string[]>> = {};
+  for (const stage of PIPELINE_STAGES) {
+    if (Array.isArray(obj[stage])) out[stage] = obj[stage] as string[];
+  }
+  return out;
+}
+
+/** Coerce whatever is stored into the `{ current, defaults }` shape, tolerating
+ *  three historical formats:
+ *    1. legacy flat `string[]`  → becomes the Pool current view (no defaults)
+ *    2. flat per-stage map      → becomes `current` (no custom defaults)
+ *    3. `{ current, defaults }` → used as-is. */
+function normalizeStored(stored: unknown): StoredColumnPrefs {
+  if (
+    stored &&
+    typeof stored === "object" &&
+    !Array.isArray(stored) &&
+    "current" in (stored as object)
+  ) {
+    const s = stored as Record<string, unknown>;
+    return {
+      current: fillStageMap(s.current),
+      defaults: pickStageArrays(s.defaults),
+    };
+  }
+  if (Array.isArray(stored)) {
+    const current = freshStageMap();
+    current.pool = [...(stored as string[])];
+    return { current, defaults: {} };
+  }
+  return { current: fillStageMap(stored), defaults: {} };
+}
 
 /** Columns that can never be hidden together — keeps at least one identifying
  *  column on screen so a row is never anonymous. */
@@ -85,10 +219,15 @@ async function fetchOrCreatePreferences(
   if (error) throw error;
   if (data) return data;
 
-  // No row yet — create one seeded with the default column set.
+  // No row yet — create one seeded with the per-stage default column sets and
+  // no custom defaults (built-in defaults apply until the user pins their own).
+  const seed: StoredColumnPrefs = { current: freshStageMap(), defaults: {} };
   const { data: created, error: insertErr } = await supabase
     .from("user_preferences")
-    .insert({ user_id: userId, visible_columns: DEFAULT_COLUMNS })
+    .insert({
+      user_id: userId,
+      visible_columns: seed as unknown as Record<string, unknown>,
+    })
     .select("*")
     .single();
   if (insertErr) throw insertErr;
@@ -110,37 +249,45 @@ export function useUserPreferences() {
     staleTime: 5 * 60_000,
   });
 
-  const updateColumns = useMutation({
-    mutationFn: async (columns: string[]) => {
+  // Writes the whole `{ current, defaults }` object. Callers compute the next
+  // value from the cached prefs so unrelated stages/keys are preserved.
+  const updatePrefs = useMutation({
+    mutationFn: async (next: StoredColumnPrefs) => {
       if (!userId) throw new Error("Not signed in");
       const { error } = await supabase
         .from("user_preferences")
         .update({
-          visible_columns: columns,
+          visible_columns: next as unknown as Record<string, unknown>,
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId);
       if (error) throw error;
-      return columns;
+      return next;
     },
-    onMutate: async (columns) => {
+    onMutate: async (next) => {
       await queryClient.cancelQueries({ queryKey: key });
       const prev = queryClient.getQueryData<UserPreferences>(key);
       if (prev) {
         queryClient.setQueryData<UserPreferences>(key, {
           ...prev,
-          visible_columns: columns,
+          visible_columns: next as unknown as UserPreferences["visible_columns"],
         });
       }
       return { prev };
     },
-    onError: (_err, _columns, ctx) => {
+    onError: (_err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(key, ctx.prev);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: key });
     },
   });
+
+  /** Read the freshest prefs from the cache so chained updates don't clobber. */
+  const readPrefs = () =>
+    normalizeStored(
+      queryClient.getQueryData<UserPreferences>(key)?.visible_columns
+    );
 
   const updateDensity = useMutation({
     mutationFn: async (density: TableDensity) => {
@@ -174,8 +321,7 @@ export function useUserPreferences() {
     },
   });
 
-  const visibleColumns =
-    (data?.visible_columns as string[] | undefined) ?? DEFAULT_COLUMNS;
+  const prefs = normalizeStored(data?.visible_columns);
 
   const tableDensity: TableDensity =
     (data?.table_density as TableDensity | undefined) === "compact"
@@ -183,11 +329,36 @@ export function useUserPreferences() {
       : "comfortable";
 
   return {
-    visibleColumns,
+    /** Full per-stage current column map. */
+    visibleColumnsByStage: prefs.current,
+    /** Columns visible for one stage. */
+    getVisibleColumns: (stage: PipelineStage) => prefs.current[stage],
+    /** The Reset target for a stage — the user's own saved default if they've
+     *  pinned one, else the built-in default. */
+    getDefaultColumns: (stage: PipelineStage): string[] =>
+      prefs.defaults[stage] ?? defaultColumnsForStage(stage),
+    /** True when the user has pinned a personal default for this stage. */
+    hasCustomDefault: (stage: PipelineStage) =>
+      Array.isArray(prefs.defaults[stage]),
     tableDensity,
     isLoading: !!userId && isPending,
-    setVisibleColumns: (columns: string[]) => updateColumns.mutate(columns),
+    /** Persist the column set for a single stage; other stages are untouched. */
+    setVisibleColumns: (stage: PipelineStage, columns: string[]) => {
+      const cur = readPrefs();
+      updatePrefs.mutate({
+        current: { ...cur.current, [stage]: columns },
+        defaults: cur.defaults,
+      });
+    },
+    /** Pin the stage's current selection as the user's personal default. */
+    setDefaultColumns: (stage: PipelineStage) => {
+      const cur = readPrefs();
+      updatePrefs.mutate({
+        current: cur.current,
+        defaults: { ...cur.defaults, [stage]: [...cur.current[stage]] },
+      });
+    },
     setTableDensity: (d: TableDensity) => updateDensity.mutate(d),
-    isSaving: updateColumns.isPending || updateDensity.isPending,
+    isSaving: updatePrefs.isPending || updateDensity.isPending,
   };
 }

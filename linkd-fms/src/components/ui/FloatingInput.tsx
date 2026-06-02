@@ -27,11 +27,11 @@ export const FloatingInput = React.forwardRef<HTMLInputElement, FloatingInputPro
             id={id}
             placeholder=" "
             className={cn(
-              "peer h-14 w-full rounded-md border bg-card px-3 pb-1.5 pt-5 text-sm text-ink placeholder-transparent transition-colors",
-              "focus:outline-none focus:ring-2",
+              "peer h-14 w-full rounded-md border bg-card px-3.5 pb-1.5 pt-5 text-sm text-ink placeholder-transparent transition-[border-color,box-shadow,background-color] duration-normal ease-spring",
+              "focus:outline-none",
               errored
-                ? "border-destructive focus:border-destructive focus:ring-destructive/20"
-                : "border-border focus:border-ink focus:ring-ink/10",
+                ? "border-destructive focus:border-destructive focus:shadow-[0_0_0_3px_rgb(var(--destructive)/0.1)]"
+                : "border-border focus:border-ring focus:shadow-input-focus",
               "disabled:cursor-not-allowed disabled:opacity-50",
               className
             )}
@@ -40,7 +40,7 @@ export const FloatingInput = React.forwardRef<HTMLInputElement, FloatingInputPro
           <label
             htmlFor={id}
             className={cn(
-              "pointer-events-none absolute left-3 top-1.5 text-xs font-medium transition-all duration-150",
+              "pointer-events-none absolute left-3.5 top-1.5 text-xs font-medium transition-all duration-normal ease-spring",
               "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-placeholder-shown:font-normal",
               "peer-focus:top-1.5 peer-focus:translate-y-0 peer-focus:text-xs peer-focus:font-medium",
               errored

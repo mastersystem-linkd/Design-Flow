@@ -92,6 +92,15 @@
     --chart-bar-secondary: rgba(67, 56, 202, 0.2);
     --chart-grid: rgba(0, 0, 0, 0.04);
 
+    /* ── Motion tokens — spring physics ──────────────────────── */
+    --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-spring-heavy: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+    --duration-fast: 120ms;
+    --duration-normal: 200ms;
+    --duration-slow: 350ms;
+    --duration-glacial: 500ms;
+
     /* ── Depth + focus tokens ────────────────────────────────── */
     --selvedge: linear-gradient(90deg, #4338CA, #6366F1);
     --selvedge-warm: linear-gradient(90deg, rgb(var(--primary)), rgb(var(--warning)));
@@ -99,12 +108,16 @@
     --ring-focus: rgb(var(--ring));
     --ruler-tick: rgb(var(--border));
     /* Command-Center depth kit — glass surfaces + brand glow + viz grid */
-    --glass-bg: rgba(255, 255, 255, 0.66);
-    --glass-border: rgba(15, 23, 42, 0.08);
+    --glass-bg: rgba(255, 255, 255, 0.58);
+    --glass-border: rgba(15, 23, 42, 0.06);
     --glow-primary: 0 0 0 1px rgb(var(--primary) / 0.08), 0 8px 30px -8px rgb(var(--primary) / 0.22);
     --glow-soft: 0 0 24px -6px rgb(var(--primary) / 0.18);
     --grid-line: rgba(15, 23, 42, 0.05);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0));
+
+    /* ── Premium depth tiers ────────────────────────────────── */
+    --shadow-card-elevated: 0 2px 4px rgba(15, 23, 42, 0.04), 0 8px 20px -4px rgba(15, 23, 42, 0.08), 0 20px 44px -12px rgba(15, 23, 42, 0.12);
+    --shadow-input-focus: 0 0 0 3px rgb(var(--primary) / 0.08), inset 0 1px 2px rgba(15, 23, 42, 0.06);
 
     /* ── Status pill palette (direct CSS values) ─────────────── */
     --status-pool-dot: #94A3B8;
@@ -222,12 +235,16 @@
     --ring-focus: rgb(var(--ring));
     --ruler-tick: rgb(var(--border));
     /* Command-Center depth kit — dark glass + stronger brand glow */
-    --glass-bg: rgba(24, 25, 30, 0.62);
-    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-bg: rgba(24, 25, 30, 0.52);
+    --glass-border: rgba(255, 255, 255, 0.06);
     --glow-primary: 0 0 0 1px rgb(var(--primary) / 0.18), 0 10px 36px -8px rgb(var(--primary) / 0.40);
     --glow-soft: 0 0 28px -4px rgb(var(--primary) / 0.35);
     --grid-line: rgba(255, 255, 255, 0.05);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0));
+
+    /* ── Premium depth tiers — dark ────────────────────────── */
+    --shadow-card-elevated: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 28px -6px rgba(0, 0, 0, 0.5);
+    --shadow-input-focus: 0 0 0 3px rgb(var(--primary) / 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.3);
 
     /* ── Status pill palette — dark ──────────────────────────── */
     --status-pool-dot: #64748B;
@@ -277,6 +294,44 @@
     background-size: 24px 24px;
     background-attachment: scroll;
     transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  /* ── Aurora canvas ────────────────────────────────────────────────
+     A soft, gently-drifting field of brand-tinted light that sits
+     BEHIND all content (z-index:-1) but ABOVE the body background
+     colour. Three overlapping radial blooms (indigo / amber / emerald)
+     breathe across the viewport to give the whole app "living depth"
+     without competing with content. Token-driven so it re-tints per
+     theme; alphas are low in light mode and richer in dark (where it's
+     the default). The drift animation is killed under reduced-motion by
+     the blanket rule below. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -25%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38% 38% at 18% 22%, rgb(var(--primary) / 0.14), transparent 70%),
+      radial-gradient(32% 32% at 82% 14%, rgb(var(--warning) / 0.08), transparent 70%),
+      radial-gradient(42% 42% at 78% 82%, rgb(var(--success) / 0.09), transparent 70%);
+    filter: blur(46px) saturate(115%);
+    animation: aurora-drift 26s var(--ease-spring) infinite alternate;
+    will-change: transform;
+  }
+  :is(.dark) body::before {
+    background:
+      radial-gradient(40% 40% at 16% 20%, rgb(var(--primary) / 0.22), transparent 70%),
+      radial-gradient(34% 34% at 84% 12%, rgb(var(--warning) / 0.12), transparent 72%),
+      radial-gradient(46% 46% at 80% 84%, rgb(var(--success) / 0.14), transparent 72%);
+  }
+  @keyframes aurora-drift {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(2%, -2.5%, 0) scale(1.06); }
+    100% { transform: translate3d(-2%, 2%, 0) scale(1.03); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body::before { animation: none !important; }
   }
 
   h1, h2, h3, h4 {
@@ -340,8 +395,9 @@
   input,
   textarea,
   select {
-    transition: background-color 200ms ease, color 200ms ease,
-      border-color 200ms ease;
+    transition: background-color var(--duration-normal) var(--ease-spring),
+      color var(--duration-normal) var(--ease-spring),
+      border-color var(--duration-normal) var(--ease-spring);
   }
 
   /* Smoother scrollbars */
@@ -424,14 +480,26 @@
     letter-spacing: -0.02em;
   }
 
+  /* ── Delicate serif accent (Fraunces) ─────────────────────────
+     The "elegant serif punctuation" against the geometric sans body.
+     Opt-in only — eyebrow labels, hero accents, empty-state headlines,
+     person names. Optical-size + a touch of slant give it warmth.
+     Never use on body copy or data numerals. */
+  .font-serif-accent {
+    font-family: "Fraunces Variable", "Fraunces", Georgia, serif;
+    font-optical-sizing: auto;
+    font-variation-settings: "opsz" 96, "SOFT" 40;
+    letter-spacing: -0.01em;
+  }
+
   /* ── Command-Center premium surfaces ──────────────────────────
      Opt-in classes that layer glass + brand glow on top of the base
      card tokens. Adapt per-theme via the --glass-* / --glow-* vars.
      Used by hero strips, KPI tiles, and elevated panels. */
   .glass-panel {
     background: var(--glass-bg);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
     border: 1px solid var(--glass-border);
   }
   .card-glow {
@@ -439,13 +507,13 @@
   }
   /* Hover lift + brand glow — for actionable cards/tiles. */
   .hover-glow {
-    transition: box-shadow 260ms cubic-bezier(.16,1,.3,1),
-      transform 260ms cubic-bezier(.16,1,.3,1),
-      border-color 260ms ease;
+    transition: box-shadow var(--duration-slow) var(--ease-spring),
+      transform var(--duration-slow) var(--ease-spring),
+      border-color var(--duration-normal) var(--ease-spring);
   }
   .hover-glow:hover {
     box-shadow: var(--glow-primary);
-    transform: translateY(-2px);
+    transform: translateY(-3px);
   }
   /* Brand-gradient text — hero numerals / accent headings only. */
   .text-gradient {
@@ -492,12 +560,70 @@
     }
   }
 
+  /* ── Aurora blobs — hero/KPI panel depth ───────────────────────
+     Two large, blurred, brand-tinted blooms that drift slowly inside a
+     hero wrapper to echo the app-wide aurora canvas at panel scale.
+     Pair `.aurora-blob` with `.aurora-blob-a` / `.aurora-blob-b` for
+     offset phases. Always decorative (aria-hidden, pointer-events:none
+     handled by the element). Motion removed under reduced-motion. */
+  .aurora-blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(44px);
+    pointer-events: none;
+    will-change: transform;
+  }
+  @keyframes aurora-blob-a {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    100% { transform: translate3d(12%, 10%, 0) scale(1.12); }
+  }
+  @keyframes aurora-blob-b {
+    0%   { transform: translate3d(0, 0, 0) scale(1.05); }
+    100% { transform: translate3d(-10%, -8%, 0) scale(1); }
+  }
+  .aurora-blob-a { animation: aurora-blob-a 18s var(--ease-spring) infinite alternate; }
+  .aurora-blob-b { animation: aurora-blob-b 22s var(--ease-spring) infinite alternate; }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-blob-a, .aurora-blob-b { animation: none !important; }
+  }
+
+  /* ── Spring-physics keyframes ──────────────────────────────
+     Micro-overshoot at 60% creates "settle" effect.
+     Transform+opacity only = GPU-accelerated. */
+  @keyframes spring-scale-in {
+    0%   { opacity: 0; transform: scale(0.92); }
+    60%  { opacity: 1; transform: scale(1.02); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes spring-slide-up {
+    0%   { opacity: 0; transform: translateY(8px); }
+    60%  { opacity: 1; transform: translateY(-2px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes spring-fade-in {
+    0%   { opacity: 0; transform: translateY(4px) scale(0.98); }
+    60%  { opacity: 1; transform: translateY(-1px) scale(1.005); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .animate-spring-scale-in  { animation: spring-scale-in 400ms var(--ease-spring) both; }
+  .animate-spring-slide-up  { animation: spring-slide-up 350ms var(--ease-spring) both; }
+  .animate-spring-fade-in   { animation: spring-fade-in  300ms var(--ease-spring) both; }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spring-scale-in,
+    .animate-spring-slide-up,
+    .animate-spring-fade-in {
+      animation: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  }
+
   /* TopNav glassmorphism — themed background that frosts the canvas
      dot-grid behind it. */
   .topnav-glass {
     background: var(--bg-topnav);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
   }
   /* Scrolled state: firms up like pressed cloth (more opaque + shadow). */
   .topnav-scrolled {
@@ -555,12 +681,13 @@
     background-position: top;
   }
   .dialog-ease[data-state="open"] {
-    --tw-enter-scale: .96 !important;
-    animation-timing-function: cubic-bezier(.16, 1, .3, 1) !important;
-    animation-duration: 350ms !important;
+    --tw-enter-scale: .94 !important;
+    animation-timing-function: var(--ease-spring-heavy) !important;
+    animation-duration: 400ms !important;
   }
   .dialog-ease[data-state="closed"] {
-    animation-duration: 200ms !important;
+    animation-timing-function: var(--ease-out-expo) !important;
+    animation-duration: 180ms !important;
   }
 
   /* ── Dark-mode chart glow — lifts indigo fills off the canvas ─ */

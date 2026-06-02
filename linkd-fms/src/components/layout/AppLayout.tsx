@@ -66,7 +66,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
           so it doesn't reflow the page). */}
       <div
         className={cn(
-          "transition-[padding] duration-200",
+          "transition-[padding] duration-slow ease-spring",
           collapsed ? "md:pl-[64px]" : "md:pl-[220px]"
         )}
       >
@@ -84,7 +84,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
           // pb-20 on mobile clears the 64px MobileTabBar + 16px of
           // breathing room so the last data row isn't pinned under the
           // bar; desktop drops back to pb-8.
-          className="animate-fade-in px-4 pb-20 pt-[68px] sm:px-6 md:px-8 md:pb-8 outline-none"
+          className="animate-spring-fade-in px-4 pb-20 pt-[72px] sm:px-6 md:px-8 lg:px-10 md:pb-8 outline-none"
         >
           {children}
         </main>

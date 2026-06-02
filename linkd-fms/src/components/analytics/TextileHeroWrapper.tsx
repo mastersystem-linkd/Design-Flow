@@ -20,18 +20,27 @@ export function TextileHeroWrapper({
     <div
       className={cn(
         "relative overflow-hidden",
-        "rounded-xl sm:rounded-2xl",
-        "border border-border/50",
-        "bg-gradient-to-br from-primary/[0.03] via-card to-card",
-        "shadow-sm",
-        "p-2.5 sm:p-3 md:p-4",
+        "rounded-2xl sm:rounded-3xl",
+        "border border-white/5 dark:border-white/[0.07]",
+        // Frosted glass surface — content floats over the aurora canvas.
+        "glass-panel bg-gradient-to-br from-primary/[0.06] via-card/80 to-card/90",
+        "shadow-glow-soft",
+        "p-3 sm:p-4 md:p-5",
         className
       )}
     >
-      {/* Command-center corner glow — soft brand bloom for depth */}
+      {/* Aurora blobs — slow brand-tinted blooms for "living depth" */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-primary/15 blur-3xl"
+        className="aurora-blob aurora-blob-a -right-20 -top-20 h-48 w-48 bg-primary/25"
+      />
+      <div
+        aria-hidden
+        className="aurora-blob aurora-blob-b -bottom-24 left-1/4 h-56 w-56 bg-success/15"
+      />
+      <div
+        aria-hidden
+        className="aurora-blob aurora-blob-a -left-16 top-1/3 h-40 w-40 bg-warning/12"
       />
       {/* Woven dot grid */}
       <div

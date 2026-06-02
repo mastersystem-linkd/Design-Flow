@@ -4,18 +4,18 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,box-shadow,transform,border-color,color] duration-150 ease-out active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,box-shadow,transform,border-color,color,opacity] duration-normal ease-spring active:scale-[0.96] active:duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
         default:
-          "bg-[image:var(--brand-gradient)] text-primary-foreground shadow-sm hover:-translate-y-px hover:shadow-[var(--glow-soft)]",
+          "bg-[image:var(--brand-gradient)] text-primary-foreground shadow-sm hover:-translate-y-0.5 hover:shadow-glow-soft",
         accent:
-          "bg-[image:var(--brand-gradient)] text-accent-foreground shadow-sm hover:-translate-y-px hover:shadow-[var(--glow-soft)]",
+          "bg-[image:var(--brand-gradient)] text-accent-foreground shadow-sm hover:-translate-y-0.5 hover:shadow-glow-soft",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:shadow-[0_2px_8px_rgb(var(--destructive)/0.25)]",
         outline:
-          "border border-border bg-card hover:bg-secondary hover:text-secondary-foreground hover:border-[var(--border-hover)]",
+          "border border-border bg-card hover:bg-secondary hover:text-secondary-foreground hover:border-[var(--border-hover)] hover:-translate-y-px",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:

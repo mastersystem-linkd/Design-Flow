@@ -450,6 +450,9 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
   );
 
   // History helper: fetch current history, append entry, return updated array.
+  // The entry's `date` is always stamped with a FULL ISO timestamp (overriding
+  // any date-only value a caller passes) so the Activity Timeline can order
+  // same-day events to the second and read in true chronological sequence.
   async function appendHistory(
     conceptId: string,
     entry: CompletionHistoryEntry
@@ -461,7 +464,11 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       .single();
     const existing: CompletionHistoryEntry[] =
       Array.isArray(row?.completion_history) ? row.completion_history : [];
-    return [...existing, entry];
+    const stamped: CompletionHistoryEntry = {
+      ...entry,
+      date: new Date().toISOString(),
+    };
+    return [...existing, stamped];
   }
 
   const finalizeConcept = useCallback<UseConcepts["finalizeConcept"]>(

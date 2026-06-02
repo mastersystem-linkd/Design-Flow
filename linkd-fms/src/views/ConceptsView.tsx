@@ -22,6 +22,7 @@ import {
   FilterX,
   Calendar,
   Columns3,
+  Star,
   Zap,
 } from "lucide-react";
 import { differenceInDays, format, parseISO } from "date-fns";
@@ -249,6 +250,10 @@ const CONCEPT_DEFAULT_COLS: ConceptColKey[] = [
 ];
 
 const CONCEPT_COL_KEY = "concept_visible_columns";
+// The user's *own* pinned default (the Reset target). Absent until they click
+// "Set as my default"; falls back to CONCEPT_DEFAULT_COLS. Stored per-device
+// in localStorage, mirroring how the live selection is already persisted.
+const CONCEPT_DEFAULT_KEY = "concept_default_columns";
 
 function loadConceptCols(): ConceptColKey[] {
   try {
@@ -256,6 +261,15 @@ function loadConceptCols(): ConceptColKey[] {
     if (raw) return JSON.parse(raw) as ConceptColKey[];
   } catch { /* ignore */ }
   return [...CONCEPT_DEFAULT_COLS];
+}
+
+/** The user's pinned default, or null if they've never set one. */
+function loadConceptDefaultCols(): ConceptColKey[] | null {
+  try {
+    const raw = localStorage.getItem(CONCEPT_DEFAULT_KEY);
+    if (raw) return JSON.parse(raw) as ConceptColKey[];
+  } catch { /* ignore */ }
+  return null;
 }
 
 // ============================================================================
@@ -307,10 +321,21 @@ export function ConceptsView() {
 
   const [tab, setTab] = useState<Tab>(initialTab);
   const [conceptCols, setConceptCols] = useState<ConceptColKey[]>(loadConceptCols);
+  const [conceptDefaultCols, setConceptDefaultCols] = useState<
+    ConceptColKey[] | null
+  >(loadConceptDefaultCols);
   const showCol = useCallback((k: ConceptColKey) => conceptCols.includes(k), [conceptCols]);
   function saveConceptCols(next: ConceptColKey[]) {
     setConceptCols(next);
     localStorage.setItem(CONCEPT_COL_KEY, JSON.stringify(next));
+  }
+  // The Reset target: the user's pinned default, else the built-in default.
+  const effectiveConceptDefault = conceptDefaultCols ?? CONCEPT_DEFAULT_COLS;
+  // Pin the current selection as the user's personal default.
+  function setAsConceptDefault() {
+    const next = [...conceptCols];
+    setConceptDefaultCols(next);
+    localStorage.setItem(CONCEPT_DEFAULT_KEY, JSON.stringify(next));
   }
   function stageColSpan(stage: StageGroup): number {
     return CONCEPT_COLS.filter((c) => c.stage === stage && conceptCols.includes(c.key)).length;
@@ -575,7 +600,13 @@ export function ConceptsView() {
               <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
-            <ConceptColumnMenu visible={conceptCols} onChange={saveConceptCols} />
+            <ConceptColumnMenu
+              visible={conceptCols}
+              defaultColumns={effectiveConceptDefault}
+              hasCustomDefault={conceptDefaultCols !== null}
+              onSetDefault={setAsConceptDefault}
+              onChange={saveConceptCols}
+            />
             {canExport && (
               <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} className="gap-1 px-2">
                 <Download className="h-3.5 w-3.5" />
@@ -591,7 +622,7 @@ export function ConceptsView() {
 
         {/* Inbox banner */}
         {inboxMode && (
-          <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-[11px] text-muted-foreground">
             Showing only concepts pending your review. Filters paused.
             <button type="button" onClick={() => setInboxMode(false)} className="ml-2 font-medium text-primary hover:underline">
               Exit inbox
@@ -795,7 +826,7 @@ export function ConceptsView() {
               <tr>
                 <th
                   rowSpan={2}
-                  className="sticky left-0 z-20 w-[42px] border-b border-r border-border/30 bg-secondary/60 px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-foreground"
+                  className="sticky left-0 z-20 w-[42px] border-b border-r border-border/30 bg-secondary/40 px-2 py-2 text-center text-[11px] font-bold uppercase tracking-[0.07em] text-foreground shadow-[6px_0_10px_-8px_rgba(0,0,0,0.14)]"
                 >
                   #
                 </th>
@@ -810,13 +841,13 @@ export function ConceptsView() {
                      not stage data. */}
                 <th
                   rowSpan={2}
-                  className="sticky right-0 z-20 w-[68px] border-b border-l border-border/30 bg-secondary/60 px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-foreground"
+                  className="sticky right-0 z-20 w-[68px] border-b border-l border-border/30 bg-secondary/40 px-2 py-2 text-center text-[11px] font-bold uppercase tracking-[0.07em] text-foreground shadow-[-6px_0_10px_-8px_rgba(0,0,0,0.14)]"
                 >
                   Actions
                 </th>
               </tr>
 
-              <tr className="bg-secondary/60">
+              <tr className="bg-secondary/40">
                 {showCol("submitted") && <ColHead>Submitted</ColHead>}
                 {showCol("designer") && <ColHead>Designer</ColHead>}
                 {showCol("concept") && <ColHead>Concept</ColHead>}
@@ -848,45 +879,51 @@ export function ConceptsView() {
                 return (
                   <tr
                     key={c.id}
-                    className="group relative border-b border-border/40 cursor-pointer transition-colors duration-150 ease-out hover:bg-secondary/40 even:bg-secondary/[0.04]"
+                    className="group relative cursor-pointer border-b border-border/40 transition-colors duration-150 ease-out hover:bg-primary/[0.05]"
                     onClick={() => setSelectedId(c.id)}
                   >
                     {/* # — zero-padded monospace for visual alignment */}
-                    <td className="sticky left-0 z-10 border-r border-border/40 bg-card px-2 py-3 text-center font-mono text-[11px] tabular-nums text-muted-foreground/60 transition-colors group-hover:bg-secondary/40 group-hover:text-muted-foreground">
+                    <td className={cn(
+                      "sticky left-0 z-10 border-r border-r-border/40 border-l-[3px] bg-card px-2 py-3 text-center font-mono text-[11px] tabular-nums text-muted-foreground/60 shadow-[6px_0_10px_-8px_rgba(0,0,0,0.10)] transition-colors group-hover:bg-primary/[0.05] group-hover:text-muted-foreground",
+                      c.md_status === "approved" ? "border-l-success"
+                        : c.md_status === "pending" ? "border-l-warning"
+                        : c.md_status === "revision_requested" || c.md_status === "rejected" ? "border-l-destructive"
+                        : "border-l-muted-foreground/40"
+                    )}>
                       {String(conceptPg.from + idx + 1).padStart(2, "0")}
                     </td>
 
                     {showCol("submitted") && <Cell>{fmtDate(c.start_date ?? c.created_at)}</Cell>}
-                    {showCol("designer") && <td className="px-3 py-1.5">{submitter ? <span className="truncate text-xs font-medium text-foreground">{submitter.full_name}</span> : <Dash />}</td>}
-                    {showCol("concept") && <td className="px-3 py-1.5"><span className="text-xs font-medium text-foreground line-clamp-1" title={c.concept_code ?? undefined}>{c.title}</span></td>}
-                    {showCol("description") && <td className="px-3 py-1.5">{c.description ? <span className="max-w-[200px] text-xs font-medium text-foreground line-clamp-1" title={c.description}>{c.description}</span> : <Dash />}</td>}
+                    {showCol("designer") && <td className="px-3 py-2.5">{submitter ? <div className="flex items-center gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold uppercase text-primary ring-1 ring-inset ring-primary/15">{submitter.full_name.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("")}</span><span className="truncate text-xs font-medium text-foreground">{submitter.full_name}</span></div> : <Dash />}</td>}
+                    {showCol("concept") && <td className="px-3 py-2.5"><span className="text-[13px] font-semibold text-foreground line-clamp-1" title={c.concept_code ?? undefined}>{c.title}</span></td>}
+                    {showCol("description") && <td className="px-3 py-2.5">{c.description ? <span className="max-w-[200px] text-xs font-medium text-foreground line-clamp-1" title={c.description}>{c.description}</span> : <Dash />}</td>}
                     {showCol("party") && <Cell>{c.client?.party_name || "—"}</Cell>}
-                    {showCol("designs") && <td className="px-3 py-1.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
+                    {showCol("designs") && <td className="px-3 py-2.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
                     {showCol("assigned_by") && <Cell>{c.assigned_by || "—"}</Cell>}
 
-                    {showCol("decision") && <td className="px-3 py-1.5"><div className="flex items-center gap-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} />{isAdmin && needsMdAction(c) && <YourTurnPill />}</div></td>}
+                    {showCol("decision") && <td className="px-3 py-2.5"><div className="flex items-center gap-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} />{isAdmin && needsMdAction(c) && <YourTurnPill />}</div></td>}
                     {showCol("planned") && <Cell>{fmtDate(c.md_planned_date)}</Cell>}
-                    {showCol("reviewed") && <td className="px-3 py-1.5"><span className="text-xs">{fmtDate(c.md_actual_date)}</span>{approvalDelay !== null && <DelayLabel days={approvalDelay} />}</td>}
+                    {showCol("reviewed") && <td className="px-3 py-2.5"><span className="text-xs">{fmtDate(c.md_actual_date)}</span>{approvalDelay !== null && <DelayLabel days={approvalDelay} />}</td>}
 
                     {/* ── Stage 3 · Designer Working — lifecycle-driven. The
                          legacy "Done / Done Date / Delayed" columns are gone;
                          work-status, started_at, hold_count, revision_count,
                          and designer_actual_date (set automatically by
                          markConceptDone) now drive the picture. ── */}
-                    {showCol("work_status") && <td className="px-3 py-1.5 whitespace-nowrap">{c.md_status === "approved" ? <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset", WORK_STATUS_COLORS[c.work_status])}><span className={cn("h-1.5 w-1.5 rounded-full", WORK_STATUS_DOT[c.work_status], c.work_status === "in_progress" && "animate-pulse")} aria-hidden />{WORK_STATUS_LABELS[c.work_status]}</span> : <Dash />}</td>}
+                    {showCol("work_status") && <td className="px-3 py-2.5 whitespace-nowrap">{c.md_status === "approved" ? <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset", WORK_STATUS_COLORS[c.work_status])}><span className={cn("h-1.5 w-1.5 rounded-full", WORK_STATUS_DOT[c.work_status], c.work_status === "in_progress" && "animate-pulse")} aria-hidden />{WORK_STATUS_LABELS[c.work_status]}</span> : <Dash />}</td>}
                     {showCol("started") && <Cell>{fmtDate(c.work_started_at)}</Cell>}
-                    {showCol("holds") && <td className="px-3 py-1.5 text-center whitespace-nowrap"><HoldCell concept={c} /></td>}
-                    {showCol("marked_done") && <td className="px-3 py-1.5 whitespace-nowrap">{c.designer_actual_date ? <span className="text-xs">{fmtDate(c.designer_actual_date)}</span> : <Dash />}</td>}
-                    {showCol("final_decision") && <td className="px-3 py-1.5 whitespace-nowrap"><FinalDecisionPill concept={c} /></td>}
-                    {showCol("approved_count") && <td className="px-3 py-1.5 text-center text-xs tabular-nums">{c.work_status === "completed" ? <span className="font-semibold text-success">{c.approved_designs_count ?? "—"}<span className="text-muted-foreground/60">{c.designs_count != null ? ` / ${c.designs_count}` : ""}</span></span> : c.designs_count != null ? <span className="text-muted-foreground/60">— / {c.designs_count}</span> : <Dash />}</td>}
-                    {showCol("md_feedback") && <td className="max-w-[180px] px-3 py-1.5 text-xs text-muted-foreground">{c.md_feedback ? <span className="line-clamp-1 italic" title={c.md_feedback}>"{c.md_feedback}"</span> : <Dash />}</td>}
-                    {showCol("completed") && <td className="px-3 py-1.5 whitespace-nowrap">{c.work_completed_at ? <span className="text-xs font-medium text-success">{fmtDate(c.work_completed_at)}</span> : <Dash />}</td>}
+                    {showCol("holds") && <td className="px-3 py-2.5 text-center whitespace-nowrap"><HoldCell concept={c} /></td>}
+                    {showCol("marked_done") && <td className="px-3 py-2.5 whitespace-nowrap">{c.designer_actual_date ? <span className="text-xs">{fmtDate(c.designer_actual_date)}</span> : <Dash />}</td>}
+                    {showCol("final_decision") && <td className="px-3 py-2.5 whitespace-nowrap"><FinalDecisionPill concept={c} /></td>}
+                    {showCol("approved_count") && <td className="px-3 py-2.5 text-center text-xs tabular-nums">{c.work_status === "completed" ? <span className="font-semibold text-success">{c.approved_designs_count ?? "—"}<span className="text-muted-foreground/60">{c.designs_count != null ? ` / ${c.designs_count}` : ""}</span></span> : c.designs_count != null ? <span className="text-muted-foreground/60">— / {c.designs_count}</span> : <Dash />}</td>}
+                    {showCol("md_feedback") && <td className="max-w-[180px] px-3 py-2.5 text-xs text-muted-foreground">{c.md_feedback ? <span className="line-clamp-1 italic" title={c.md_feedback}>"{c.md_feedback}"</span> : <Dash />}</td>}
+                    {showCol("completed") && <td className="px-3 py-2.5 whitespace-nowrap">{c.work_completed_at ? <span className="text-xs font-medium text-success">{fmtDate(c.work_completed_at)}</span> : <Dash />}</td>}
 
                     {/* Sticky right Actions cell — ⋮ menu with View / Edit /
                          Delete. stopPropagation everywhere so a menu click
                          doesn't also open the row's detail modal. */}
                     <td
-                      className="sticky right-0 z-10 border-l border-border/40 bg-card px-2 py-2.5 text-center transition-colors group-hover:bg-secondary/40"
+                      className="sticky right-0 z-10 border-l border-border/40 bg-card px-2 py-2.5 text-center shadow-[-6px_0_10px_-8px_rgba(0,0,0,0.10)] transition-colors group-hover:bg-primary/[0.05]"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ConceptRowActionsMenu
@@ -1071,7 +1108,7 @@ function StageHeader({
   return (
     <th
       colSpan={colSpan}
-      className="relative border-b border-border/50 bg-secondary/60 p-0"
+      className="relative border-b border-border/50 bg-secondary/40 p-0"
     >
       <div className={cn("absolute inset-x-0 top-0 h-[2px]", CAT_ACCENT[stage])} />
       <div className="flex items-center justify-center gap-1.5 px-3 py-2">
@@ -1081,7 +1118,7 @@ function StageHeader({
         <span className="font-mono text-[9px] tabular-nums text-muted-foreground">
           {String(step).padStart(2, "0")}
         </span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
+        <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-foreground">
           {label}
         </span>
       </div>
@@ -1099,7 +1136,7 @@ function Cell({
   return (
     <td
       className={cn(
-        "px-3 py-1.5 text-xs text-foreground whitespace-nowrap",
+        "px-3 py-2.5 text-xs text-foreground whitespace-nowrap",
         border && "border-r border-border/20"
       )}
     >
@@ -1122,7 +1159,7 @@ function ColHead({
   return (
     <th
       className={cn(
-        "px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-foreground border-b border-border bg-secondary/60",
+        "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.07em] text-foreground border-b border-border bg-secondary/40",
         center && "text-center",
         border && "border-r border-border/30",
         wider && "min-w-[200px]"
@@ -1135,8 +1172,31 @@ function ColHead({
 
 /** Em-dash placeholder for empty values — minimal so it doesn't compete
  *  with real data when scanning the table. */
-function ConceptColumnMenu({ visible, onChange }: { visible: ConceptColKey[]; onChange: (next: ConceptColKey[]) => void }) {
+/** Order-independent set equality for concept column lists. */
+function sameConceptColumns(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sb = new Set(b);
+  return a.every((k) => sb.has(k));
+}
+
+function ConceptColumnMenu({
+  visible,
+  defaultColumns = CONCEPT_DEFAULT_COLS,
+  hasCustomDefault = false,
+  onSetDefault,
+  onChange,
+}: {
+  visible: ConceptColKey[];
+  /** Column set "Reset" restores (the user's pinned default or the built-in). */
+  defaultColumns?: readonly ConceptColKey[];
+  /** Whether the user has pinned a personal default (affects copy). */
+  hasCustomDefault?: boolean;
+  /** Pin the current selection as the user's default; hides the button if absent. */
+  onSetDefault?: () => void;
+  onChange: (next: ConceptColKey[]) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -1145,8 +1205,14 @@ function ConceptColumnMenu({ visible, onChange }: { visible: ConceptColKey[]; on
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Clear the "Saved" confirmation when the selection changes or menu reopens.
+  const selectionKey = [...visible].sort().join(",");
+  useEffect(() => { setJustSaved(false); }, [selectionKey, open]);
+
   const isVis = (k: ConceptColKey) => visible.includes(k);
   function toggle(k: ConceptColKey) { onChange(isVis(k) ? visible.filter((v) => v !== k) : [...visible, k]); }
+  const isCurrentTheDefault = sameConceptColumns(visible, defaultColumns);
+  function setAsDefault() { onSetDefault?.(); setJustSaved(true); }
 
   return (
     <div className="relative" ref={ref}>
@@ -1163,7 +1229,7 @@ function ConceptColumnMenu({ visible, onChange }: { visible: ConceptColKey[]; on
           <div className="max-h-72 overflow-y-auto py-1">
             {CONCEPT_COLS.map(({ key, label, stage }) => (
               <button key={key} type="button" role="menuitemcheckbox" aria-checked={isVis(key)} onClick={() => toggle(key)}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-secondary/60">
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-secondary/60">
                 <span className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded border", isVis(key) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card")}>
                   {isVis(key) && <CheckCircle2 className="h-3 w-3" />}
                 </span>
@@ -1172,13 +1238,36 @@ function ConceptColumnMenu({ visible, onChange }: { visible: ConceptColKey[]; on
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2 border-t border-border px-2 py-2">
-            <button type="button" onClick={() => onChange(CONCEPT_COLS.map((c) => c.key))} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-              <Eye className="h-3 w-3" /> Show All
-            </button>
-            <button type="button" onClick={() => onChange([...CONCEPT_DEFAULT_COLS])} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-              <RotateCcw className="h-3 w-3" /> Reset
-            </button>
+          <div className="space-y-1.5 border-t border-border px-2 py-2">
+            {onSetDefault && (
+              <button
+                type="button"
+                onClick={setAsDefault}
+                disabled={isCurrentTheDefault && !justSaved}
+                title="Make this column layout the one Reset restores"
+                className={cn(
+                  "inline-flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors",
+                  justSaved
+                    ? "border-success/40 bg-success/5 text-success"
+                    : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary",
+                  "disabled:cursor-default disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-card disabled:hover:text-muted-foreground"
+                )}
+              >
+                {justSaved ? (
+                  <><CheckCircle2 className="h-3 w-3" /> Saved as your default</>
+                ) : (
+                  <><Star className="h-3 w-3" /> {isCurrentTheDefault ? "This is your default" : "Set as my default"}</>
+                )}
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => onChange(CONCEPT_COLS.map((c) => c.key))} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                <Eye className="h-3 w-3" /> Show All
+              </button>
+              <button type="button" onClick={() => onChange([...defaultColumns])} title={hasCustomDefault ? "Reset to your saved default" : "Reset to the built-in default"} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                <RotateCcw className="h-3 w-3" /> Reset
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1226,35 +1315,35 @@ function StatusPill({ status, label }: { status: ConceptStatus; label?: string }
   > = {
     pending: {
       label: "Pending",
-      cls: "bg-warning/10 text-warning ring-warning/25 shadow-[0_0_0_3px_rgb(var(--warning)/0.04)]",
+      cls: "bg-warning/10 text-warning ring-warning/25",
       dot: "bg-warning",
     },
     approved: {
       label: "Approved",
-      cls: "bg-success/10 text-success ring-success/25 shadow-[0_0_0_3px_rgb(var(--success)/0.04)]",
+      cls: "bg-success/10 text-success ring-success/25",
       dot: "bg-success",
     },
     rejected: {
       label: "Rejected",
-      cls: "bg-destructive/10 text-destructive ring-destructive/25 shadow-[0_0_0_3px_rgb(var(--destructive)/0.04)]",
+      cls: "bg-destructive/10 text-destructive ring-destructive/25",
       dot: "bg-destructive",
     },
     revision_requested: {
       label: "Revision",
-      cls: "bg-warning/10 text-warning ring-warning/25 shadow-[0_0_0_3px_rgb(var(--warning)/0.04)]",
+      cls: "bg-warning/10 text-warning ring-warning/25",
       dot: "bg-warning",
     },
   };
   const isResubmit = label === "Re-submitted";
   const s = map[status];
   const pillCls = isResubmit
-    ? "bg-primary/10 text-primary ring-primary/25 shadow-[0_0_0_3px_rgb(var(--primary)/0.04)]"
+    ? "bg-primary/10 text-primary ring-primary/25"
     : s.cls;
   const dotCls = isResubmit ? "bg-primary" : s.dot;
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset transition-shadow",
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] ring-1 ring-inset",
         pillCls
       )}
     >
@@ -1312,7 +1401,7 @@ function FilterChip({
       onClick={onClick}
       title={hint}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
         active
           ? "bg-primary text-white"
           : "text-muted-foreground hover:bg-secondary hover:text-foreground"

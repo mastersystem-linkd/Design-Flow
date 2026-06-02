@@ -9,6 +9,14 @@ import { LoaderProvider } from "@/components/ui";
 // Display (Sora) + body (Manrope) load via the Google Fonts <link> in
 // index.html. JetBrains Mono is self-hosted for the tabular data numerals.
 import "@fontsource/jetbrains-mono/700.css";
+// Fraunces variable serif — opt-in display accent (greetings, page mastheads,
+// person names, empty-state headlines) via the `.font-serif-accent` class.
+// `full` = the complete variable face (opsz 9-144 + wght 100-900) so
+// `font-optical-sizing: auto` actually drives the optical axis; `full-italic`
+// gives a true italic for the greeting flourish. Family: "Fraunces Variable".
+// font-display:swap is built in — never import a static weight file.
+import "@fontsource-variable/fraunces/full.css";
+import "@fontsource-variable/fraunces/full-italic.css";
 import "@/index.css";
 
 const queryClient = new QueryClient({

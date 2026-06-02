@@ -20,7 +20,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAnalytics, type Period } from "@/hooks/useAnalytics";
 import { useConcepts } from "@/hooks/useConcepts";
 import { KpiCard } from "@/components/analytics/KpiCard";
-import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { VolumeChart } from "@/components/analytics/VolumeChart";
 import { PipelineHealth } from "@/components/analytics/PipelineHealth";
 import { DesignerLeaderboard } from "@/components/analytics/DesignerLeaderboard";
@@ -290,13 +289,12 @@ export function AnalyticsView({
       ) : (
         /* ── ADMIN / COORDINATOR VIEW ── */
         <>
-          {/* KPI cards — wrapped in the shared TextileHeroWrapper so the
-              Concept Dashboard reads as part of the same visual system
-              as Task / Sampling / Salvedge / Scorecards. */}
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:divide-y-0 lg:grid-cols-4">
+          {/* KPI cards — clean bordered grid (Linear/Vercel idiom), matching
+              the rebuilt Task Dashboard hero: high-contrast numerals, trend
+              pill, quiet sparkline, subtle hover lift. No divided-cell strip,
+              no decorative wrapper — hierarchy from grouping + contrast. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
-              flat
               icon={<FileText className="h-4 w-4 text-primary" />}
               label="Concepts Submitted"
               value={a.kpis.totalSubmitted.current}
@@ -308,7 +306,6 @@ export function AnalyticsView({
               sub={`by ${a.designerStats.filter(d => d.submitted > 0).length} designer${a.designerStats.filter(d => d.submitted > 0).length !== 1 ? "s" : ""}`}
             />
             <KpiCard
-              flat
               icon={<CheckCircle2 className="h-4 w-4 text-success" />}
               label="Approved"
               value={a.kpis.totalApproved.current}
@@ -323,7 +320,6 @@ export function AnalyticsView({
               sub={`${a.kpis.approvalRate.current}% rate · ${a.kpis.totalApproved.current + (a.statusDistribution.find(s => s.status === "rejected")?.count ?? 0)} reviewed`}
             />
             <KpiCard
-              flat
               icon={<PackageCheck className="h-4 w-4 text-success" />}
               label="Completed"
               value={a.kpis.totalCompleted.current}
@@ -343,7 +339,6 @@ export function AnalyticsView({
               }
             />
             <KpiCard
-              flat
               icon={<RotateCcw className="h-4 w-4 text-warning" />}
               label="Avg Review Time"
               value={a.kpis.avgApprovalHours.current > 0 ? `${a.kpis.avgApprovalHours.current}h` : "—"}
@@ -359,21 +354,24 @@ export function AnalyticsView({
               to={`${ROUTES.concepts}?tab=pending`}
               sub="Target: < 24 hours"
             />
-            </div>
           </div>
 
           {/* ── Print Production Pipeline — post-approval lifecycle ── */}
           <Card>
-            <CardContent className="p-3">
-              <header className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold text-foreground">Pipeline</p>
-                  <p className="text-[10px] text-muted-foreground">· post-approval lifecycle</p>
+            <CardContent className="p-4 sm:p-5">
+              <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+                    <Layers className="h-[18px] w-[18px]" />
+                  </span>
+                  <div className="leading-tight">
+                    <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Print Production Pipeline</h3>
+                    <p className="text-[11px] font-medium text-muted-foreground">Post-approval lifecycle</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {a.conversionRates.reviewedToApproved > 0 && (
-                    <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
+                    <span className="hidden text-[11px] font-medium text-muted-foreground sm:inline">
                       {a.conversionRates.reviewedToApproved}% approval rate
                     </span>
                   )}
@@ -691,7 +689,7 @@ function WorkPill({
         //         labels like "Pending Approval" / "In Revision" never get
         //         cropped in the 2-column mobile grid.
         // Desktop (sm+): horizontal layout with justify-between.
-        "flex flex-col items-start gap-1 rounded-lg border border-l-[3px] px-2.5 py-2 text-left transition-all hover:scale-[1.02] hover:shadow-card-soft active:scale-[0.98] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3",
+        "flex flex-col items-start gap-1 rounded-lg border border-l-[3px] px-2.5 py-2.5 text-left transition-all duration-200 hover:shadow-card-soft hover:brightness-[1.04] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3",
         toneClass
       )}
     >

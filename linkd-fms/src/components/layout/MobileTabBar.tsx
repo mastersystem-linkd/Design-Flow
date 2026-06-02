@@ -59,14 +59,14 @@ export function MobileTabBar({ role, unreadCount }: Props) {
   const tabs = getTabsForRole(role);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-stretch border-t border-border bg-card/95 shadow-[0_-2px_12px_rgb(0_0_0/0.08)] backdrop-blur-xl md:hidden safe-area-pb">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-stretch border-t border-border bg-[var(--glass-bg)] shadow-[0_-4px_20px_-4px_rgb(0_0_0/0.12)] backdrop-blur-xl md:hidden safe-area-pb">
       {tabs.map((tab) => (
         <NavLink
           key={tab.to}
           to={tab.to}
           className={({ isActive }) =>
             cn(
-              "flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-all active:scale-95",
+              "flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-[colors,transform] duration-fast ease-spring active:scale-[0.92]",
               isActive ? "text-primary" : "text-muted-foreground"
             )
           }
@@ -74,7 +74,7 @@ export function MobileTabBar({ role, unreadCount }: Props) {
           {({ isActive }) => (
             <>
               {isActive && (
-                <div className="absolute left-1/2 top-0 h-[2px] w-8 -translate-x-1/2 rounded-b-full bg-primary" />
+                <div className="absolute left-1/2 top-0 h-[2.5px] w-10 -translate-x-1/2 rounded-b-full bg-primary transition-all duration-normal ease-spring" />
               )}
               <div className="relative">
                 <tab.icon

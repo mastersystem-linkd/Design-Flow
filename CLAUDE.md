@@ -53,7 +53,8 @@ The app has five analytics surfaces: **Task Dashboard**, **Concept Dashboard**, 
 - **Single primitive:** `<KpiCard>` from `@/components/analytics/KpiCard`. Used in every dashboard's KPI grid (Concept Dashboard 4-card row, Scorecards 4-tile strip, Scorecard Detail 5-tile strip, etc.).
 - The `metric` prop is **optional**. Omit it for snapshot stats with no period-over-period comparison (Scorecards summary) — the trend pill drops cleanly. Pass it when you have a `KpiMetric` to drive the trend arrow + sparkline color.
 - Hover lift (`translate-y / ring / shadow`) only fires when `to` is set — non-actionable tiles must not fake interactivity.
-- For the Task Dashboard's 7-tile divided **hero strip**, use the inline `HeroKpiTile` component in `TaskDashboardView.tsx`. It is a different layout (divided cells, no card wrapper per tile) but uses the same tone tokens. Don't duplicate this pattern in other views — use `<KpiCard>` grids there.
+- **Task Dashboard hero (rebuilt 2026-06, Linear/Vercel idiom):** the old 7-tile divided `HeroKpiTile` strip is **gone**. The admin hero is now two clean rows of bordered cards in `TaskDashboardView.tsx`: four **`MetricCard`** (primary throughput — crisp `text-foreground` numeral, uppercase label, `TrendPill`, quiet sparkline) above three compact **`StatusTile`** (Active / Urgent / Overdue — horizontal icon + numeral + trailing note). No decorative/textile wrapper on this hero; hierarchy comes from grouping + contrast. These three are local to `TaskDashboardView.tsx` — don't export or reuse them in other views; use `<KpiCard>` grids there.
+- **No dim gradient numerals.** KPI values render in high-contrast `text-foreground` (the `metric-value` indigo gradient-clip read as washed-out, especially in dark mode). The `.metric-value` utility still exists but is **not** the default for KPI figures anymore — `KpiCard` now defaults to `text-foreground`.
 
 ### 8.2 Textile aesthetic (warp/weft motif)
 Every dashboard hero/KPI strip carries the same two decorative layers so the app reads in the visual language of digital fabric printing:
@@ -76,6 +77,8 @@ Every dashboard hero/KPI strip carries the same two decorative layers so the app
 </div>
 ```
 Apply this wrapper to every hero/KPI strip on Dashboards + Scorecards. Don't add it to non-analytics surfaces (Files, Team, Settings) — it would overload them.
+
+**Premium uplift (2026-06):** `<TextileHeroWrapper>` (`@/components/analytics/TextileHeroWrapper`) is still the wrapper for the **Concept Dashboard / Sample Dashboard / Scorecards** heroes (frosted `glass-panel`, `rounded-2xl/3xl`, `shadow-glow-soft`, three drifting `.aurora-blob`s). The **Task Dashboard no longer uses it** — its rebuilt hero (see §8.1) is intentionally chrome-free, clean bordered cards. App-wide, `body::before` paints a subtle gently-drifting **aurora canvas** behind all content (richer in dark, restrained in light). All aurora motion is killed under `prefers-reduced-motion`. **Design thesis = Linear / Vercel / Stripe: restraint, crisp high-contrast type, 1px borders, tight spacing, ruthless hierarchy — not maximalist glow/glass.** When in doubt, dial decoration *down*.
 
 ### 8.3 Tables — shared style constants
 All data tables in the app pull their styling from `@/lib/tableStyles`:
@@ -240,10 +243,13 @@ The task pipeline is now `pool → in_progress → done → completed`. `done` a
 
 ## 14. Task-table column visibility
 
-The All Tasks wide table (`KanbanView`) has per-user **column visibility**, DB-backed so it persists across sessions/devices.
-- **Hook:** `useUserPreferences()` (React Query, `user_preferences` table from migration `0040` — `visible_columns` JSONB). Auto-creates the row on first read, optimistic `setVisibleColumns`. Returns `{ visibleColumns, isLoading, setVisibleColumns }`.
-- **Column model** lives in the hook: `ColumnKey`, `ALL_COLUMNS` (key + label), `DEFAULT_COLUMNS`, `REQUIRED_ONE_OF`. Toggleable keys map 1:1 to the **real** `<th>`/`<td>` pairs: `date, designer, concept, description, party_name, fabric, whatsapp_group, message_date, message_time, assigned_by, qty, deadline, completion_timestamp, completed, pending, started_late`. There is **no** Status/Priority column — don't add phantom keys. (`mtr` was removed.)
-- **Always-on columns (NOT toggleable, absent from `ALL_COLUMNS`):** bulk-select checkbox, the sticky **Action** column, and the **Reference** column (`files`) — Reference was made permanent so it's never hidden.
+The All Tasks wide table (`KanbanView`) has per-user **column visibility**, DB-backed so it persists across sessions/devices. **Column choices are per pipeline stage** — Pool, In Progress, and Completed each remember their own visible set, so switching tabs swaps the columns to that stage's selection.
+- **Hook:** `useUserPreferences()` (React Query, `user_preferences` table from migration `0040` — `visible_columns` JSONB). Auto-creates the row on first read, optimistic updates. Returns `{ visibleColumnsByStage, getVisibleColumns(stage), getDefaultColumns(stage), hasCustomDefault(stage), setVisibleColumns(stage, columns), setDefaultColumns(stage), tableDensity, setTableDensity, isLoading, isSaving }`.
+- **Per-stage storage:** `visible_columns` JSONB now holds `StoredColumnPrefs` = `{ current: VisibleColumnsByStage, defaults: Partial<VisibleColumnsByStage> }` — `current` is the live per-stage selection; `defaults` is the user's *own* pinned default per stage (the Reset target; a stage absent here falls back to the built-in default). `normalizeStored()` tolerates three historical shapes: a legacy flat `string[]` (→ Pool current view), a flat per-stage map (→ `current`, no custom defaults), or the `{ current, defaults }` object (used as-is). No DB migration was needed — the JSONB column absorbs the new shape. `VisibleColumnsByStage = Record<PipelineStage, string[]>`; `PipelineStage = "pool" | "in_progress" | "completed"`; `done` tasks live in the In Progress tab so `KanbanView`'s `toColumnStage()` maps any non pool/completed tab to `in_progress`. Full Kitting has its own separate column system (`fkCols` / `FkColumnMenu`) — unaffected.
+- **Per-stage built-in defaults:** `defaultColumnsForStage(stage)` — In Progress returns `IN_PROGRESS_DEFAULT_COLUMNS` (date, designer, concept, description, party_name, fabric, whatsapp_group, assigned_by, qty, pending, full_kitting); Completed returns `COMPLETED_DEFAULT_COLUMNS` (date, designer, concept, description, party_name, fabric, whatsapp_group, assigned_by, qty, completion_timestamp, completed, started_late); Pool returns the generic `DEFAULT_COLUMNS`.
+- **User-defined default ("Set as my default"):** `<ColumnVisibilityMenu>` shows a **Set as my default** button (`onSetDefault` prop) that pins the stage's current selection into `defaults[stage]` via `setDefaultColumns(stage)`. **Reset** (`defaultColumns` prop = `getDefaultColumns(stage)`) then restores *that* user default, falling back to the built-in stage default if none is pinned. The button reads "This is your default" (disabled) when the current view already equals the effective default, and flashes "Saved as your default" on click. `hasCustomDefault(stage)` only adjusts the Reset tooltip copy.
+- **Column model** lives in the hook: `ColumnKey`, `ALL_COLUMNS` (key + label), `DEFAULT_COLUMNS`, `REQUIRED_ONE_OF`. Toggleable keys map 1:1 to the **real** `<th>`/`<td>` pairs: `date, designer, concept, description, files, party_name, fabric, whatsapp_group, message_date, message_time, assigned_by, qty, deadline, completion_timestamp, completed, pending, started_late`. There is **no** Status/Priority column — don't add phantom keys. (`mtr` was removed.)
+- **Always-on columns (NOT toggleable, absent from `ALL_COLUMNS`):** bulk-select checkbox and the sticky **Action** column only. The **Reference** column (`files`, label "Reference") IS toggleable as of this change — it shows in the Columns menu and is part of `DEFAULT_COLUMNS`. (Existing users whose saved `visible_columns` predate this won't see it until they enable it via the menu / Show All.)
 - **`message_date` / `message_time`** render `whatsapp_received_date` / `whatsapp_received_time` (the brief's Message date/time), via `formatDateOnly` / `formatTimeOnly`.
 - **`deadline`** column is labelled **"Planned Deadline"** (was "Due Date"); the cell renders inline (single line, severity dot + date) to match the other date columns — NOT the shared `<DeadlineCell>` (that's still used in the mobile card).
 - **`started_late`** keeps its legacy key but is labelled **"Completed Late"**: it's now deadline-based — Yes when the task finished AFTER `planned_deadline` (see `isCompletedLate`), not the old cycle-time meaning. No-deadline / not-completed = No.
@@ -319,3 +325,98 @@ The base `DialogContent` in `@/components/ui/dialog` carries mobile-safe default
   - **(A) The flex-col + scroll-body pattern** (use for combobox-heavy forms like SamplingFormDialog, TaskDetailDrawer, EditTaskDialog): `DialogContent` className includes `flex max-h-[92vh] flex-col overflow-hidden p-0` + an inner `<div className="flex-1 overflow-y-auto …">` for the scrollable body. Header/footer outside the scroll box stay pinned. Combobox dropdowns are clipped only by the inner body, which is usually fine; if a dropdown opens near the bottom of the body, the user can scroll the body first.
   - **(B) The lazy retrofit** (use only for short admin forms): add `max-h-[90dvh] overflow-y-auto` to `DialogContent` and let the whole thing scroll. Applied to FullKittingModal, KittingStageADialog, TeamView add/edit. **Beware Combobox in this mode** — its dropdown is `absolute` and gets clipped by the dialog's scroll container, so prefer (A) for combobox-heavy forms.
 - **`<Combobox>` is NOT portaled** — its menu is `absolute` inside the trigger's relative wrapper. Any ancestor with `overflow: auto/hidden` clips it. This shapes the dialog scroll choices above; don't add `overflow-y-auto` to ancestors of a Combobox unless you're OK with clipping.
+- **Dialog entrance:** scale `.96→1` at 350ms `cubic-bezier(.16,1,.3,1)`, exit 200ms. `dialog-panel` adds a 2px `--selvedge` gradient top edge. Desktop `sm:rounded-2xl`. Backdrop is `bg-foreground/40 backdrop-blur-sm`. Reduced-motion: instant.
+
+## 19. Selvedge Design Language — CSS tokens + utilities
+
+The app's visual identity is the **selvedge** — the finished edge of woven cloth. Every surface, border, and animation references this metaphor. Tokens live in `src/index.css`, utilities in `@layer components`.
+
+### 19.1 Depth + focus tokens (`:root` and `.dark`)
+- `--selvedge` — 2px horizontal gradient (indigo). Light: `#4338CA→#6366F1`. Dark: `#6366F1→#818CF8`.
+- `--selvedge-warm` — indigo→madder, from `rgb(var(--primary))` + `rgb(var(--warning))`.
+- `--brand-glow` — box-shadow. Light: `0 0 8px` at 12% alpha. Dark: `0 0 20px` at 30%.
+- `--ring-focus` — `rgb(var(--ring))` for keyboard focus outlines.
+- `--ruler-tick` — `rgb(var(--border))` for metric underlines.
+
+### 19.2 Accessibility base
+- **Reduced motion:** `@media (prefers-reduced-motion: reduce)` blanket rule kills ALL `animation-duration`, `animation-iteration-count`, `transition-duration`, `scroll-behavior` on `*` with `!important`. Additional per-utility overrides on `.warp-draw`, `.weft-in`, `.shuttle-dot`.
+- **Focus-visible ring:** `outline: 2px solid var(--ring-focus); outline-offset: 2px; border-radius: 4px` on `a, button, [role="button"], input, select, textarea, [tabindex]` via `:focus-visible`. NEVER remove outlines.
+
+### 19.3 Selvedge utilities (CSS classes)
+- `.nav-selvedge-active` — sidebar active: gradient left edge + inset `--brand-glow`.
+- `.swatch-edge` / `.swatch-edge-actionable` — KPI tile left edge (indigo resting, warm on hover when actionable).
+- `.row-selvedge` — table row 2px inset left `box-shadow` on hover.
+- `.thead-selvedge` — 2px gradient top edge on table headers.
+- `.shuttle-dot` — 5px pulsing dot (pipeline active connector). Hidden under reduced-motion.
+- `.pill-gradient-ring` — gradient ring on active stepper pill via `::after` mask.
+- `.dialog-panel` — 2px `--selvedge` top edge on dialog panels.
+- `.dialog-ease` — enter 350ms, exit 200ms, custom easing.
+- `.metric-value` / `.metric-value-ruled` — gradient-clipped numerals with solid fallback.
+- `.greeting-gradient` — time-band gradient on TopNav greeting word.
+- `.table-compact` — density override (trimmed `py` + `text-xs` on `th`/`td`).
+- `.font-mono-data` — JetBrains Mono 700, `tabular-nums` (opt-in for data numerals).
+- `.warp-draw` / `.weft-in` — dashboard hero entrance (transform+opacity only, ≤700ms).
+
+### 19.4 Fonts
+- **Body:** Manrope (system-ui fallback) — `fontFamily.sans`, loaded via the Google Fonts `<link>` in `index.html`.
+- **Display:** Sora — `fontFamily.display`. Applied to `h1–h4` in `index.css`.
+- **Serif accent:** **Fraunces** (variable, self-hosted via `@fontsource-variable/fraunces`). The "delicate serif punctuation" against the geometric sans. `fontFamily.serif` now resolves to Fraunces (was a Manrope alias — that was a no-op). Opt in via the Tailwind `font-serif` utility **or** the richer `.font-serif-accent` class (sets optical-size + soft slant). Use for eyebrow labels, hero accents, person names, and empty-state headlines (`EmptyState` title uses it). **Never** on body copy or data numerals.
+- **Data numerals:** JetBrains Mono 700 — self-hosted via `@fontsource/jetbrains-mono`, `font-display: swap`. Opt-in only via `.font-mono-data` or `font-mono-data` Tailwind class. Never global.
+- All faces use `font-display: swap` — no CLS on first paint.
+- **Default theme is `light`** (`<ThemeProvider defaultTheme="light">` in `main.tsx`). The premium uplift was tuned to read well in **both** themes (the aurora is richer in dark, restrained in light) — never hardcode theme-specific values, keep extending the `:root` / `.dark` tokens.
+
+### 19.5 Status pill discipline
+- Only ONE indicator may use `.animate-urgent-pulse` (single-run) — the most severe (overdue/urgent).
+- `animate-pulse` (looping) is reserved for skeleton loaders and genuine temporary states (recording, connecting, export progress). NEVER on status badges, dots, or icons.
+- All pills are token-driven via constants in `lib/constants.ts` (`STATUS_COLORS`, `CONCEPT_STATUS_COLORS`, `WORK_STATUS_COLORS`).
+
+### 19.6 Charts (recharts)
+- Axis ticks + tooltips use JetBrains Mono via `CHART_AXIS_TICK.fontFamily` in `lib/chartConfig.ts`.
+- `useChartAnimation()` hook — returns `true` on first render, `false` after (prevents re-animation on refetch). StrictMode-safe.
+- Dark mode: `.dark .recharts-area-curve` / `.recharts-line-curve` get `brightness(1.15) + drop-shadow`. `.dark .recharts-bar-rectangle path` gets `brightness(1.1)`.
+
+### 19.7 Components
+- **`<ScoreRing>`** (`@/components/analytics/ScoreRing`) — SVG embroidery hoop. Dashed guide + solid fill arc, round caps, -90deg rotation, 1.2s ease-out on mount (ref-guarded, StrictMode-safe). Track `--secondary`, fill by threshold (success 80+ / warning 60–79 / orange 40–59 / destructive <40). Dark glow via `drop-shadow`. Used in ScorecardsView + ScorecardDetailView. Does NOT replace the ScorePill navigation affordance (§8.8).
+- **`useAnimatedNumber`** — count-up 0→target, 800ms cubic ease-out, mount-only. `done` is React state (StrictMode-safe). Reduced-motion: instant. Applied to KpiCard, HeroKpiTile, DashboardKpiCards.
+- **`<EmptyState>`** — inline SVG loom swatch (warp/weft/selvedge in tokens) when no `icon` prop. Token-stroked, both themes.
+- **Skeletons** — `SkeletonCard` has `swatch-edge`, `SkeletonTable` has `thead-selvedge` + `row-selvedge`, `SkeletonScoreRing` is a dashed circle. `AppShellSkeleton` is theme-aware (light sidebar in light mode).
+
+## 20. Table density toggle
+
+Per-user comfortable/compact row density for wide tables, DB-backed via `useUserPreferences` (§14).
+
+- **DB:** `user_preferences.table_density` column (`text NOT NULL DEFAULT 'comfortable'`), migration `0047`.
+- **Hook:** `useUserPreferences()` returns `tableDensity` + `setTableDensity(d)` with optimistic mutation.
+- **CSS:** `.table-compact th/td` overrides in `@layer components` — trims `py` by ~60%, drops font one step.
+- **UI:** `Rows3` icon button in KanbanView toolbar (next to Columns menu). Highlights `bg-primary/10` when compact.
+- **Wiring:** `table-compact` class applied to the table scroll wrapper via `tableDensity` prop threaded through TopBar → TaskTableSection.
+
+## 21. Danger Zone — dynamic record management
+
+The Danger Zone (`DangerZoneTab.tsx` in Settings) supports both bulk-clear and targeted record deletion.
+
+### 21.1 Expandable sections
+- Each table section is an accordion — click to expand, shows up to 200 records.
+- Records display identifiable info (name, code, status, date, UUID prefix) per table.
+- `selectCols` and `orderCol` per table match the actual DB schema (e.g. `task_logs` uses `timestamp` not `created_at`, `files` uses `uploaded_at`, `task_comments` uses `body` not `content`).
+
+### 21.2 Search + selection
+- Per-section search bar filters records client-side by display text or ID.
+- Checkbox selection on every record + "Select All" header.
+- **Delete Selected** button triggers the same 2-stage confirmation (ConfirmDialog + type DELETE).
+- **Clear All** button per section still available for full table wipe.
+
+### 21.3 Confirmation flow
+- Stage 1: ConfirmDialog (danger variant) — "I understand, continue".
+- Stage 2: Type `DELETE` in a modal input — exact match required.
+- Both stages apply to all actions: clear-notifs, clear-table, delete-selected, clear-all.
+
+## 22. Voice/audio features — removed
+
+Voice feedback (recording + transcript + audio playback) has been removed from the Concepts workflow.
+
+- **Removed:** `VoiceFeedback` component usage from `ConceptDetailDrawer` (3 instances replaced with plain `<textarea>`).
+- **Removed:** Audio state variables (`reviewAudioUrl`, `finalAudioUrl`, `voiceBusy`, `suggestAudioUrl`).
+- **Simplified:** `FeedbackDisplay` now renders text only — strips legacy `🎙 Voice feedback:` markers from old records.
+- **Dead code:** `VoiceFeedback.tsx` is no longer imported anywhere. Can be deleted.
+- **No DB changes** — the `md_notes` / `md_feedback` / `final_approval_notes` columns still store text; old records with audio markers display the text portion only.

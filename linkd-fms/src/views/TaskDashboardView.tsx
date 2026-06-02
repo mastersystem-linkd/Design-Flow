@@ -24,7 +24,6 @@ import {
   type PipelineItem,
 } from "@/hooks/useTaskAnalytics";
 import { KpiCard } from "@/components/analytics/KpiCard";
-import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
@@ -426,13 +425,16 @@ export function TaskDashboardView() {
       ) : (
         /* Admin / Coordinator view */
         <>
-          {/* Hero strip — merges the old TaskHealthHero block + the 4
-              KpiCards into one continuous row of 7 divided HeroKpiTiles.
-              The textile wrapper is shared with every other dashboard so
-              the visual language stays uniform. */}
-          <TextileHeroWrapper className="p-0">
-            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 overflow-hidden rounded-xl sm:grid-cols-3 sm:divide-y-0 md:grid-cols-4 lg:grid-cols-7">
-              <HeroKpiTile
+          {/* ── Hero metrics ──────────────────────────────────────────
+              Linear / Vercel / Stripe idiom: clean individual metric cards
+              with crisp HIGH-CONTRAST numerals (no dim gradient clip),
+              1px borders, generous internal air, and a quiet sparkline.
+              Hierarchy comes from grouping + contrast, not chrome — the
+              four throughput metrics sit above a row of three live-status
+              tiles. No decorative wrapper. */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard
                 icon={CheckCircle2}
                 label="Delivered"
                 tone="success"
@@ -443,7 +445,7 @@ export function TaskDashboardView() {
                   navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
                 }
               />
-              <HeroKpiTile
+              <MetricCard
                 icon={Clock}
                 label="On-Time"
                 tone={
@@ -469,7 +471,7 @@ export function TaskDashboardView() {
                   navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
                 }
               />
-              <HeroKpiTile
+              <MetricCard
                 icon={Timer}
                 label="Avg Cycle"
                 tone="primary"
@@ -488,7 +490,7 @@ export function TaskDashboardView() {
                   navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
                 }
               />
-              <HeroKpiTile
+              <MetricCard
                 icon={PlusCircle}
                 label="Created"
                 tone="primary"
@@ -499,7 +501,9 @@ export function TaskDashboardView() {
                   navigate(dashLink({ filter: "all", from: periodFrom, to: periodTo }))
                 }
               />
-              <HeroKpiTile
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <StatusTile
                 icon={Activity}
                 label="Active"
                 tone="primary"
@@ -509,12 +513,12 @@ export function TaskDashboardView() {
                     ? `${(
                         Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
                         10
-                      ).toFixed(1)} per designer`
+                      ).toFixed(1)} / designer`
                     : "in flight"
                 }
                 onClick={() => navigate(dashLink({ status: "in_progress" }))}
               />
-              <HeroKpiTile
+              <StatusTile
                 icon={Zap}
                 label="Urgent"
                 tone={a.kpis.urgentCount > 0 ? "destructive" : "muted"}
@@ -523,7 +527,7 @@ export function TaskDashboardView() {
                 sub={a.kpis.urgentCount > 0 ? "needs attention" : "all clear"}
                 onClick={() => navigate(dashLink({ filter: "urgent" }))}
               />
-              <HeroKpiTile
+              <StatusTile
                 icon={Flame}
                 label="Overdue"
                 tone={a.kpis.overdueCount > 0 ? "warning" : "muted"}
@@ -533,7 +537,7 @@ export function TaskDashboardView() {
                 onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
               />
             </div>
-          </TextileHeroWrapper>
+          </div>
 
           {/* Charts */}
           <div className="grid gap-4 lg:grid-cols-3">
@@ -713,15 +717,66 @@ function ChartTotal({
 }
 
 // ----------------------------------------------------------------------------
-// HeroKpiTile — one cell inside the dashboard's unified hero strip.
-// Replaces the old TaskHealthHero block + 4-card KpiCard row, packing
-// throughput, on-time, completion velocity, creation volume, active WIP,
-// urgent and overdue into seven compact divided cells.
+// Hero metric primitives — the Task Dashboard's KPI vocabulary, rebuilt in the
+// Linear / Vercel / Stripe idiom: crisp HIGH-CONTRAST numerals (no dim gradient
+// clip), 1px borders, restrained accent colour, quiet sparklines.
+//   • MetricCard — primary throughput KPI (trend pill + sparkline)
+//   • StatusTile — compact live-status count (Active / Urgent / Overdue)
 // ----------------------------------------------------------------------------
 
 type HeroTone = "primary" | "success" | "warning" | "destructive" | "muted";
 
-function HeroKpiTile({
+const TONE_ICON: Record<HeroTone, string> = {
+  primary: "bg-primary/10 text-primary",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning",
+  destructive: "bg-destructive/10 text-destructive",
+  muted: "bg-secondary text-muted-foreground",
+};
+const TONE_SPARK: Record<HeroTone, string> = {
+  primary: "rgb(var(--primary))",
+  success: "rgb(var(--success))",
+  warning: "rgb(var(--warning))",
+  destructive: "rgb(var(--destructive))",
+  muted: "rgb(var(--muted-foreground))",
+};
+const TONE_DOT: Record<HeroTone, string> = {
+  primary: "bg-primary",
+  success: "bg-success",
+  warning: "bg-warning",
+  destructive: "bg-destructive",
+  muted: "bg-muted-foreground/50",
+};
+
+// Trend pill — direction-aware (green up / red down); honours invertTrend so
+// "Avg Cycle 5d ↓20%" reads green even on a primary-toned card.
+function TrendPill({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
+  if (!metric) return null;
+  const t = metric.trend;
+  if (t === 999) {
+    return (
+      <span className="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
+        <TrendingUp className="h-2.5 w-2.5" />new
+      </span>
+    );
+  }
+  if (t === 0) return null;
+  const positive = invertTrend ? t < 0 : t > 0;
+  const Icon = t > 0 ? TrendingUp : TrendingDown;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+        positive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+      )}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {Math.min(Math.abs(t), 200)}%
+    </span>
+  );
+}
+
+function MetricCard({
   icon: Icon,
   label,
   value,
@@ -729,7 +784,6 @@ function HeroKpiTile({
   sub,
   sparklineData,
   tone,
-  pulse,
   invertTrend,
   onClick,
 }: {
@@ -740,133 +794,111 @@ function HeroKpiTile({
   sub?: string;
   sparklineData?: number[];
   tone: HeroTone;
-  pulse?: boolean;
-  /** When true, a downward trend is positive (e.g. average delay). */
+  /** When true, a downward trend is positive (e.g. average cycle time). */
   invertTrend?: boolean;
   onClick?: () => void;
 }) {
-  const toneText: Record<HeroTone, string> = {
-    primary: "text-primary",
-    success: "text-success",
-    warning: "text-warning",
-    destructive: "text-destructive",
-    muted: "text-foreground",
-  };
-  const toneIconBg: Record<HeroTone, string> = {
-    primary: "bg-primary/12 text-primary",
-    success: "bg-success/12 text-success",
-    warning: "bg-warning/12 text-warning",
-    destructive: "bg-destructive/12 text-destructive",
-    muted: "bg-secondary text-muted-foreground",
-  };
-  // Inset ring per tone so the icon chip reads as a crafted control, not a flat wash.
-  const toneRing: Record<HeroTone, string> = {
-    primary: "ring-primary/25",
-    success: "ring-success/30",
-    warning: "ring-warning/30",
-    destructive: "ring-destructive/30",
-    muted: "ring-border",
-  };
-  // Hover accent bar — slides in along the top of clickable tiles.
-  const toneAccent: Record<HeroTone, string> = {
-    primary: "bg-primary",
-    success: "bg-success",
-    warning: "bg-warning",
-    destructive: "bg-destructive",
-    muted: "bg-muted-foreground/40",
-  };
-
-  // Trend pill colours follow the metric's direction (not the tile tone)
-  // so "Avg Completion: 5d down 20%" reads as green even though the tile
-  // itself is primary blue.
-  let trendNode: React.ReactNode = null;
-  if (trend) {
-    const t = trend.trend;
-    if (t === 999) {
-      trendNode = (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
-          <TrendingUp className="h-2.5 w-2.5" />
-        </span>
-      );
-    } else if (t !== 0) {
-      const positive = invertTrend ? t < 0 : t > 0;
-      const arrow = t > 0 ? TrendingUp : TrendingDown;
-      const TrendIcon = arrow;
-      const cls = positive ? "text-success" : "text-destructive";
-      trendNode = (
-        <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums", cls)}>
-          <TrendIcon className="h-2.5 w-2.5" />
-          {Math.min(Math.abs(t), 200)}%
-        </span>
-      );
-    }
-  }
-
   const numericValue = typeof value === "number" ? value : 0;
   const animated = useAnimatedNumber(numericValue);
   const displayValue = typeof value === "number" ? animated : value;
 
-  const sparkColor =
-    tone === "success"
-      ? "rgb(var(--success))"
-      : tone === "destructive"
-        ? "rgb(var(--destructive))"
-        : tone === "warning"
-          ? "rgb(var(--warning))"
-          : "rgb(var(--primary))";
-
-  // `.metric-value` clips the numeral to a transparent indigo gradient, so it
-  // can ONLY be used for primary/muted tones — status tones must use a solid
-  // token colour instead (or they'd render invisible).
-  const isGradientTone = tone === "primary" || tone === "muted";
-  const content = (
-    <div className="relative flex h-full flex-col justify-between gap-2.5 px-4 py-3.5 text-left swatch-edge">
-      <div className="flex items-start justify-between">
-        <div
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
-            toneIconBg[tone],
-            toneRing[tone]
-          )}
-        >
-          <Icon className="h-[18px] w-[18px]" />
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", TONE_ICON[tone])}>
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="truncate text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+            {label}
+          </span>
         </div>
-        {trendNode}
+        <TrendPill metric={trend} invertTrend={invertTrend} />
       </div>
-      <div>
-        <p
-          className={cn(
-            "font-mono-data text-[30px] font-bold leading-[0.95] tracking-tight tabular-nums",
-            isGradientTone ? "metric-value" : toneText[tone]
-          )}
-        >
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
           {displayValue}
-        </p>
-        <p className="mt-1.5 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          {label}
-        </p>
-        {sub && (
-          <p className="mt-0.5 hidden truncate text-[11px] font-medium text-muted-foreground sm:block">
-            {sub}
-          </p>
+        </span>
+        {sparklineData && sparklineData.length > 1 && (
+          <div className="h-8 w-20 shrink-0 sm:w-24">
+            <Sparkline data={sparklineData} color={TONE_SPARK[tone]} />
+          </div>
         )}
       </div>
-      {sparklineData && sparklineData.length > 1 && (
-        <div className="-mb-0.5 mt-auto hidden h-6 sm:block">
-          <Sparkline data={sparklineData} color={sparkColor} />
-        </div>
-      )}
-    </div>
+      {sub && <p className="mt-2 truncate text-[11px] font-medium text-muted-foreground">{sub}</p>}
+    </>
   );
 
-  if (!onClick) return content;
+  const base =
+    "group relative flex flex-col rounded-xl border border-border bg-card p-4 text-left shadow-card transition-all duration-200";
+  if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group h-full text-left swatch-edge-actionable outline-none transition-colors duration-200 hover:bg-secondary/50 focus-visible:bg-secondary/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+      className={cn(
+        base,
+        "outline-none hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary/40"
+      )}
     >
-      {content}
+      {body}
+    </button>
+  );
+}
+
+function StatusTile({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  tone,
+  pulse,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number;
+  sub?: string;
+  tone: HeroTone;
+  pulse?: boolean;
+  onClick?: () => void;
+}) {
+  const numericValue = typeof value === "number" ? value : 0;
+  const animated = useAnimatedNumber(numericValue);
+  const displayValue = typeof value === "number" ? animated : value;
+
+  const body = (
+    <>
+      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", TONE_ICON[tone])}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-2xl font-semibold leading-none tabular-nums text-foreground">{displayValue}</span>
+          {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
+        </div>
+        <span className="mt-1 block truncate text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      {sub && (
+        <span className="ml-auto hidden shrink-0 text-right text-[11px] font-medium text-muted-foreground sm:block">
+          {sub}
+        </span>
+      )}
+    </>
+  );
+
+  const base =
+    "group flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left shadow-card transition-all duration-200";
+  if (!onClick) return <div className={base}>{body}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(base, "outline-none hover:border-primary/40 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary/40")}
+    >
+      {body}
     </button>
   );
 }

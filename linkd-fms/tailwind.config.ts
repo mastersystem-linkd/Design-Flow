@@ -60,26 +60,63 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["Manrope", "system-ui", "-apple-system", "sans-serif"],
-        serif: ["Manrope", "system-ui", "-apple-system", "sans-serif"],
+        // Delicate serif accent — opt-in via `font-serif` or `.font-serif-accent`.
+        // Used for eyebrow labels, hero accents, empty-state headlines.
+        serif: ["Fraunces Variable", "Fraunces", "Georgia", "serif"],
         display: ["Sora", "system-ui", "-apple-system", "sans-serif"],
         "mono-data": ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       borderRadius: {
+        "2xl": "16px",
+        xl: "14px",
         lg: "12px",
         md: "8px",
         sm: "6px",
-        pill: "20px",
+        pill: "9999px",
       },
       boxShadow: {
         // Spec-aligned aliases backed by CSS variables so they adapt
         // per-theme. Use as `shadow-card` / `shadow-card-hover` etc.
         card: "var(--shadow-card)",
         "card-hover": "var(--shadow-card-hover)",
+        "card-elevated": "var(--shadow-card-elevated)",
         dropdown: "var(--shadow-dropdown)",
         overlay: "var(--shadow-overlay)",
         // Command-Center brand glow — `shadow-glow` / `shadow-glow-soft`.
         glow: "var(--glow-primary)",
         "glow-soft": "var(--glow-soft)",
+        "input-focus": "var(--shadow-input-focus)",
+        // Layered, colored ambient shadows — premium "floating" depth that
+        // picks up the tile's tone. Token-driven so they re-tint per theme.
+        "glow-success": "0 10px 34px -10px rgb(var(--success) / 0.40)",
+        "glow-warning": "0 10px 34px -10px rgb(var(--warning) / 0.40)",
+        "glow-destructive": "0 10px 34px -10px rgb(var(--destructive) / 0.40)",
+      },
+      transitionTimingFunction: {
+        spring: "var(--ease-spring)",
+        "spring-heavy": "var(--ease-spring-heavy)",
+        "out-expo": "var(--ease-out-expo)",
+      },
+      transitionDuration: {
+        fast: "var(--duration-fast)",
+        normal: "var(--duration-normal)",
+        slow: "var(--duration-slow)",
+      },
+      keyframes: {
+        "spring-scale-in": {
+          "0%":   { opacity: "0", transform: "scale(0.92)" },
+          "60%":  { opacity: "1", transform: "scale(1.02)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "spring-slide-up": {
+          "0%":   { opacity: "0", transform: "translateY(8px)" },
+          "60%":  { opacity: "1", transform: "translateY(-2px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        "spring-scale-in": "spring-scale-in 400ms var(--ease-spring) both",
+        "spring-slide-up": "spring-slide-up 350ms var(--ease-spring) both",
       },
       backgroundImage: {
         // Brand-anchor gradient used by hero KPIs. Same in light + dark

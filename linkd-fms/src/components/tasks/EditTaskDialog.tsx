@@ -101,7 +101,9 @@ export function EditTaskDialog({
     setWhatsappReceivedDate(task.whatsapp_received_date ?? "");
     setWhatsappReceivedTime(task.whatsapp_received_time ?? "");
     setAssignedTo(task.assigned_to ?? "");
-    setFabric(task.fabric ?? "");
+    // Prefer the claim-time fabric; fall back to the completion fabric so a
+    // value entered at completion (stored in completion_fabric) still pre-fills.
+    setFabric(task.fabric || task.completion_fabric || "");
     setAssignedBy(task.assigned_by ?? "");
     setNotes(task.notes ?? "");
     setError(null);
@@ -166,6 +168,11 @@ export function EditTaskDialog({
       assigned_to: assignedTo || null,
       assigned_by: assignedBy.trim() || null,
       fabric: fabric.trim() || "",
+      // If the task was already completed (fabric captured in completion_fabric),
+      // keep that column in sync so the completion view reflects the edit too.
+      ...(task.completion_fabric != null
+        ? { completion_fabric: fabric.trim() || null }
+        : {}),
       notes: notes.trim() || null,
     };
 
@@ -218,16 +225,19 @@ export function EditTaskDialog({
   }
 
   const inRoster = (v: string) => assignedByNames.includes(v);
+  // `otherMode` is true ONLY when the user explicitly picks "Other" to type a
+  // brand-new name — never auto-entered for an existing stored value.
   const [otherMode, setOtherMode] = useState(false);
   useEffect(() => {
-    if (open) setOtherMode(assignedBy !== "" && !inRoster(assignedBy));
-  }, [open, assignedBy]);
+    if (open) setOtherMode(false);
+  }, [open, task]);
 
-  const dropdownValue = otherMode
-    ? ASSIGNED_BY_OTHER
-    : inRoster(assignedBy)
-      ? assignedBy
-      : "";
+  // A stored name that isn't part of the managed roster (e.g. a free-text name
+  // entered on the brief) is surfaced as its own selectable option, so it shows
+  // directly instead of collapsing into the confusing "Other + textbox" state.
+  const extraName = assignedBy && !inRoster(assignedBy) ? assignedBy : "";
+
+  const dropdownValue = otherMode ? ASSIGNED_BY_OTHER : assignedBy;
 
   function handleAssignedBySelect(next: string) {
     if (next === ASSIGNED_BY_OTHER) {
@@ -523,6 +533,9 @@ export function EditTaskDialog({
                     className="block h-9 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                   >
                     <option value="">Select a name…</option>
+                    {extraName && (
+                      <option value={extraName}>{extraName}</option>
+                    )}
                     {assignedByNames.map((name) => (
                       <option key={name} value={name}>{name}</option>
                     ))}

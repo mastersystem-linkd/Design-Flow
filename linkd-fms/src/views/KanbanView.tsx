@@ -52,7 +52,10 @@ import { ClaimTaskModal } from "@/components/tasks/ClaimTaskModal";
 import { PostDoneModal } from "@/components/tasks/PostDoneModal";
 import { ColumnVisibilityMenu } from "@/components/tasks/ColumnVisibilityMenu";
 import { TaskPipelineStepper } from "@/components/tasks/TaskPipelineStepper";
-import { useUserPreferences } from "@/hooks/useUserPreferences";
+import {
+  useUserPreferences,
+  type PipelineStage,
+} from "@/hooks/useUserPreferences";
 import { NewBriefDialog } from "@/views/BriefingView";
 import {
   Badge,
@@ -243,7 +246,19 @@ export function KanbanView() {
   const { profiles: designers } = useProfiles({
     roles: ["designer"],
   });
-  const { visibleColumns, setVisibleColumns, tableDensity, setTableDensity } = useUserPreferences();
+  const {
+    getVisibleColumns,
+    setVisibleColumns,
+    getDefaultColumns,
+    setDefaultColumns,
+    hasCustomDefault,
+    tableDensity,
+    setTableDensity,
+  } = useUserPreferences();
+  // Column visibility persists per pipeline stage. `done` tasks live in the
+  // In Progress tab (§13.3), so map any non pool/completed tab to in_progress.
+  const toColumnStage = (s: TaskStatus): PipelineStage =>
+    s === "pool" || s === "completed" ? s : "in_progress";
 
   // ── Kitting status per task ──────────────────────────────────────────
   // Used to color the FK badge in the task row: red when pending DEO,
@@ -964,7 +979,7 @@ export function KanbanView() {
         selectedIds={selectedIds}
         onToggleRow={toggleRowSelection}
         onToggleAll={toggleAllVisible}
-        visibleColumns={visibleColumns}
+        visibleColumns={getVisibleColumns(toColumnStage(status))}
         tableDensity={tableDensity}
       />
     );
@@ -1056,8 +1071,13 @@ export function KanbanView() {
             />
           ) : (
             <ColumnVisibilityMenu
-              visibleColumns={visibleColumns}
-              onChange={setVisibleColumns}
+              visibleColumns={getVisibleColumns(toColumnStage(statusTab))}
+              defaultColumns={getDefaultColumns(toColumnStage(statusTab))}
+              hasCustomDefault={hasCustomDefault(toColumnStage(statusTab))}
+              onSetDefault={() => setDefaultColumns(toColumnStage(statusTab))}
+              onChange={(cols) =>
+                setVisibleColumns(toColumnStage(statusTab), cols)
+              }
             />
           )
         }
@@ -1835,10 +1855,11 @@ function TaskTableSection(props: SectionProps) {
                     Description
                   </th>
                 )}
-                {/* Reference Files — always shown as its own column. */}
-                <th className="w-[160px] px-3 py-2 text-left font-bold">
-                  Reference
-                </th>
+                {showCol("files") && (
+                  <th className="w-[160px] px-3 py-2 text-left font-bold">
+                    Reference
+                  </th>
+                )}
                 {showCol("party_name") && (
                   <th className="px-3 py-2 text-left font-bold">Party Name</th>
                 )}
@@ -2802,13 +2823,15 @@ function TaskRow({
       </td>
       )}
 
-      {/* 4b. Reference Files — always its own column. */}
+      {/* 4b. Reference Files */}
+      {showCol("files") && (
       <td
         className="w-[160px] px-3 py-1.5 text-left align-middle"
         onClick={(e) => e.stopPropagation()}
       >
         <RefFilesCell files={task.files ?? []} />
       </td>
+      )}
 
       {/* 5. Party Name */}
       {showCol("party_name") && (

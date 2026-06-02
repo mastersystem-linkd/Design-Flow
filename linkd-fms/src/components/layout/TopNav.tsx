@@ -75,7 +75,7 @@ export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNav
     <>
       <header
         className={cn(
-          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b px-4 transition-[left,background-color,box-shadow] duration-200 md:px-6",
+          "topnav topnav-glass fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-4 border-b px-4 transition-[left,background-color,box-shadow] duration-normal ease-spring md:px-6",
           collapsed ? "md:left-[64px]" : "md:left-[220px]",
           scrolled && "topnav-scrolled"
         )}
@@ -108,7 +108,7 @@ export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNav
         </div>
 
         {/* ----- RIGHT: status + user + sign out ----- */}
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3.5">
           <ConnectionDot className="hidden sm:inline-flex" />
           <NotificationBell />
           <Avatar className="hidden h-7 w-7 ring-2 ring-border sm:inline-flex">

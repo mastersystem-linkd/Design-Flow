@@ -85,7 +85,7 @@ export function KpiCard({
         </div>
         <p className={cn(
           "font-mono-data text-xl font-bold leading-none tracking-tight sm:text-2xl",
-          valueColor ?? "metric-value"
+          valueColor ?? "text-foreground"
         )}>
           {displayValue}
         </p>
@@ -115,20 +115,13 @@ export function KpiCard({
   const card = (
     <Card
       className={cn(
-        "group/kpi relative h-full overflow-hidden border-border/60 bg-gradient-to-br from-card via-card to-secondary/20 swatch-edge transition-all duration-200",
-        to && "cursor-pointer swatch-edge-actionable hover-glow hover:border-primary/30"
+        "group/kpi relative h-full overflow-hidden rounded-xl border-border bg-card swatch-edge shadow-card transition-all duration-200",
+        to && "cursor-pointer swatch-edge-actionable hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover"
       )}
     >
-      {/* Corner brand glow — blooms on hover for an actionable tile. */}
-      {to && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/20 blur-2xl opacity-0 transition-opacity duration-300 group-hover/kpi:opacity-60"
-        />
-      )}
-      <CardContent className="relative flex h-full flex-col gap-1.5 px-3.5 py-3 sm:px-4 sm:py-3.5">
+      <CardContent className="relative flex h-full flex-col gap-1 px-3.5 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-inset ring-primary/15 shadow-[0_0_14px_-3px_rgb(var(--primary)/0.35)]">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-inset ring-primary/15 shadow-[0_0_14px_-3px_rgb(var(--primary)/0.35)]">
             <span className="text-primary">{icon}</span>
           </div>
           {trendPill}
@@ -136,8 +129,8 @@ export function KpiCard({
 
         <div>
           <p className={cn(
-            "font-mono-data text-[26px] font-bold leading-none tracking-tight sm:text-[28px]",
-            valueColor ?? "metric-value"
+            "font-mono-data text-[24px] font-bold leading-none tracking-tight sm:text-[26px]",
+            valueColor ?? "text-foreground"
           )}>
             {displayValue}
           </p>
@@ -149,7 +142,7 @@ export function KpiCard({
 
         {sparklineData && sparklineData.length >= 2 && (
           <div className="mt-auto hidden pt-0.5 sm:block">
-            <Sparkline data={sparklineData} color={sparkColor} height={24} />
+            <Sparkline data={sparklineData} color={sparkColor} height={18} />
           </div>
         )}
       </CardContent>
