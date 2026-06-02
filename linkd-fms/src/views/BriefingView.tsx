@@ -15,6 +15,7 @@ import {
   Sparkles,
   UserCheck,
   Layers,
+  Clock,
 } from "lucide-react";
 import { toast, Combobox } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
@@ -971,11 +972,10 @@ function BriefingForm({
               required
               error={show("whatsapp_received_time")}
             >
-              <Input
+              <MessageTimeInput
                 id="wa_time"
-                type="time"
                 value={whatsappReceivedTime}
-                onChange={(e) => setWhatsappReceivedTime(e.target.value)}
+                onChange={setWhatsappReceivedTime}
                 disabled={submitting}
               />
             </Field>
@@ -1902,5 +1902,129 @@ function AssigneeChoice({
     >
       {children}
     </button>
+  );
+}
+
+// ============================================================================
+// MessageTimeInput — 12-hour AM/PM time picker.
+// Renders hour (1–12) + minute (00–59) selects and an AM/PM toggle, but reads
+// and writes the SAME 24-hour "HH:MM" string the form already stores
+// (`whatsapp_received_time`). Local part-state lets the user pick AM/PM or a
+// single field first; the combined value is only emitted once both hour and
+// minute are chosen (so the "required" validation still works).
+// ============================================================================
+function MessageTimeInput({
+  id,
+  value,
+  onChange,
+  disabled,
+}: {
+  id?: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const [h12, setH12] = useState("");
+  const [min, setMin] = useState("");
+  const [period, setPeriod] = useState<"AM" | "PM">("AM");
+
+  // Keep local parts in sync with the stored 24h value (draft restore / reset).
+  useEffect(() => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(value ?? "");
+    if (!m) {
+      setH12("");
+      setMin("");
+      setPeriod("AM");
+      return;
+    }
+    let h = parseInt(m[1], 10);
+    setPeriod(h >= 12 ? "PM" : "AM");
+    h = h % 12;
+    if (h === 0) h = 12;
+    setH12(String(h));
+    setMin(m[2]);
+  }, [value]);
+
+  function update(nextH: string, nextMin: string, nextPeriod: "AM" | "PM") {
+    setH12(nextH);
+    setMin(nextMin);
+    setPeriod(nextPeriod);
+    if (!nextH || !nextMin) {
+      onChange("");
+      return;
+    }
+    let h = parseInt(nextH, 10) % 12;
+    if (nextPeriod === "PM") h += 12;
+    onChange(`${String(h).padStart(2, "0")}:${nextMin}`);
+  }
+
+  // Borderless part-selects that live inside the single unified field. The
+  // native control still drives the value (great mobile pickers); we just hide
+  // its chrome so the whole thing reads as one crafted time input.
+  const partCls =
+    "h-9 cursor-pointer appearance-none rounded-md bg-transparent px-1.5 text-center text-sm font-semibold tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/40 disabled:cursor-not-allowed";
+  const placeholderCls = !h12 || !min ? "text-muted-foreground" : "";
+
+  return (
+    <div
+      className={cn(
+        "flex h-11 w-full items-center gap-1 rounded-lg border border-input bg-card pl-2.5 pr-1.5 transition-colors",
+        "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30",
+        disabled && "opacity-50"
+      )}
+    >
+      <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <select
+        id={id}
+        aria-label="Hour"
+        className={cn(partCls, !h12 && "text-muted-foreground")}
+        value={h12}
+        onChange={(e) => update(e.target.value, min, period)}
+        disabled={disabled}
+      >
+        <option value="" disabled>HH</option>
+        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((h) => (
+          <option key={h} value={h}>
+            {h.padStart(2, "0")}
+          </option>
+        ))}
+      </select>
+      <span className={cn("text-sm font-bold text-muted-foreground", placeholderCls)}>:</span>
+      <select
+        aria-label="Minute"
+        className={cn(partCls, !min && "text-muted-foreground")}
+        value={min}
+        onChange={(e) => update(h12, e.target.value, period)}
+        disabled={disabled}
+      >
+        <option value="" disabled>MM</option>
+        {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
+      {/* Segmented AM/PM — sits on a recessed track, active pill lifts. */}
+      <div className="ml-auto inline-flex shrink-0 items-center rounded-md bg-secondary p-0.5">
+        {(["AM", "PM"] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            disabled={disabled}
+            onClick={() => update(h12, min, p)}
+            aria-pressed={period === p}
+            className={cn(
+              "rounded-[5px] px-2.5 py-1 text-xs font-semibold transition-all disabled:cursor-not-allowed",
+              "outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+              period === p
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
