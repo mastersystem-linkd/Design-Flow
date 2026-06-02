@@ -227,6 +227,12 @@ export interface ConceptDashboardMetrics {
 
 const MONTHLY_TARGET = 2;
 
+// Concept scoring: each FINALLY-APPROVED concept is worth 50 marks against a
+// target of 2 → max 100. Nothing is earned until final approval. Shared rule
+// across the concept dashboard + designer scorecards.
+const CONCEPT_SCORE_TARGET = 2;
+const CONCEPT_SCORE_PER_CONCEPT = 50;
+
 function getPeriodRange(period: Period, now: Date) {
   switch (period) {
     case "week":
@@ -647,20 +653,13 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
       };
     });
 
-    // Score formula unchanged on purpose — we use the new fields for surfaces
-    // (KPI tiles, leaderboard footnotes) without retroactively shifting ranks.
-    // Volume (30) + approval rate (35) + speed (20) + low revision (15).
-    // `revisions` here is the live "currently in revision" count; using the
-    // truer cycle count would penalise designers for already-resolved
-    // revisions which arguably isn't the intent of this dial.
-    const maxSubmitted = Math.max(1, ...stats.map((s) => s.submitted));
+    // Concept score is FINAL-APPROVAL based: a designer earns nothing for a
+    // concept until it is fully finalised (MD final approval + designer done —
+    // `isCompleted`). Each finalised concept is worth 50 marks against a
+    // monthly target of 2, so the score is min(2, finalised) × 50 (max 100).
+    // Submitted / MD-approved-but-not-finalised concepts contribute 0.
     for (const s of stats) {
-      if (s.submitted === 0) { s.score = 0; continue; }
-      const vol = (s.submitted / maxSubmitted) * 30;
-      const appRate = (s.approved / s.submitted) * 35;
-      const speed = Math.max(0, (48 - s.avgApprovalHours) / 48) * 20; // faster approval = better
-      const lowRev = Math.max(0, 1 - s.revisions / s.submitted) * 15;
-      s.score = Math.round(vol + appRate + speed + lowRev);
+      s.score = Math.min(CONCEPT_SCORE_TARGET, s.completed) * CONCEPT_SCORE_PER_CONCEPT;
     }
 
     stats.sort((a, b) => b.score - a.score);

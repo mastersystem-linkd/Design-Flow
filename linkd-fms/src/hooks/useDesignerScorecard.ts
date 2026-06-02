@@ -247,6 +247,13 @@ function cycleDays(t: TaskWithRelations): number | null {
 
 // ── Score calculators (mirrors useAnalytics + useTaskAnalytics) ──
 
+// Concept score is FINAL-APPROVAL based: 50 marks per finalised concept
+// (`isCompleted` — MD final approval + designer done) against a target of 2,
+// so the score is min(2, finalised) × 50 (max 100). Submitted / MD-approved
+// concepts earn 0 until they are finally approved. Mirrors useAnalytics.
+const CONCEPT_SCORE_TARGET = 2;
+const CONCEPT_SCORE_PER_CONCEPT = 50;
+
 function computeConceptBreakdown(
   submitted: number,
   approved: number,
@@ -459,7 +466,7 @@ export function useDesignerScorecard(
     };
     const conceptByDesigner = new Map<
       string,
-      { submitted: number; approved: number; revisions: number; avgHours: number }
+      { submitted: number; approved: number; revisions: number; avgHours: number; finalApproved: number }
     >();
     const taskByDesigner = new Map<
       string,
@@ -483,11 +490,13 @@ export function useDesignerScorecard(
         (c) => c.md_status === "revision_requested"
       ).length;
       const hours = mine.map(approvalHours).filter((h): h is number => h !== null);
+      const finalApproved = mine.filter(conceptIsCompleted).length;
       conceptByDesigner.set(p.id, {
         submitted,
         approved,
         revisions,
         avgHours: safeAvg(hours),
+        finalApproved,
       });
 
       const myTasks = tasks.filter((t) => t.assigned_to === p.id);
@@ -529,13 +538,6 @@ export function useDesignerScorecard(
     const rows: Row[] = profiles.map((p) => {
       const c = conceptByDesigner.get(p.id)!;
       const t = taskByDesigner.get(p.id)!;
-      const cBreak = computeConceptBreakdown(
-        c.submitted,
-        c.approved,
-        c.revisions,
-        c.avgHours,
-        maxSubmitted
-      );
       const tBreak = computeTaskBreakdown(
         t.assigned,
         t.completed,
@@ -544,7 +546,9 @@ export function useDesignerScorecard(
         t.inProgress,
         maxCompleted
       );
-      const conceptScore = sumBreakdown(cBreak);
+      // Final-approval based: 50 per finalised concept, target 2 (max 100).
+      const conceptScore =
+        Math.min(CONCEPT_SCORE_TARGET, c.finalApproved) * CONCEPT_SCORE_PER_CONCEPT;
       const taskScore = sumBreakdown(tBreak);
       return { id: p.id, conceptScore, taskScore, avgDays: t.avgDays };
     });
@@ -626,7 +630,9 @@ export function useDesignerScorecard(
       avgReviewHours,
       teamStats.maxSubmitted
     );
-    const score = sumBreakdown(breakdown);
+    // Final-approval based score: 50 marks per finalised concept (`completed`),
+    // target 2 → max 100. Submitted / MD-approved-but-not-finalised earn 0.
+    const score = Math.min(CONCEPT_SCORE_TARGET, completed) * CONCEPT_SCORE_PER_CONCEPT;
 
     // Monthly target progress: always count this calendar month's approved
     // regardless of selected period (the target is a monthly contract)

@@ -996,34 +996,31 @@ export function ScorecardDetailView() {
               total={data.concept.submitted}
             />
             <div className="flex-1 space-y-3">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                50 marks per{" "}
+                <span className="font-semibold text-foreground">finally-approved</span>{" "}
+                concept · target 2
+              </p>
               <ScoreBar
-                label="Volume"
-                points={data.concept.breakdown.volume}
-                max={30}
-                fillClass="bg-primary"
+                label="Concept 1"
+                points={data.concept.completed >= 1 ? 50 : 0}
+                max={50}
+                fillClass="bg-success"
                 index={0}
               />
               <ScoreBar
-                label="Approval"
-                points={data.concept.breakdown.approval}
-                max={35}
+                label="Concept 2"
+                points={data.concept.completed >= 2 ? 50 : 0}
+                max={50}
                 fillClass="bg-success"
                 index={1}
               />
-              <ScoreBar
-                label="Speed"
-                points={data.concept.breakdown.speed}
-                max={20}
-                fillClass="bg-primary"
-                index={2}
-              />
-              <ScoreBar
-                label="Low Rev"
-                points={data.concept.breakdown.lowRev}
-                max={15}
-                fillClass="bg-primary"
-                index={3}
-              />
+              {data.concept.approved > data.concept.completed && (
+                <p className="text-[11px] font-medium text-warning">
+                  {data.concept.approved - data.concept.completed} approved, awaiting
+                  final approval — no marks until then.
+                </p>
+              )}
             </div>
           </div>
 
