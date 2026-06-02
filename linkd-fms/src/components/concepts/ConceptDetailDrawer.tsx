@@ -517,16 +517,16 @@ export function ConceptDetailDrawer({
           </DialogHeader>
 
           {/* ── Pipeline progress bar ── */}
-          <div className="mt-3 flex items-center gap-0.5">
+          <div className="mt-3 flex items-center gap-1">
             {(["creation", "approval", "completion", "final"] as StageKey[]).map(
               (stage, i) => {
                 const status = getStageStatus(concept, stage);
                 const cfg = STAGES[stage];
                 return (
-                  <div key={stage} className="flex flex-1 items-center gap-0.5">
+                  <div key={stage} className="flex flex-1 items-center gap-1">
                     <div
                       className={cn(
-                        "h-1 flex-1 rounded-full transition-all",
+                        "h-1.5 flex-1 rounded-full transition-all",
                         status === "done" && cfg.bgColor,
                         status === "active" &&
                           `${cfg.bgColor} opacity-70`,
@@ -535,20 +535,33 @@ export function ConceptDetailDrawer({
                       )}
                     />
                     {i < 3 && (
-                      <ArrowRight className="h-2.5 w-2.5 shrink-0 text-muted-foreground/30" />
+                      <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/40" />
                     )}
                   </div>
                 );
               }
             )}
           </div>
-          <div className="mt-1 flex text-[8px] uppercase tracking-wider text-muted-foreground">
+          <div className="mt-1.5 flex">
             {(["creation", "approval", "completion", "final"] as StageKey[]).map(
-              (stage) => (
-                <span key={stage} className="flex-1 text-center">
-                  {STAGES[stage].label.split(" ")[0]}
-                </span>
-              )
+              (stage) => {
+                const status = getStageStatus(concept, stage);
+                const cfg = STAGES[stage];
+                return (
+                  <span
+                    key={stage}
+                    className={cn(
+                      "flex-1 truncate px-0.5 text-center text-[10px] font-semibold uppercase tracking-wide",
+                      status === "done" && cfg.color,
+                      status === "active" && cfg.color,
+                      status === "blocked" && "text-destructive",
+                      status === "upcoming" && "text-muted-foreground/60"
+                    )}
+                  >
+                    {STAGES[stage].label.split(" ")[0]}
+                  </span>
+                );
+              }
             )}
           </div>
         </div>
@@ -793,21 +806,20 @@ export function ConceptDetailDrawer({
                     onChange={(e) => setReviewNotes(e.target.value)}
                     placeholder="Type your feedback…"
                     disabled={busy !== null}
-                    rows={2}
-                    className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    rows={3}
+                    className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   />
                 </div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <Button
                     onClick={() => handleReview("approved")}
                     disabled={busy !== null}
-                    size="sm"
-                    className="flex-1 gap-1.5"
+                    className="h-10 w-full gap-1.5"
                   >
                     {busy === "approved" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Check className="h-3.5 w-3.5" />
+                      <Check className="h-4 w-4" />
                     )}
                     Approve
                   </Button>
@@ -815,13 +827,12 @@ export function ConceptDetailDrawer({
                     onClick={() => handleReview("revision_requested")}
                     disabled={busy !== null}
                     variant="outline"
-                    size="sm"
-                    className="flex-1 gap-1.5"
+                    className="h-10 w-full gap-1.5"
                   >
                     {busy === "revision_requested" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <RotateCcw className="h-3.5 w-3.5" />
+                      <RotateCcw className="h-4 w-4" />
                     )}
                     Revision
                   </Button>
@@ -829,13 +840,12 @@ export function ConceptDetailDrawer({
                     onClick={() => handleReview("rejected")}
                     disabled={busy !== null}
                     variant="destructive"
-                    size="sm"
-                    className="gap-1.5"
+                    className="h-10 w-full gap-1.5"
                   >
                     {busy === "rejected" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <X className="h-3.5 w-3.5" />
+                      <X className="h-4 w-4" />
                     )}
                     Reject
                   </Button>
@@ -2135,7 +2145,7 @@ function StageSection({
         {/* Stage header */}
         <div
           className={cn(
-            "flex w-full items-center gap-2 px-3 py-2 transition-colors",
+            "flex w-full items-center gap-2.5 px-3 py-3 transition-colors",
             expanded ? "" : "rounded-lg",
             isDone && "hover:bg-success/5",
             isActive && "hover:bg-primary/5"
@@ -2143,7 +2153,7 @@ function StageSection({
         >
           <div
             className={cn(
-              "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
               isDone && `${cfg.bgColor} text-white`,
               isActive && `${cfg.bgColor}/15 ${cfg.color}`,
               isBlocked && "bg-destructive/15 text-destructive",
@@ -2151,16 +2161,16 @@ function StageSection({
             )}
           >
             {isDone ? (
-              <Check className="h-3 w-3" />
+              <Check className="h-4 w-4" />
             ) : isBlocked ? (
-              <X className="h-3 w-3" />
+              <X className="h-4 w-4" />
             ) : (
-              <span className="text-[9px] font-bold">{stageNum}</span>
+              <span className="text-[12px] font-bold">{stageNum}</span>
             )}
           </div>
           <h3
             className={cn(
-              "flex-1 text-[13px] font-semibold tracking-tight",
+              "flex-1 text-sm font-semibold tracking-tight",
               isDone && cfg.color,
               isActive && cfg.color,
               isBlocked && "text-destructive",
@@ -2170,18 +2180,18 @@ function StageSection({
             {cfg.label}
           </h3>
           {isDone && (
-            <span className="rounded bg-success/10 px-1.5 py-0.5 text-[9px] font-semibold text-success">Complete</span>
+            <span className="rounded-md bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">Complete</span>
           )}
           {isActive && (
-            <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-semibold", `${cfg.bgColor}/10 ${cfg.color}`)}>
+            <span className={cn("rounded-md px-2 py-0.5 text-[10px] font-semibold", `${cfg.bgColor}/10 ${cfg.color}`)}>
               In Progress
             </span>
           )}
           {isBlocked && (
-            <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] font-semibold text-destructive">Blocked</span>
+            <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">Blocked</span>
           )}
           <ChevronDown className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
             expanded && "rotate-180"
           )} />
         </div>
