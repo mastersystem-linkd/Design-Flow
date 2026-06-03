@@ -48,7 +48,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ROLE_LABELS } from "@/lib/constants";
 import type { UserRole, Profile } from "@/types/database";
 
-const ALL_ROLES: UserRole[] = ["admin", "design_coordinator", "designer", "deo"];
+const ALL_ROLES: UserRole[] = ["super_admin", "admin", "design_coordinator", "designer", "deo"];
 
 /** Format the structured error returned by callAdminApi for display. */
 function formatAdminApiError(
