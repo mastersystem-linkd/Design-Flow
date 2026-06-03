@@ -131,12 +131,21 @@ export function CoordinatorTasksView() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-10" />
+                <col className="w-[140px]" />
+                <col />
+                <col className="w-[120px]" />
+                <col className="w-[90px]" />
+                <col className="w-[120px]" />
+                {canLog && <col className="w-[70px]" />}
+              </colgroup>
               <thead className={TABLE_HEAD}>
                 <tr>
-                  <th className={cn(TABLE_TH, "w-8")}>#</th>
+                  <th className={TABLE_TH}>#</th>
                   <th className={TABLE_TH}>Requester</th>
-                  <th className={cn(TABLE_TH, "w-full")}>Description</th>
+                  <th className={TABLE_TH}>Description</th>
                   <th className={TABLE_TH}>Requested</th>
                   <th className={TABLE_TH}>Status</th>
                   <th className={TABLE_TH}>Completed</th>
@@ -147,19 +156,19 @@ export function CoordinatorTasksView() {
                 {filtered.map((t, i) => (
                   <tr key={t.id} className={cn(TABLE_ROW, "hover:bg-secondary/30")}>
                     <td className={cn(TABLE_TD, "tabular-nums text-muted-foreground")}>{i + 1}</td>
-                    <td className={cn(TABLE_TD, "whitespace-nowrap font-medium text-foreground")}>
-                      <span className="flex items-center gap-1.5">
-                        <User className="h-3 w-3 text-muted-foreground" />
-                        {t.requester_name}
+                    <td className={cn(TABLE_TD, "font-medium text-foreground")}>
+                      <span className="flex items-center gap-1.5 truncate">
+                        <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{t.requester_name}</span>
                       </span>
                     </td>
                     <td className={TABLE_TD}>
-                      <p className="text-foreground">{t.description}</p>
-                      {t.notes && <p className="mt-0.5 text-[11px] text-muted-foreground">{t.notes}</p>}
+                      <p className="truncate text-foreground" title={t.description}>{t.description}</p>
+                      {t.notes && <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={t.notes}>{t.notes}</p>}
                     </td>
-                    <td className={cn(TABLE_TD, "whitespace-nowrap text-muted-foreground")}>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
+                    <td className={cn(TABLE_TD, "text-muted-foreground")}>
+                      <span className="flex items-center gap-1 whitespace-nowrap">
+                        <Calendar className="h-3 w-3 shrink-0" />
                         {formatDate(t.requested_at)}
                       </span>
                     </td>
