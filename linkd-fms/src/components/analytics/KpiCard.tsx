@@ -121,7 +121,12 @@ export function KpiCard({
     >
       <CardContent className="relative flex h-full flex-col gap-1 px-3.5 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-inset ring-primary/15 shadow-[0_0_14px_-3px_rgb(var(--primary)/0.35)]">
+          <div
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06]",
+              tintClass ?? "bg-primary/10"
+            )}
+          >
             <span className="text-primary">{icon}</span>
           </div>
           {trendPill}

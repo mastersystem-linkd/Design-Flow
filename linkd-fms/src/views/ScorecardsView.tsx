@@ -50,7 +50,6 @@ import { isAdmin as isAdminCheck, isAdminOrCoordinator } from "@/lib/permissions
 import { scorecardDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { KpiCard } from "@/components/analytics/KpiCard";
-import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
 
 const PERIODS: { value: Period; label: string }[] = [
@@ -359,65 +358,58 @@ export function ScorecardsView() {
         </div>
       </div>
 
-      {/* ── Team KPI strip — wrapped in the shared TextileHeroWrapper so
-           the inline duplicate frame is gone. Same KpiCard primitive
-           used on every other dashboard. ── */}
-      <TextileHeroWrapper className="p-0 sm:p-0">
-        <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:divide-y-0 lg:grid-cols-4">
-          <KpiCard
-            flat
-            icon={<UsersIcon className="h-4 w-4 text-primary" />}
-            label="Designers"
-            value={teamSummary.total}
-            tintClass="bg-primary/10"
-          />
-          <KpiCard
-            flat
-            icon={<Target className="h-4 w-4 text-success" />}
-            label="Avg Composite"
-            value={`${teamSummary.avgScore}/100`}
-            tintClass="bg-success/10"
-            valueColor={
-              teamSummary.avgScore >= 70
-                ? "text-success"
-                : teamSummary.avgScore >= 50
-                  ? "text-warning"
-                  : "text-destructive"
-            }
-            sub="team average score"
-          />
-          <KpiCard
-            flat
-            icon={<CheckCircle2 className="h-4 w-4 text-success" />}
-            label="On Track"
-            value={teamSummary.onTrack}
-            tintClass="bg-success/10"
-            valueColor="text-success"
-            sub={`of ${rows.filter((r) => r.hasActivity).length} active`}
-          />
-          <KpiCard
-            flat
-            icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
-            label="Needs Support"
-            value={teamSummary.needsSupport}
-            tintClass={
-              teamSummary.needsSupport > 0
-                ? "bg-destructive/10"
-                : "bg-secondary"
-            }
-            valueColor={
-              teamSummary.needsSupport > 0
-                ? "text-destructive"
-                : "text-muted-foreground"
-            }
-            sub={
-              teamSummary.needsSupport > 0
-                ? "score below 50"
-                : "all designers above threshold"
-            }
-          />
-        </div>
-      </TextileHeroWrapper>
+      {/* ── Team KPI row — clean elevated cards (2-up on mobile, 4-up on
+           desktop). The washed textile strip is gone; each metric is its own
+           premium tile with a confident numeral. ── */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          icon={<UsersIcon className="h-4 w-4 text-primary" />}
+          label="Designers"
+          value={teamSummary.total}
+          tintClass="bg-primary/10"
+          sub="being scored"
+        />
+        <KpiCard
+          icon={<Target className="h-4 w-4 text-success" />}
+          label="Avg Composite"
+          value={`${teamSummary.avgScore}/100`}
+          tintClass="bg-success/10"
+          valueColor={
+            teamSummary.avgScore >= 70
+              ? "text-success"
+              : teamSummary.avgScore >= 50
+                ? "text-warning"
+                : "text-destructive"
+          }
+          sub="team average score"
+        />
+        <KpiCard
+          icon={<CheckCircle2 className="h-4 w-4 text-success" />}
+          label="On Track"
+          value={teamSummary.onTrack}
+          tintClass="bg-success/10"
+          valueColor="text-success"
+          sub={`of ${rows.filter((r) => r.hasActivity).length} active`}
+        />
+        <KpiCard
+          icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
+          label="Needs Support"
+          value={teamSummary.needsSupport}
+          tintClass={
+            teamSummary.needsSupport > 0 ? "bg-destructive/10" : "bg-secondary"
+          }
+          valueColor={
+            teamSummary.needsSupport > 0
+              ? "text-destructive"
+              : "text-muted-foreground"
+          }
+          sub={
+            teamSummary.needsSupport > 0
+              ? "score below 50"
+              : "all above threshold"
+          }
+        />
+      </div>
 
       {/* Needs-support alert — surfaces designers below the threshold so
           managers don't have to scroll the grid to find them. */}
