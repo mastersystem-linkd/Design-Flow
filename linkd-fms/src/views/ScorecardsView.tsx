@@ -363,6 +363,7 @@ export function ScorecardsView() {
            premium tile with a confident numeral. ── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
+          centered
           icon={<UsersIcon className="h-4 w-4 text-primary" />}
           label="Designers"
           value={teamSummary.total}
@@ -370,6 +371,7 @@ export function ScorecardsView() {
           sub="being scored"
         />
         <KpiCard
+          centered
           icon={<Target className="h-4 w-4 text-success" />}
           label="Avg Composite"
           value={`${teamSummary.avgScore}/100`}
@@ -384,6 +386,7 @@ export function ScorecardsView() {
           sub="team average score"
         />
         <KpiCard
+          centered
           icon={<CheckCircle2 className="h-4 w-4 text-success" />}
           label="On Track"
           value={teamSummary.onTrack}
@@ -392,6 +395,7 @@ export function ScorecardsView() {
           sub={`of ${rows.filter((r) => r.hasActivity).length} active`}
         />
         <KpiCard
+          centered
           icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
           label="Needs Support"
           value={teamSummary.needsSupport}

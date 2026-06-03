@@ -18,6 +18,8 @@ interface Props {
   sparklineData?: number[];
   animateValue?: boolean;
   flat?: boolean;
+  /** Center-align the card-mode content (icon chip + value + label). */
+  centered?: boolean;
 }
 
 export function KpiCard({
@@ -33,6 +35,7 @@ export function KpiCard({
   sparklineData,
   animateValue,
   flat,
+  centered,
 }: Props) {
   const trend = metric?.trend ?? 0;
   const isNew = metric ? metric.previous === 0 && metric.current > 0 : false;
@@ -120,7 +123,7 @@ export function KpiCard({
       )}
     >
       <CardContent className="relative flex h-full flex-col gap-1 px-3.5 py-2.5 sm:px-4 sm:py-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className={cn("flex items-center gap-2", centered ? "justify-center" : "justify-between")}>
           <div
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06]",
@@ -129,19 +132,19 @@ export function KpiCard({
           >
             <span className="text-primary">{icon}</span>
           </div>
-          {trendPill}
+          {!centered && trendPill}
         </div>
 
-        <div>
+        <div className={cn(centered && "text-center")}>
           <p className={cn(
             "font-mono-data text-[24px] font-bold leading-none tracking-tight sm:text-[26px]",
             valueColor ?? "text-foreground"
           )}>
             {displayValue}
           </p>
-          <p className="mt-1 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+          <p className={cn("mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground", !centered && "truncate")}>{label}</p>
           {sub && (
-            <p className="mt-0.5 hidden truncate text-[11px] font-medium text-muted-foreground sm:block">{sub}</p>
+            <p className={cn("mt-0.5 hidden text-[11px] font-medium text-muted-foreground sm:block", !centered && "truncate")}>{sub}</p>
           )}
         </div>
 
