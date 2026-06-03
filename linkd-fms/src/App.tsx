@@ -1,28 +1,37 @@
+import { lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/Toaster";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
-import { LoginView } from "@/views/LoginView";
-import { OnboardingView } from "@/views/OnboardingView";
-import { NotFoundView } from "@/views/NotFoundView";
-import { DashboardView } from "@/views/DashboardView";
-import { KanbanView } from "@/views/KanbanView";
-import { BriefingView } from "@/views/BriefingView";
-import { ConceptsView } from "@/views/ConceptsView";
-import { ProductionView } from "@/views/ProductionView";
-import { OrdersView } from "@/views/OrdersView";
-import { NotificationsView } from "@/views/NotificationsView";
-import { TaskDashboardView } from "@/views/TaskDashboardView";
-import { ScorecardsView } from "@/views/ScorecardsView";
-import { ScorecardDetailView } from "@/views/ScorecardDetailView";
-import { SystemView } from "@/views/SystemView";
-import { SalvedgeView } from "@/views/SalvedgeView";
-import { ProfileView } from "@/views/ProfileView";
-import { FilesView } from "@/views/FilesView";
-import { ResetPasswordView } from "@/views/ResetPasswordView";
-import FullKittingFormView from "@/views/FullKittingFormView";
-import KittingQueueView from "@/views/KittingQueueView";
 import { RootRedirect } from "@/components/layout/RootRedirect";
 import { ROUTES } from "@/lib/routes";
+
+// ── Eager: auth-flow + tiny pages on the critical path. Kept in the main
+//    bundle so the login / onboarding paint instantly with no extra fetch. ──
+import { LoginView } from "@/views/LoginView";
+import { OnboardingView } from "@/views/OnboardingView";
+import { ResetPasswordView } from "@/views/ResetPasswordView";
+import { NotFoundView } from "@/views/NotFoundView";
+
+// ── Lazy: every heavy authed app view becomes its own chunk. This pulls
+//    recharts + the big tables OUT of the main bundle that EVERY page load
+//    (including login) used to download + parse. The Suspense boundary that
+//    catches these lives inside ProtectedRoute, so the app shell stays put
+//    while a route chunk loads. ──
+const KanbanView = lazy(() => import("@/views/KanbanView").then((m) => ({ default: m.KanbanView })));
+const BriefingView = lazy(() => import("@/views/BriefingView").then((m) => ({ default: m.BriefingView })));
+const ConceptsView = lazy(() => import("@/views/ConceptsView").then((m) => ({ default: m.ConceptsView })));
+const ProductionView = lazy(() => import("@/views/ProductionView").then((m) => ({ default: m.ProductionView })));
+const OrdersView = lazy(() => import("@/views/OrdersView").then((m) => ({ default: m.OrdersView })));
+const NotificationsView = lazy(() => import("@/views/NotificationsView").then((m) => ({ default: m.NotificationsView })));
+const TaskDashboardView = lazy(() => import("@/views/TaskDashboardView").then((m) => ({ default: m.TaskDashboardView })));
+const ScorecardsView = lazy(() => import("@/views/ScorecardsView").then((m) => ({ default: m.ScorecardsView })));
+const ScorecardDetailView = lazy(() => import("@/views/ScorecardDetailView").then((m) => ({ default: m.ScorecardDetailView })));
+const SystemView = lazy(() => import("@/views/SystemView").then((m) => ({ default: m.SystemView })));
+const SalvedgeView = lazy(() => import("@/views/SalvedgeView").then((m) => ({ default: m.SalvedgeView })));
+const ProfileView = lazy(() => import("@/views/ProfileView").then((m) => ({ default: m.ProfileView })));
+const FilesView = lazy(() => import("@/views/FilesView").then((m) => ({ default: m.FilesView })));
+const FullKittingFormView = lazy(() => import("@/views/FullKittingFormView"));
+const KittingQueueView = lazy(() => import("@/views/KittingQueueView"));
 
 export default function App() {
   return (

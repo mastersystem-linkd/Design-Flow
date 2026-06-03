@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -61,6 +61,20 @@ export function ProtectedRoute({ allowedRoles, children }: Props) {
     );
   }
 
-  // 5 — go
-  return <AppLayout profile={profile}>{children ?? <Outlet />}</AppLayout>;
+  // 5 — go. The Suspense catches lazy-loaded route chunks (see App.tsx) so the
+  // sidebar + top nav stay rendered while the page's code streams in.
+  return (
+    <AppLayout profile={profile}>
+      <Suspense fallback={<RouteFallback />}>{children ?? <Outlet />}</Suspense>
+    </AppLayout>
+  );
+}
+
+/** Lightweight in-shell fallback while a lazy route chunk loads. */
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
+    </div>
+  );
 }
