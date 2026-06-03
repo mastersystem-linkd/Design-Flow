@@ -88,7 +88,7 @@ export function AnalyticsView({
   function handleExportReport() {
     if (!a.designerStats.length) return;
 
-    exportConceptDashboardExcel(
+    void exportConceptDashboardExcel(
       a.designerStats,
       {
         periodLabel: a.periodLabel,
