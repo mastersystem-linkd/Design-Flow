@@ -433,7 +433,7 @@ export function TaskDashboardView() {
               four throughput metrics sit above a row of three live-status
               tiles. No decorative wrapper. */}
           <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
               <MetricCard
                 icon={CheckCircle2}
                 label="Delivered"
@@ -502,7 +502,7 @@ export function TaskDashboardView() {
                 }
               />
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               <StatusTile
                 icon={Activity}
                 label="Active"
@@ -815,22 +815,22 @@ function MetricCard({
         </div>
         <TrendPill metric={trend} invertTrend={invertTrend} />
       </div>
-      <div className="mt-3 flex items-end justify-between gap-3">
-        <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+      <div className="mt-2 flex items-end justify-between gap-3 sm:mt-3">
+        <span className="text-2xl font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-[30px]">
           {displayValue}
         </span>
         {sparklineData && sparklineData.length > 1 && (
-          <div className="h-8 w-20 shrink-0 sm:w-24">
+          <div className="hidden h-8 w-20 shrink-0 sm:block sm:w-24">
             <Sparkline data={sparklineData} color={TONE_SPARK[tone]} />
           </div>
         )}
       </div>
-      {sub && <p className="mt-2 truncate text-[11px] font-medium text-muted-foreground">{sub}</p>}
+      {sub && <p className="mt-1.5 truncate text-[10px] font-medium text-muted-foreground sm:mt-2 sm:text-[11px]">{sub}</p>}
     </>
   );
 
   const base =
-    "group relative flex flex-col rounded-xl border border-border bg-card p-4 text-left shadow-card transition-all duration-200";
+    "group relative flex flex-col rounded-xl border border-border bg-card p-3 text-left shadow-card transition-all duration-200 sm:p-4";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
@@ -869,15 +869,15 @@ function StatusTile({
 
   const body = (
     <>
-      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", TONE_ICON[tone])}>
+      <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9", TONE_ICON[tone])}>
         <Icon className="h-4 w-4" />
       </span>
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-2xl font-semibold leading-none tabular-nums text-foreground">{displayValue}</span>
+          <span className="text-lg font-semibold leading-none tabular-nums text-foreground sm:text-2xl">{displayValue}</span>
           {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
         </div>
-        <span className="mt-1 block truncate text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+        <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:text-[11px] sm:tracking-[0.06em]">
           {label}
         </span>
       </div>
@@ -890,7 +890,7 @@ function StatusTile({
   );
 
   const base =
-    "group flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left shadow-card transition-all duration-200";
+    "group flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2.5 text-left shadow-card transition-all duration-200 sm:gap-3 sm:px-4 sm:py-3";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
