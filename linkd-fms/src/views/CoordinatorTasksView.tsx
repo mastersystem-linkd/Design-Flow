@@ -303,71 +303,95 @@ function AddTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" srTitle="Log new task">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-primary" />
-            Log New Request
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3 px-1 pt-2">
-          <div>
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Requester Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              value={requester}
-              onChange={(e) => setRequester(e.target.value)}
-              placeholder="Who requested this?"
-              disabled={saving}
-              className="mt-1"
-            />
+      <DialogContent className="max-w-[520px] max-h-[92vh] overflow-y-auto p-0" srTitle="Log new task">
+        {/* Gradient header */}
+        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-5 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
+              <ClipboardList className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">Log New Request</h2>
+              <p className="text-[10px] text-muted-foreground">Record a design or photo search task</p>
+            </div>
           </div>
-          <div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-2.5 px-5 py-4" noValidate>
+          {/* Requester + Date side by side */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors hover:border-primary/30">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <User className="h-3 w-3" />
+                    Requester <span className="text-destructive">*</span>
+                  </span>
+                </Label>
+                <Input
+                  value={requester}
+                  onChange={(e) => setRequester(e.target.value)}
+                  placeholder="Who requested this?"
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Date & Time
+                  </span>
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={requestedAt}
+                  onChange={(e) => setRequestedAt(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Description */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors hover:border-primary/30">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Description <span className="text-destructive">*</span>
+              <span className="flex items-center gap-1">
+                <Search className="h-3 w-3" />
+                What to search <span className="text-destructive">*</span>
+              </span>
             </Label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What design/photo to search for?"
+              placeholder="Describe the design or photo to search for…"
               disabled={saving}
               rows={3}
-              className="mt-1 w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="mt-1.5 w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
-          </div>
-          <div>
+          </section>
+
+          {/* Notes */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors hover:border-primary/30">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Date & Time of Request
-            </Label>
-            <Input
-              type="datetime-local"
-              value={requestedAt}
-              onChange={(e) => setRequestedAt(e.target.value)}
-              disabled={saving}
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Notes <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+              Additional Notes <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
             </Label>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any additional context…"
+              placeholder="Any reference links, context, or priority…"
               disabled={saving}
-              className="mt-1"
+              className="mt-1.5"
             />
-          </div>
+          </section>
+
           {error && (
-            <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p>
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
           )}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
-              Cancel
-            </Button>
-            <LoadingButton type="submit" loading={saving} loadingText="Saving…" className="gap-1.5">
+
+          {/* Footer */}
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <LoadingButton type="submit" loading={saving} loadingText="Saving…" className="gap-2 px-6 shadow-sm shadow-primary/20">
               <Plus className="h-3.5 w-3.5" /> Log Task
             </LoadingButton>
           </div>
