@@ -141,9 +141,9 @@ export default async function handler(
     .eq("id", callerUser.user.id)
     .maybeSingle();
   const role = callerProfile?.role as string | undefined;
-  if (role !== "admin" && role !== "design_coordinator") {
+  if (role !== "super_admin" && role !== "admin" && role !== "design_coordinator") {
     res.status(403).json({
-      error: "Only admins or design coordinators can clear data",
+      error: "Only super admins, admins, or design coordinators can clear data",
     });
     return;
   }

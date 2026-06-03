@@ -23,7 +23,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
-type Role = "admin" | "design_coordinator" | "designer" | "deo";
+type Role = "super_admin" | "admin" | "design_coordinator" | "designer" | "deo";
 
 interface RequestBody {
   user_id?: string;
@@ -37,7 +37,7 @@ interface RequestBody {
   created_at?: string;
 }
 
-const ALLOWED_ROLES: Role[] = ["admin", "design_coordinator", "designer", "deo"];
+const ALLOWED_ROLES: Role[] = ["super_admin", "admin", "design_coordinator", "designer", "deo"];
 
 export default async function handler(
   req: VercelRequest,
@@ -101,7 +101,7 @@ export default async function handler(
     .maybeSingle();
 
   const callerRole = callerProfile?.role as Role | undefined;
-  if (callerRole !== "admin" && callerRole !== "design_coordinator") {
+  if (callerRole !== "super_admin" && callerRole !== "admin" && callerRole !== "design_coordinator") {
     res.status(403).json({
       error: "Only admins or design coordinators can edit users",
     });

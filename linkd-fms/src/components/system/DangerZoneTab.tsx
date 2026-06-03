@@ -415,23 +415,25 @@ export function DangerZoneTab() {
 
           return (
             <Card key={spec.key} className={cn("transition-all duration-200", isExpanded && "ring-1 ring-primary/20")}>
-              <button
-                type="button"
-                onClick={() => setExpandedKey(isExpanded ? null : spec.key)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/30"
-              >
-                <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", isExpanded && "rotate-90")} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-foreground">{spec.label}</p>
-                    {countsLoading ? (
-                      <Badge variant="secondary" className="text-[10px]">…</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="tabular-nums text-[10px]">{count.toLocaleString()}</Badge>
-                    )}
+              <div className="flex items-center gap-3 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedKey(isExpanded ? null : spec.key)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left transition-colors hover:opacity-80"
+                >
+                  <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", isExpanded && "rotate-90")} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-foreground">{spec.label}</p>
+                      {countsLoading ? (
+                        <Badge variant="secondary" className="text-[10px]">…</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="tabular-nums text-[10px]">{count.toLocaleString()}</Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{spec.description}</p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">{spec.description}</p>
-                </div>
+                </button>
                 {isEmpty ? (
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
                     <CheckCircle2 className="h-3.5 w-3.5" /> Empty
@@ -440,14 +442,14 @@ export function DangerZoneTab() {
                   <Button
                     size="sm" variant="outline"
                     disabled={isBusy || countsLoading}
-                    onClick={(e) => { e.stopPropagation(); setStage1({ kind: "clear-table", spec }); }}
-                    className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+                    onClick={() => setStage1({ kind: "clear-table", spec })}
+                    className="shrink-0 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
                   >
                     {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     Clear all
                   </Button>
                 )}
-              </button>
+              </div>
 
               {isExpanded && !isEmpty && (
                 <ExpandedSection
