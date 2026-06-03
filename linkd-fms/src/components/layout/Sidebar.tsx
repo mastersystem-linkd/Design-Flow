@@ -19,6 +19,7 @@ import {
   User as UserIcon,
   PanelLeftClose,
   PanelLeftOpen,
+  ListTodo,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -80,6 +81,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
             { to: ROUTES.orders, label: "Orders", icon: ShoppingCart },
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
             { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
+            { to: ROUTES.coordinatorTasks, label: "Coordinator", icon: ListTodo },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
             { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
             { to: ROUTES.system, label: "Settings", icon: Settings },
@@ -101,6 +103,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
             { to: ROUTES.orders, label: "Orders", icon: ShoppingCart },
             { to: ROUTES.sampling, label: "Sampling", icon: Factory },
             { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
+            { to: ROUTES.coordinatorTasks, label: "My Tasks", icon: ListTodo },
             { to: ROUTES.files, label: "Files", icon: FolderOpen },
             { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
             { to: ROUTES.system, label: "Settings", icon: Settings },

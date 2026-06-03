@@ -16,6 +16,7 @@ export const ROUTES = {
   taskDashboard: "/task-dashboard",
   scorecards: "/scorecards",
   salvedge: "/salvedge",
+  coordinatorTasks: "/coordinator-tasks",
   system: "/system",
   profile: "/profile",
   files: "/files",

@@ -59,6 +59,7 @@ const ScorecardsView = lazyWithReload(() => import("@/views/ScorecardsView").the
 const ScorecardDetailView = lazyWithReload(() => import("@/views/ScorecardDetailView").then((m) => ({ default: m.ScorecardDetailView })));
 const SystemView = lazyWithReload(() => import("@/views/SystemView").then((m) => ({ default: m.SystemView })));
 const SalvedgeView = lazyWithReload(() => import("@/views/SalvedgeView").then((m) => ({ default: m.SalvedgeView })));
+const CoordinatorTasksView = lazyWithReload(() => import("@/views/CoordinatorTasksView").then((m) => ({ default: m.CoordinatorTasksView })));
 const ProfileView = lazyWithReload(() => import("@/views/ProfileView").then((m) => ({ default: m.ProfileView })));
 const FilesView = lazyWithReload(() => import("@/views/FilesView").then((m) => ({ default: m.FilesView })));
 const FullKittingFormView = lazyWithReload(() => import("@/views/FullKittingFormView"));
@@ -213,6 +214,13 @@ export default function App() {
           element={<ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator", "designer"]} />}
         >
           <Route path={ROUTES.salvedge} element={<SalvedgeView />} />
+        </Route>
+
+        {/* /coordinator-tasks — coordinator logs requests; admins view */}
+        <Route
+          element={<ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator"]} />}
+        >
+          <Route path={ROUTES.coordinatorTasks} element={<CoordinatorTasksView />} />
         </Route>
 
         {/* /files — File browser (all roles) */}

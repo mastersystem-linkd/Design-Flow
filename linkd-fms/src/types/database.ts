@@ -1107,6 +1107,53 @@ export type Database = {
           }
         ];
       };
+      coordinator_tasks: {
+        Row: {
+          id: string;
+          requester_name: string;
+          description: string;
+          requested_at: string;
+          is_completed: boolean;
+          completed_at: string | null;
+          notes: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          requester_name: string;
+          description: string;
+          requested_at?: string;
+          is_completed?: boolean;
+          completed_at?: string | null;
+          notes?: string | null;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          requester_name?: string;
+          description?: string;
+          requested_at?: string;
+          is_completed?: boolean;
+          completed_at?: string | null;
+          notes?: string | null;
+          created_by?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "coordinator_tasks_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       full_kitting_details: {
         Row: {
           id: string;
@@ -1344,6 +1391,7 @@ export type Sample = Tables<"samples">;
 export type SalvedgeRecord = Tables<"salvedge_records">;
 export type ConceptCategory = Tables<"concept_categories">;
 export type Fabric = Tables<"fabrics">;
+export type CoordinatorTask = Tables<"coordinator_tasks">;
 export type Notification = Tables<"notifications">;
 export type NotificationInsert = TablesInsert<"notifications">;
 export type NotificationUpdate = TablesUpdate<"notifications">;
