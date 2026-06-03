@@ -66,95 +66,60 @@ export function CoordinatorTasksView() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-            <ClipboardList className="h-5 w-5 text-primary" />
+    <div className="space-y-3">
+      {/* ── Banner header — matches Salvedge / Sampling banner style ── */}
+      <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
+        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
+        <div className="relative flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <ClipboardList className="h-[18px] w-[18px] text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Coordinator Tasks</p>
+              <p className="text-[11px] text-muted-foreground">
+                Design & photo search requests
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
-              Coordinator Tasks
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              Design & photo search requests · {stats.total} total
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void refetch()} className="gap-1.5">
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Refresh</span>
-          </Button>
-          {canLog && (
-            <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /> Log Task
+          <div className="flex flex-wrap items-center gap-2">
+            {stats.pending > 0 && (
+              <Badge className="border border-warning/20 bg-warning/10 text-warning">
+                {stats.pending} pending
+              </Badge>
+            )}
+            <Button variant="outline" size="sm" onClick={() => void refetch()} className="gap-1.5">
+              <RefreshCw className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Refresh</span>
             </Button>
-          )}
+            {canLog && (
+              <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
+                <Plus className="h-3.5 w-3.5" /> Log Task
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Stats strip */}
-      <div className="grid grid-cols-3 gap-2">
-        <Card className="swatch-edge">
-          <CardContent className="flex items-center gap-3 px-3 py-2.5">
-            <ClipboardList className="h-4 w-4 text-primary" />
-            <div>
-              <p className="text-lg font-bold tabular-nums text-foreground">{stats.total}</p>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Total</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="swatch-edge">
-          <CardContent className="flex items-center gap-3 px-3 py-2.5">
-            <Clock className="h-4 w-4 text-warning" />
-            <div>
-              <p className="text-lg font-bold tabular-nums text-warning">{stats.pending}</p>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Pending</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="swatch-edge">
-          <CardContent className="flex items-center gap-3 px-3 py-2.5">
-            <CheckCircle2 className="h-4 w-4 text-success" />
-            <div>
-              <p className="text-lg font-bold tabular-nums text-success">{stats.completed}</p>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Done</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ── Toolbar — stepper pills + search ── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto rounded-xl border border-border bg-card px-3 py-2">
+        <StatusPill label="All" count={stats.total} active={statusFilter === "all"} tone="primary" onClick={() => setStatusFilter("all")} />
+        <StatusPill label="Pending" count={stats.pending} active={statusFilter === "pending"} tone="warning" onClick={() => setStatusFilter("pending")} />
+        <StatusPill label="Completed" count={stats.completed} active={statusFilter === "completed"} tone="success" onClick={() => setStatusFilter("completed")} />
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by requester or description…"
-            className="h-8 pl-8 text-xs"
-          />
-        </div>
-        <div className="inline-flex rounded-lg bg-secondary p-0.5">
-          {(["all", "pending", "completed"] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setStatusFilter(f)}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                statusFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {f === "all" ? `All ${stats.total}` : f === "pending" ? `Pending ${stats.pending}` : `Done ${stats.completed}`}
-            </button>
-          ))}
+        <div className="ml-auto flex items-center gap-1.5">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="h-7 w-[140px] rounded-md border border-border bg-card pl-7 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[180px]"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Table */}
+      {/* ── Table ── */}
       {isLoading ? (
         <Card><CardContent className="p-4"><SkeletonText lines={5} /></CardContent></Card>
       ) : filtered.length === 0 ? (
@@ -164,7 +129,7 @@ export function CoordinatorTasksView() {
           action={canLog && !search ? { label: "Log Task", onClick: () => setFormOpen(true) } : undefined}
         />
       ) : (
-        <Card>
+        <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className={TABLE_HEAD}>
@@ -239,7 +204,7 @@ export function CoordinatorTasksView() {
               </tbody>
             </table>
           </div>
-        </Card>
+        </section>
       )}
 
       {/* Add form dialog */}
@@ -398,5 +363,48 @@ function AddTaskDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const PILL_ACTIVE: Record<string, string> = {
+  primary: "border-primary/40 bg-primary/10 text-primary ring-1 ring-primary/20",
+  warning: "border-warning/40 bg-warning/10 text-warning ring-1 ring-warning/20",
+  success: "border-success/40 bg-success/10 text-success ring-1 ring-success/20",
+};
+const PILL_DOT: Record<string, string> = {
+  primary: "bg-primary",
+  warning: "bg-warning",
+  success: "bg-success",
+};
+const PILL_COUNT: Record<string, string> = {
+  primary: "text-primary",
+  warning: "text-warning",
+  success: "text-success",
+};
+
+function StatusPill({ label, count, active, tone, onClick }: {
+  label: string;
+  count: number;
+  active: boolean;
+  tone: "primary" | "warning" | "success";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-all duration-200",
+        active
+          ? PILL_ACTIVE[tone]
+          : "border-border/60 bg-card/50 text-muted-foreground hover:border-border hover:bg-secondary/50"
+      )}
+    >
+      <span className={cn("h-2 w-2 rounded-full", active ? PILL_DOT[tone] : "bg-muted-foreground/50")} />
+      {label}
+      <span className={cn("text-[13px] font-bold leading-none tabular-nums", active ? PILL_COUNT[tone] : "text-foreground")}>
+        {count}
+      </span>
+    </button>
   );
 }
