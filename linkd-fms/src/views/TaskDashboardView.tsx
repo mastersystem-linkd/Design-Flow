@@ -516,7 +516,7 @@ export function TaskDashboardView() {
                 }
               />
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
               <StatusTile
                 icon={Activity}
                 label="Active"
@@ -821,13 +821,13 @@ function MetricCard({
 
   const body = (
     <div className="flex h-full flex-col items-center text-center">
-      <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", TONE_ICON[tone])}>
-        <Icon className="h-4 w-4" />
+      <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg", TONE_ICON[tone])}>
+        <Icon className="h-3.5 w-3.5" />
       </span>
-      <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <span className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         {label}
       </span>
-      <span className="mt-1.5 text-[28px] font-bold leading-none tracking-tight tabular-nums text-foreground">
+      <span className="mt-1 text-2xl font-bold leading-none tracking-tight tabular-nums text-foreground">
         {displayValue}
       </span>
       <div className="mt-1">
@@ -838,18 +838,18 @@ function MetricCard({
       )}
       {hasSparkline && (
         <div
-          className="mt-auto w-full pt-2"
+          className="mt-auto w-full pt-1.5"
           role="img"
           aria-label={`${label} trend over time`}
         >
-          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={24} />
+          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={18} />
         </div>
       )}
     </div>
   );
 
   const base =
-    "group relative flex h-full flex-col rounded-xl border border-border bg-card px-3 py-4 shadow-card transition-all duration-200 sm:px-4";
+    "group relative flex h-full flex-col rounded-xl border border-border bg-card px-3 py-3 shadow-card transition-all duration-200 sm:px-3.5";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
