@@ -183,15 +183,28 @@ export function DangerZoneTab() {
 
   const fetchCounts = useCallback(async () => {
     setCountsLoading(true);
-    const next: Record<string, number> = {};
-    await Promise.all(
-      TABLE_SPECS.map(async (spec) => {
-        const { count } = await supabase
-          .from(spec.table)
-          .select("*", { count: "exact", head: true });
-        next[spec.key] = count ?? 0;
-      })
+    // Counts via the SERVICE-ROLE API so the badge reflects the TRUE row count
+    // that a clear/delete will affect. The RLS-scoped client read under-reports
+    // tables like notifications (you only see your own), which previously made
+    // "9 shown" silently become "58 deleted".
+    const { data } = await callAdminApi<{ counts: Record<string, number> }>(
+      "admin-clear-data",
+      { kind: "counts" }
     );
+    const next: Record<string, number> = {};
+    if (data?.counts) {
+      for (const spec of TABLE_SPECS) next[spec.key] = data.counts[spec.table] ?? 0;
+    } else {
+      // Fallback for local `npm run dev` (no /api/*): RLS-scoped client counts.
+      await Promise.all(
+        TABLE_SPECS.map(async (spec) => {
+          const { count } = await supabase
+            .from(spec.table)
+            .select("*", { count: "exact", head: true });
+          next[spec.key] = count ?? 0;
+        })
+      );
+    }
     setCounts(next);
     setCountsLoading(false);
   }, []);
@@ -241,22 +254,20 @@ export function DangerZoneTab() {
   async function executeDeleteSelected(spec: TableSpec, ids: string[]) {
     setBusyTable(spec.key);
     try {
-      const { error } = await supabase
-        .from(spec.table)
-        .delete()
-        .in("id", ids);
-      if (error) {
-        const { data: apiData, error: apiErr } = await callAdminApi<{ cleared: number }>(
-          "admin-clear-data", { kind: "delete-rows", table: spec.table, ids }
-        );
-        if (apiErr || !apiData) {
-          toast.error(apiErr?.message ?? `Failed to delete from ${spec.label}`);
-          return;
-        }
-        toast.success(`${apiData.cleared ?? ids.length} records deleted from ${spec.label}`);
-      } else {
-        toast.success(`${ids.length} record${ids.length !== 1 ? "s" : ""} deleted from ${spec.label}`);
+      // Delete ONLY the selected ids, via service-role so RLS can't silently
+      // block (or, worse, the old client→whole-table fallback can't over-delete).
+      // The server returns the EXACT number of rows removed.
+      const { data, error } = await callAdminApi<{ cleared: number }>(
+        "admin-clear-data",
+        { kind: "delete-rows", table: spec.table, ids }
+      );
+      if (error || !data) {
+        toast.error(error?.message ?? `Failed to delete from ${spec.label}`);
+        return;
       }
+      toast.success(
+        `${data.cleared.toLocaleString()} record${data.cleared !== 1 ? "s" : ""} deleted from ${spec.label}`
+      );
       void fetchCounts();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Failed to delete from ${spec.label}`);
@@ -560,19 +571,37 @@ function ExpandedSection({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    supabase
-      .from(spec.table)
-      .select(spec.selectCols)
-      .order(spec.orderCol, { ascending: false })
-      .limit(200)
-      .then(({ data }) => {
-        if (!cancelled) {
-          setRows((data as unknown as Record<string, unknown>[]) ?? []);
-          setLoading(false);
+    void (async () => {
+      // List via the service-role API so EVERY row shows (the RLS client read
+      // hid other users' rows — e.g. notifications — so "select all" only ever
+      // grabbed your own subset while a clear wiped the whole table).
+      const { data } = await callAdminApi<{ rows: Record<string, unknown>[] }>(
+        "admin-clear-data",
+        {
+          kind: "list-rows",
+          table: spec.table,
+          cols: spec.selectCols,
+          orderCol: spec.orderCol,
+          limit: 200,
         }
-      });
+      );
+      if (cancelled) return;
+      if (data?.rows) {
+        setRows(data.rows);
+      } else {
+        // Fallback for local `npm run dev` (no /api/*): RLS-scoped client read.
+        const { data: clientRows } = await supabase
+          .from(spec.table)
+          .select(spec.selectCols)
+          .order(spec.orderCol, { ascending: false })
+          .limit(200);
+        if (!cancelled)
+          setRows((clientRows as unknown as Record<string, unknown>[]) ?? []);
+      }
+      setLoading(false);
+    })();
     return () => { cancelled = true; };
-  }, [spec.table, spec.selectCols, busyTable]);
+  }, [spec.table, spec.selectCols, spec.orderCol, busyTable]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return rows;

@@ -72,11 +72,25 @@ const CLEAR_ALL_ORDER: ClearableTable[] = [
 ];
 
 const NIL_ID = "00000000-0000-0000-0000-000000000000";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type ClearKind = "clear-table" | "clear-all" | "clear-notifs";
+type ClearKind =
+  | "clear-table"
+  | "clear-all"
+  | "clear-notifs"
+  | "counts"
+  | "list-rows"
+  | "delete-rows";
 interface RequestBody {
   kind?: ClearKind;
   table?: string;
+  /** For `delete-rows` — the exact row ids to delete (and ONLY those). */
+  ids?: unknown;
+  /** For `list-rows` — select columns / order column / row cap. */
+  cols?: string;
+  orderCol?: string;
+  limit?: number;
 }
 
 function isClearableTable(value: unknown): value is ClearableTable {
@@ -244,7 +258,76 @@ export default async function handler(
     return;
   }
 
+  // ── counts — TRUE per-table row counts via service-role, so the Danger
+  //    Zone UI shows what will ACTUALLY be deleted (RLS-scoped client counts
+  //    under-report tables like notifications, hiding other users' rows). ──
+  if (body.kind === "counts") {
+    const counts: Record<string, number> = {};
+    for (const t of CLEARABLE_TABLES) {
+      const { count } = await admin.from(t).select("*", { count: "exact", head: true });
+      counts[t] = count ?? 0;
+    }
+    res.status(200).json({ counts });
+    return;
+  }
+
+  // ── list-rows — read rows via service-role so the expandable record list
+  //    shows EVERY row (not just the caller's RLS-visible subset). ──
+  if (body.kind === "list-rows") {
+    if (!isClearableTable(body.table)) {
+      res.status(400).json({
+        error: `'table' must be one of: ${CLEARABLE_TABLES.join(", ")}`,
+      });
+      return;
+    }
+    const cols = typeof body.cols === "string" && body.cols.trim() ? body.cols : "id";
+    const orderCol = typeof body.orderCol === "string" && body.orderCol ? body.orderCol : "id";
+    const limit = typeof body.limit === "number" && body.limit > 0 ? Math.min(body.limit, 500) : 200;
+    const { data, error } = await admin
+      .from(body.table)
+      .select(cols)
+      .order(orderCol, { ascending: false })
+      .limit(limit);
+    if (error) {
+      res.status(500).json({ error: `Failed to list ${body.table}: ${error.message}` });
+      return;
+    }
+    res.status(200).json({ rows: data ?? [] });
+    return;
+  }
+
+  // ── delete-rows — delete ONLY the specified ids (data-integrity critical:
+  //    a selected-row delete must never wipe more than was selected). ──
+  if (body.kind === "delete-rows") {
+    if (!isClearableTable(body.table)) {
+      res.status(400).json({
+        error: `'table' must be one of: ${CLEARABLE_TABLES.join(", ")}`,
+      });
+      return;
+    }
+    const ids = Array.isArray(body.ids)
+      ? (body.ids.filter(
+          (id): id is string => typeof id === "string" && UUID_RE.test(id)
+        ))
+      : [];
+    if (ids.length === 0) {
+      res.status(400).json({ error: "No valid row ids provided to delete." });
+      return;
+    }
+    const { error, count } = await admin
+      .from(body.table)
+      .delete({ count: "exact" })
+      .in("id", ids);
+    if (error) {
+      res.status(500).json({ error: `Failed to delete from ${body.table}: ${error.message}` });
+      return;
+    }
+    res.status(200).json({ cleared: count ?? 0 });
+    return;
+  }
+
   res.status(400).json({
-    error: `Unknown kind. Must be 'clear-table', 'clear-all', or 'clear-notifs'.`,
+    error:
+      "Unknown kind. Must be 'clear-table', 'clear-all', 'clear-notifs', 'counts', 'list-rows', or 'delete-rows'.",
   });
 }
