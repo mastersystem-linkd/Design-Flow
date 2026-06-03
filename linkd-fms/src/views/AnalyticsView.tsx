@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Lightbulb,
   CheckCircle2,
@@ -116,13 +116,23 @@ export function AnalyticsView({
     );
   }
 
+  // Keep the latest export handler in a ref. `designerStats.length` never
+  // changes once designers load (one row per designer, regardless of concept
+  // counts), so the effect below fires only ONCE — while `concepts` is still
+  // []. Handing the parent `handleExportReport` directly would freeze it over
+  // that empty-data render and export all zeros. The stable wrapper delegates
+  // to this ref, which is refreshed every render, so the click always runs
+  // against the loaded analytics.
+  const exportRef = useRef(handleExportReport);
+  exportRef.current = handleExportReport;
+
   useEffect(() => {
     if (onControlsReady) {
       onControlsReady({
         period,
         setPeriod,
         periodLabel: a.periodLabel,
-        onExport: canExport && a.designerStats.length > 0 ? handleExportReport : null,
+        onExport: canExport && a.designerStats.length > 0 ? () => exportRef.current() : null,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
