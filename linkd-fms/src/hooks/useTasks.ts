@@ -46,6 +46,7 @@ const SELECT_FRAGMENT = `
   client:clients!tasks_client_id_fkey(id, party_name),
   assignee:profiles!tasks_assigned_to_fkey(id, full_name, role, avatar_url),
   creator:profiles!tasks_created_by_fkey(id, full_name, role, avatar_url),
+  carry_forwarder:profiles!tasks_carry_forward_from_fkey(id, full_name),
   files(id, file_name, file_size, storage_url)
 `;
 

@@ -2736,21 +2736,28 @@ function TaskRow({
 
       {/* 2. Designer */}
       {showCol("designer") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle">
+      <td className="px-3 py-1.5 text-left align-middle">
         {task.assignee ? (
-          <span className="flex items-center gap-2">
-            <Avatar className="h-6 w-6">
-              {task.assignee.avatar_url ? (
-                <AvatarImage src={task.assignee.avatar_url} />
-              ) : null}
-              <AvatarFallback className="text-[9px]">
-                {getInitials(task.assignee.full_name)}
-              </AvatarFallback>
-            </Avatar>
-            <span className="max-w-[120px] truncate text-xs text-foreground">
-              {task.assignee.full_name}
+          <div className="flex flex-col gap-0.5">
+            <span className="flex items-center gap-2 whitespace-nowrap">
+              <Avatar className="h-6 w-6">
+                {task.assignee.avatar_url ? (
+                  <AvatarImage src={task.assignee.avatar_url} />
+                ) : null}
+                <AvatarFallback className="text-[9px]">
+                  {getInitials(task.assignee.full_name)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="max-w-[120px] truncate text-xs text-foreground">
+                {task.assignee.full_name}
+              </span>
             </span>
-          </span>
+            {task.carry_forwarder && (
+              <span className="whitespace-nowrap pl-8 text-[10px] text-muted-foreground" title={`Previously assigned to ${task.carry_forwarder.full_name}`}>
+                from {task.carry_forwarder.full_name}
+              </span>
+            )}
+          </div>
         ) : (
           <span className="text-xs italic text-muted-foreground">Open</span>
         )}

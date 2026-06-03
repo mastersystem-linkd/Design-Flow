@@ -663,7 +663,7 @@ export function useTaskMutations(): UseTaskMutations {
       try {
         const { data: current, error: fetchErr } = await supabase
           .from("tasks")
-          .select("status, task_code, concept, qty, concept_start_date")
+          .select("status, task_code, concept, qty, concept_start_date, assigned_to")
           .eq("id", taskId)
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
@@ -681,6 +681,8 @@ export function useTaskMutations(): UseTaskMutations {
           assigned_at?: string;
           started_at?: string;
           started_late?: boolean;
+          carry_forward_from?: string | null;
+          carry_forward_at?: string | null;
         } = {
           assigned_to: designerId,
         };
@@ -693,6 +695,12 @@ export function useTaskMutations(): UseTaskMutations {
             current.concept_start_date,
             nowIso
           );
+        }
+
+        // Track previous designer when reassigning (not accepting from pool)
+        if (!acceptingFromPool && current.assigned_to && current.assigned_to !== designerId) {
+          update.carry_forward_from = current.assigned_to as string;
+          update.carry_forward_at = new Date().toISOString();
         }
 
         // If the existing code carries the "P" (Pool) designer letter, swap
@@ -903,7 +911,6 @@ export function useTaskMutations(): UseTaskMutations {
           .from("tasks")
           .update({
             assigned_to: profile.id,
-            assigned_by: profile.full_name,
             assigned_at: nowIso,
             started_at: nowIso,
             started_late: computeStartedLate(
@@ -1069,7 +1076,6 @@ export function useTaskMutations(): UseTaskMutations {
             assigned_at: nowIso,
             started_at: nowIso,
             started_late: computeStartedLate(chosen.concept_start_date, nowIso),
-            assigned_by: profile.full_name || "Self",
             planned_deadline: plannedDeadline,
             // pool → 'in_progress' directly. Claiming IS starting — there is
             // no separate Pending stage. The busy-check above therefore caps
