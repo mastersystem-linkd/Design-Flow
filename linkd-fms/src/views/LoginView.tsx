@@ -87,34 +87,16 @@ export function LoginView() {
 
           {/* ───────── BRAND ───────── */}
           <section className="brand">
-            <p className="eyebrow reveal d1">
-              <span className="stitch"><i /><i /><i /><i /></span>
-              Textile Workflow OS
-            </p>
-            <p className="wordmark reveal d1">LINKD&nbsp;PRINTS</p>
-            <h1 className="reveal d2">Design<br />Flow<span className="tint">.</span></h1>
-            <div className="rule reveal d2" />
-            <p className="lede reveal d3">
-              Streamline your textile print &amp; design workflow — woven from
-              first sketch to shipped fabric, in one continuous thread.
-            </p>
-
-            <div className="feats reveal d4">
-              <Feature
-                title="Concept to Delivery"
-                desc="One pipeline from first sketch to shipped print."
-                path={<><path d="M12 3 3 8l9 5 9-5-9-5Z" /><path d="m3 13 9 5 9-5" /><path d="m3 18 9 5 9-5" /></>}
-              />
-              <Feature
-                title="Real-time Updates"
-                desc="Live task tracking the whole team can see."
-                path={<path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />}
-              />
-              <Feature
-                title="Role-based Access"
-                desc="Secure by design — everyone sees what they should."
-                path={<path d="M12 3 4 6v6c0 5 3.5 7.5 8 9 4.5-1.5 8-4 8-9V6l-8-3Z" />}
-              />
+            <div className="brand-scrim" aria-hidden="true" />
+            <div className="brand-inner">
+              <img src="/logo.png" alt="LinkD" className="brand-logo reveal d1" draggable={false} />
+              <p className="eyebrow reveal d1">
+                <span className="stitch"><i /><i /><i /><i /></span>
+                Textile Workflow OS
+              </p>
+              <p className="wordmark reveal d1">LINKD&nbsp;PRINTS</p>
+              <h1 className="reveal d2">Design<br />Flow<span className="tint">.</span></h1>
+              <div className="rule reveal d2" />
             </div>
           </section>
 
@@ -242,18 +224,6 @@ export function LoginView() {
       </main>
 
       <footer className="page-foot reveal d6"><b>LinkD Prints</b>&nbsp;·&nbsp;© 2026</footer>
-    </div>
-  );
-}
-
-// ── Feature row ──
-function Feature({ title, desc, path }: { title: string; desc: string; path: React.ReactNode }) {
-  return (
-    <div className="feat">
-      <span className="ic" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{path}</svg>
-      </span>
-      <div><h3>{title}</h3><p>{desc}</p></div>
     </div>
   );
 }
@@ -460,11 +430,16 @@ function LoginStyles() {
 .df-login .grain{ position:fixed; inset:0; z-index:1; pointer-events:none; opacity:.05; mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
-.df-login .stage{ position:relative; z-index:2; min-height:100dvh; display:grid; place-items:center; padding:28px; }
-.df-login .shell{ width:min(1120px,100%); display:grid; grid-template-columns:1.05fr .95fr; gap:clamp(28px,5vw,72px); align-items:center; }
+.df-login .stage{ position:relative; z-index:2; min-height:100dvh; display:grid; place-items:center; padding:28px 40px; }
+.df-login .shell{ width:min(1080px,100%); margin:0 auto; display:grid; grid-template-columns:1.1fr .9fr; gap:clamp(40px,5vw,72px); align-items:center; }
 
-.df-login .brand{ max-width:520px; }
-.df-login .eyebrow{ display:inline-flex; align-items:center; gap:10px; font-size:11px; letter-spacing:.28em; text-transform:uppercase; color:var(--text-mute); margin:0 0 22px; }
+.df-login .brand{ position:relative; max-width:480px; }
+.df-login .brand-scrim{ position:absolute; inset:-48px -36px; border-radius:40px;
+  background:radial-gradient(ellipse at 35% 50%, rgba(10,11,16,.7) 0%, rgba(10,11,16,.35) 50%, transparent 80%);
+  pointer-events:none; z-index:0; }
+.df-login .brand-inner{ position:relative; z-index:1; display:flex; flex-direction:column; gap:0; }
+.df-login .brand-logo{ display:block; width:110px; height:auto; margin:0 0 22px; }
+.df-login .eyebrow{ display:inline-flex; align-items:center; gap:10px; font-size:11px; letter-spacing:.28em; text-transform:uppercase; color:var(--text-mute); margin:0 0 18px; }
 .df-login .stitch{ display:inline-flex; gap:4px; }
 .df-login .stitch i{ width:7px; height:7px; border-radius:2px; display:block; }
 .df-login .stitch i:nth-child(1){ background:#ff5a5f; }
@@ -472,21 +447,13 @@ function LoginStyles() {
 .df-login .stitch i:nth-child(3){ background:#4ade80; }
 .df-login .stitch i:nth-child(4){ background:#60a5fa; }
 
-.df-login .wordmark{ font-family:'Bricolage Grotesque', sans-serif; font-weight:800; font-size:14px; letter-spacing:.34em; color:var(--text-soft); margin:0 0 14px; }
-.df-login h1{ font-family:'Bricolage Grotesque', sans-serif; font-weight:800; font-size:clamp(40px,6vw,68px); line-height:.96; letter-spacing:-.02em; margin:0 0 18px;
+.df-login .wordmark{ font-family:'Bricolage Grotesque', sans-serif; font-weight:800; font-size:14px; letter-spacing:.34em; color:var(--text-soft); margin:0 0 12px; }
+.df-login h1{ font-family:'Bricolage Grotesque', sans-serif; font-weight:800; font-size:clamp(52px,6.5vw,78px); line-height:.95; letter-spacing:-.02em; margin:0 0 18px;
   background:linear-gradient(180deg,#fff 0%,#c9cee0 100%); -webkit-background-clip:text; background-clip:text; color:transparent; }
 .df-login h1 .tint{ background:linear-gradient(110deg,var(--accent-2),var(--accent)); -webkit-background-clip:text; background-clip:text; color:transparent; }
-.df-login .lede{ font-size:clamp(15px,1.4vw,17px); line-height:1.6; color:var(--text-soft); margin:0 0 30px; max-width:42ch; }
-.df-login .rule{ height:2px; width:84px; border-radius:2px; margin:0 0 30px; background:linear-gradient(90deg,var(--accent-2),var(--accent),transparent); }
+.df-login .rule{ height:2px; width:84px; border-radius:2px; margin:0; background:linear-gradient(90deg,var(--accent-2),var(--accent),transparent); }
 
-.df-login .feats{ display:grid; gap:2px; }
-.df-login .feat{ display:flex; gap:14px; align-items:flex-start; padding:14px 4px; border-top:1px solid var(--hairline-2); }
-.df-login .feat:last-child{ border-bottom:1px solid var(--hairline-2); }
-.df-login .feat .ic{ flex:0 0 auto; width:34px; height:34px; border-radius:10px; display:grid; place-items:center; background:var(--surface-2); border:1px solid var(--hairline); color:var(--accent-2); }
-.df-login .feat h3{ margin:0 0 2px; font-size:14.5px; font-weight:600; color:var(--text); }
-.df-login .feat p{ margin:0; font-size:13px; color:var(--text-mute); line-height:1.45; }
-
-.df-login .card{ position:relative; background:var(--surface); backdrop-filter:blur(18px) saturate(120%); -webkit-backdrop-filter:blur(18px) saturate(120%);
+.df-login .card{ position:relative; max-width:420px; width:100%; justify-self:end; background:var(--surface); backdrop-filter:blur(18px) saturate(120%); -webkit-backdrop-filter:blur(18px) saturate(120%);
   border:1px solid var(--hairline); border-radius:var(--radius); padding:34px 32px 30px; box-shadow:0 30px 80px -30px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06); }
 .df-login .card::before{ content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; background:linear-gradient(180deg, rgba(255,255,255,.05), transparent 30%); }
 .df-login .card h2{ font-family:'Bricolage Grotesque', sans-serif; font-weight:700; font-size:27px; letter-spacing:-.01em; margin:0 0 6px; }
@@ -565,14 +532,17 @@ function LoginStyles() {
 @keyframes dflRise{ to{ opacity:1; transform:none; } }
 
 @media (max-width:900px){
-  .df-login .shell{ grid-template-columns:1fr; gap:30px; max-width:440px; }
-  .df-login .feats{ display:none; }
-  .df-login h1{ font-size:clamp(34px,11vw,46px); }
-  .df-login .card{ padding:28px 22px 24px; }
   .df-login .stage{ padding:22px 18px 70px; }
+  .df-login .shell{ grid-template-columns:1fr; gap:30px; max-width:420px; }
+  .df-login .brand{ text-align:center; }
+  .df-login .brand-inner{ align-items:center; }
+  .df-login .brand-scrim{ display:none; }
+  .df-login .brand-logo{ margin:0 auto 16px; }
+  .df-login h1{ font-size:clamp(36px,11vw,48px); }
+  .df-login .rule{ margin:0 auto; }
+  .df-login .card{ max-width:100%; justify-self:center; padding:28px 22px 24px; }
   .df-login .page-foot{ position:static; margin-top:26px; }
 }
-@media (max-width:380px){ .df-login .lede{ display:none; } }
 
 @media (prefers-reduced-motion: reduce){
   .df-login .reveal{ animation:none; opacity:1; transform:none; }
