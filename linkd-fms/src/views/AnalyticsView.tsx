@@ -38,6 +38,7 @@ import {
   SkeletonTable,
 } from "@/components/ui";
 import { exportToCSV, type CsvColumn } from "@/lib/exportCSV";
+import { exportConceptDashboardExcel } from "@/lib/exportExcel";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
@@ -86,19 +87,32 @@ export function AnalyticsView({
 
   function handleExportReport() {
     if (!a.designerStats.length) return;
-    const cols: CsvColumn<(typeof a.designerStats)[0]>[] = [
-      { key: "full_name", label: "Designer" },
-      { key: "submitted", label: "Submitted", transform: (v) => String(v ?? 0) },
-      { key: "approved", label: "Approved", transform: (v) => String(v ?? 0) },
-      { key: "rejected", label: "Rejected", transform: (v) => String(v ?? 0) },
-      { key: "revisions", label: "Revisions", transform: (v) => String(v ?? 0) },
-      { key: "target", label: "Target", transform: (v) => String(v ?? 0) },
-      { key: "score", label: "Score", transform: (v) => String(v ?? 0) },
-    ];
-    exportToCSV(
-      a.designerStats as unknown as Record<string, unknown>[],
-      `linkd-analytics-${period}`,
-      cols as unknown as CsvColumn<Record<string, unknown>>[]
+
+    exportConceptDashboardExcel(
+      a.designerStats,
+      {
+        periodLabel: a.periodLabel,
+        totalSubmitted: a.kpis.totalSubmitted.current,
+        totalApproved: a.kpis.totalApproved.current,
+        totalRejected: a.statusDistribution.find((s) => s.status === "rejected")?.count ?? 0,
+        totalCompleted: a.kpis.totalCompleted.current,
+        approvalRate: a.kpis.approvalRate.current,
+        completionRate: a.kpis.completionRate.current,
+        avgReviewHours: a.kpis.avgApprovalHours.current,
+        pipeline: a.statusDistribution.map((s) => ({
+          status: s.status.charAt(0).toUpperCase() + s.status.slice(1).replace(/_/g, " "),
+          count: s.count,
+          percentage: s.percentage,
+        })),
+        conversionRates: a.conversionRates,
+        workStatus: {
+          firstPassRate: a.workStatus.firstPassRate,
+          avgRevisionRounds: a.workStatus.avgRevisionRounds,
+          avgDesignDays: a.workStatus.avgDesignDays,
+          inFlight: a.workStatus.inFlight,
+        },
+      },
+      `linkd-concept-analytics-${period}-${a.periodLabel.replace(/[^a-zA-Z0-9]+/g, "-")}`
     );
   }
 

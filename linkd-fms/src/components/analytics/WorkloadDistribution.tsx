@@ -7,7 +7,7 @@ import {
   Badge,
   getInitials,
 } from "@/components/ui";
-import { Users, CheckCircle2, Loader2, Circle } from "lucide-react";
+import { Users, CheckCircle2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DesignerTaskStat } from "@/hooks/useTaskAnalytics";
 
@@ -66,15 +66,13 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
         <div className="space-y-3">
           {sorted.map((d, i) => {
             const isIdle = d.assigned === 0;
-            const remaining = Math.max(0, d.assigned - d.completed - d.inProgress);
+            const total = d.completed + d.inProgress;
             const widthPct = (d.assigned / max) * 100;
 
             const completePct =
-              d.assigned > 0 ? (d.completed / d.assigned) * 100 : 0;
+              total > 0 ? (d.completed / total) * 100 : 0;
             const progressPct =
-              d.assigned > 0 ? (d.inProgress / d.assigned) * 100 : 0;
-            const remainingPct =
-              d.assigned > 0 ? (remaining / d.assigned) * 100 : 0;
+              total > 0 ? (d.inProgress / total) * 100 : 0;
 
             const overload =
               teamAvg > 0 && d.assigned > teamAvg * 1.5 ? "over" :
@@ -149,11 +147,6 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
                       style={{ width: `${progressPct}%` }}
                       title={`${d.inProgress} in progress`}
                     />
-                    <div
-                      className="h-full bg-warning/40"
-                      style={{ width: `${remainingPct}%` }}
-                      title={`${remaining} remaining`}
-                    />
                   </div>
                 </div>
 
@@ -175,7 +168,6 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
                     <span className="inline-flex items-center justify-end gap-2 text-[11px] font-medium tabular-nums text-muted-foreground">
                       <span className="flex items-center gap-0.5 text-success"><CheckCircle2 className="h-3 w-3" />{d.completed}</span>
                       <span className="flex items-center gap-0.5 text-primary"><Loader2 className="h-3 w-3" />{d.inProgress}</span>
-                      <span className="flex items-center gap-0.5"><Circle className="h-3 w-3" />{remaining}</span>
                     </span>
                   )}
                 </div>
@@ -188,7 +180,6 @@ export function WorkloadDistribution({ data, onDesignerClick }: Props) {
         <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 pt-4 text-[11px] font-medium text-muted-foreground">
           <LegendDot color="bg-success" label="Completed" />
           <LegendDot color="bg-primary" label="In progress" />
-          <LegendDot color="bg-warning/40" label="Remaining" />
         </div>
       </CardContent>
     </Card>

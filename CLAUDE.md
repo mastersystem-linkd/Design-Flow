@@ -41,6 +41,9 @@ Act as an expert full-stack developer (React 18, TypeScript, Supabase, Tailwind 
 - **Type-Check / Lint:** `npm run type-check` (alias: `npm run lint`) — also run `npx tsc --noEmit -p api/tsconfig.json` to type-check serverless routes.
 - **Build:** `npm run build`
 - **API routes locally:** `npx vercel dev` (requires `vercel login` + env vars synced) — use this only when iterating on `/api/*` code itself.
+- **Vercel Deployment:** The **primary production project** is `design-flow` on the `mastersystem-linkds-projects` Vercel team. It deploys automatically on git push to `main`. Domain: `design-flow-sooty.vercel.app` (or custom domain when configured). There is also a legacy `linkd-fms` project on `harshali-bhopale-s-projects` used for CLI deploys — it can be removed. **Always deploy to `design-flow` (mastersystem-linkds-projects)** as the canonical production target.
+- **Env vars (Vercel, build-time):** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — must be set in the Vercel project's Environment Variables for Production. `SUPABASE_SERVICE_ROLE_KEY` is also needed for `/api/*` serverless routes. These are baked into the JS bundle at build time by Vite (`import.meta.env.VITE_*`).
+- **Google OAuth:** Configured via Supabase Auth → Providers → Google. `redirectTo` in `LoginView.tsx` must match the production domain. Supabase → Authentication → URL Configuration must have the production domain in both Site URL and Redirect URLs.
 
 ## 7. Sampling Hub
 - **Add Sample:** Do not use "Quick add form" for Add Sample. The sampling form must strictly be a pop-up form (center dialog) rather than a right-side drawer format.
