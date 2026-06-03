@@ -11,7 +11,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   Cell,
 } from "recharts";
@@ -23,11 +22,11 @@ import {
   CHART_TOOLTIP_STYLE,
   CHART_TOOLTIP_LABEL_STYLE,
   CHART_TOOLTIP_CURSOR,
-  CHART_LEGEND_STYLE,
   CHART_BAR_RADIUS,
   useChartAnimation,
 } from "@/lib/chartConfig";
 import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
+import { cn } from "@/lib/utils";
 
 function ChartShell({
   title,
@@ -71,35 +70,70 @@ export function PriorityDonut({
     { name: "High", value: data.high, color: CHART_THEME.warning },
     { name: "Normal", value: data.normal, color: CHART_THEME.primary },
     { name: "Low", value: data.low, color: CHART_THEME.mutedSolid },
-  ].filter((s) => s.value > 0);
+  ];
   const total = data.urgent + data.high + data.normal + data.low;
+  const shown = segments.filter((s) => s.value > 0);
 
   return (
     <ChartShell title="Priority Mix" subtitle={`Active pipeline by priority · ${total} task${total === 1 ? "" : "s"}`}>
       {total === 0 ? (
         <EmptyChart text="No active tasks" />
       ) : (
-        <div className="h-[240px]">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-            <PieChart>
-              <Pie
-                data={segments}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={56}
-                outerRadius={84}
-                paddingAngle={2}
-                stroke="none"
-                isAnimationActive={animate}
-              >
-                {segments.map((s, i) => (
-                  <Cell key={i} fill={s.color} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} />
-              <Legend wrapperStyle={CHART_LEGEND_STYLE} iconType="circle" iconSize={8} />
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
+          {/* Donut with a center total in the hole */}
+          <div className="relative h-[200px] w-[200px] shrink-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+              <PieChart>
+                <Pie
+                  data={shown}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={62}
+                  outerRadius={92}
+                  paddingAngle={2}
+                  stroke="none"
+                  isAnimationActive={animate}
+                >
+                  {shown.map((s, i) => (
+                    <Cell key={i} fill={s.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                  formatter={(value) => {
+                    const v = Number(value);
+                    return `${v} task${v === 1 ? "" : "s"} (${total ? Math.round((v / total) * 100) : 0}%)`;
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-3xl font-bold tabular-nums text-foreground">{total}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">active</span>
+            </div>
+          </div>
+
+          {/* Full legend — every priority with its count + share */}
+          <ul className="flex w-full flex-col gap-2.5">
+            {segments.map((s) => {
+              const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
+              return (
+                <li key={s.name} className="flex items-center gap-2.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
+                  <span className={cn("text-sm font-medium", s.value > 0 ? "text-foreground" : "text-muted-foreground")}>
+                    {s.name}
+                  </span>
+                  <span className="ml-auto flex items-baseline gap-2 tabular-nums">
+                    <span className={cn("text-sm font-bold", s.value > 0 ? "text-foreground" : "text-muted-foreground")}>
+                      {s.value}
+                    </span>
+                    <span className="w-9 text-right text-xs text-muted-foreground">{pct}%</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </ChartShell>
