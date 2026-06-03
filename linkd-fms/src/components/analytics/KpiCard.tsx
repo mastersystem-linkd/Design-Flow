@@ -122,18 +122,18 @@ export function KpiCard({
         to && "cursor-pointer swatch-edge-actionable hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover"
       )}
     >
-      <CardContent className="relative flex h-full flex-col items-center px-3 py-3 text-center sm:px-4">
+      <CardContent className="relative flex h-full flex-col items-center px-2.5 py-2.5 text-center sm:px-4 sm:py-3">
         <div
           className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06]",
+            "flex h-7 w-7 items-center justify-center rounded-xl ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06] sm:h-9 sm:w-9",
             tintClass ?? "bg-primary/10"
           )}
         >
           <span className="text-primary">{icon}</span>
         </div>
-        <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <p className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:mt-2 sm:text-[10px]">{label}</p>
         <p className={cn(
-          "mt-1 text-[26px] font-bold leading-none tracking-tight tabular-nums sm:text-[28px]",
+          "mt-0.5 text-xl font-bold leading-none tracking-tight tabular-nums sm:mt-1 sm:text-[28px]",
           valueColor ?? "text-foreground"
         )}>
           {displayValue}
@@ -143,7 +143,7 @@ export function KpiCard({
           <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{sub}</p>
         )}
         {sparklineData && sparklineData.length >= 3 && (
-          <div className="mt-auto w-full pt-2" role="img" aria-label={`${label} trend`}>
+          <div className="mt-auto hidden w-full pt-2 sm:block" role="img" aria-label={`${label} trend`}>
             <Sparkline data={sparklineData} color={sparkColor} height={20} />
           </div>
         )}

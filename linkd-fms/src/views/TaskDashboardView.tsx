@@ -565,21 +565,26 @@ export function TaskDashboardView() {
               />
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-              <StatusTile
-                icon={Activity}
-                label="Active"
-                tone="primary"
-                value={a.kpis.activePipeline}
-                sub={
-                  a.designerStats.length > 0
-                    ? `${(
-                        Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
-                        10
-                      ).toFixed(1)} / designer`
-                    : "in flight"
-                }
-                onClick={() => navigate(dashLink({ status: "in_progress" }))}
-              />
+              {/* Active is hidden on mobile (kept on sm+) so the hero shows a
+                  clean 6 tiles on phones — it's the least actionable of the
+                  three and already surfaced as the "in flight" header chip. */}
+              <div className="hidden sm:contents">
+                <StatusTile
+                  icon={Activity}
+                  label="Active"
+                  tone="primary"
+                  value={a.kpis.activePipeline}
+                  sub={
+                    a.designerStats.length > 0
+                      ? `${(
+                          Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
+                          10
+                        ).toFixed(1)} / designer`
+                      : "in flight"
+                  }
+                  onClick={() => navigate(dashLink({ status: "in_progress" }))}
+                />
+              </div>
               <StatusTile
                 icon={Zap}
                 label="Urgent"
@@ -880,16 +885,16 @@ function MetricCard({
 
   const body = (
     <div className="flex h-full flex-col items-center text-center">
-      <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg", TONE_ICON[tone])}>
-        <Icon className="h-3.5 w-3.5" />
+      <span className={cn("flex h-6 w-6 items-center justify-center rounded-lg sm:h-7 sm:w-7", TONE_ICON[tone])}>
+        <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
       </span>
-      <span className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:mt-1.5 sm:text-[10px]">
         {label}
       </span>
-      <span className="mt-1 text-2xl font-bold leading-none tracking-tight tabular-nums text-foreground">
+      <span className="mt-0.5 text-xl font-bold leading-none tracking-tight tabular-nums text-foreground sm:mt-1 sm:text-2xl">
         {displayValue}
       </span>
-      <div className="mt-1">
+      <div className="mt-0.5 sm:mt-1">
         <DeltaBadge metric={trend} invertTrend={invertTrend} />
       </div>
       {!isEmpty && sub && (
@@ -897,7 +902,7 @@ function MetricCard({
       )}
       {hasSparkline && (
         <div
-          className="mt-auto w-full pt-1.5"
+          className="mt-auto hidden w-full pt-1.5 sm:block"
           role="img"
           aria-label={`${label} trend over time`}
         >
@@ -908,7 +913,7 @@ function MetricCard({
   );
 
   const base =
-    "group relative flex h-full flex-col rounded-xl border border-border bg-card px-3 py-3 shadow-card transition-all duration-200 sm:px-3.5";
+    "group relative flex h-full flex-col rounded-xl border border-border bg-card px-2.5 py-2.5 shadow-card transition-all duration-200 sm:px-3.5 sm:py-3";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
@@ -947,12 +952,12 @@ function StatusTile({
 
   const body = (
     <>
-      <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9", TONE_ICON[tone])}>
-        <Icon className="h-4 w-4" />
+      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9", TONE_ICON[tone])}>
+        <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
       </span>
       <div className="min-w-0 text-center sm:text-left">
         <div className="flex items-center justify-center gap-1.5 sm:justify-start">
-          <span className="text-lg font-semibold leading-none tabular-nums text-foreground sm:text-2xl">{displayValue}</span>
+          <span className="text-base font-semibold leading-none tabular-nums text-foreground sm:text-2xl">{displayValue}</span>
           {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
         </div>
         <span className="mt-1 block text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:truncate sm:text-[11px] sm:tracking-[0.06em]">
@@ -968,7 +973,7 @@ function StatusTile({
   );
 
   const base =
-    "group flex flex-col items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-3 text-center shadow-card transition-all duration-200 sm:flex-row sm:gap-3 sm:px-4 sm:py-3 sm:text-left";
+    "group flex flex-col items-center gap-1 rounded-xl border border-border bg-card px-2.5 py-2 text-center shadow-card transition-all duration-200 sm:flex-row sm:gap-3 sm:px-4 sm:py-3 sm:text-left";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
@@ -1426,11 +1431,10 @@ function ThBtn({ label, col, sort, toggle, Icon, className }: {
 
 function KittingMixCard({ data }: { data: KittingMix }) {
   const total = data.withKitting + data.withoutKitting;
-  // Two-segment donut — with / without. Small, since the legend tells most
-  // of the story; the ring is a glanceable summary.
-  const r = 36;
-  const c = 2 * Math.PI * r;
-  const dash = total > 0 ? (data.withKitting / total) * c : 0;
+  const withPct = total > 0 ? Math.round((data.withKitting / total) * 100) : 0;
+  const submitPct = data.withKitting > 0 ? Math.round((data.kittingSubmitted / data.withKitting) * 100) : 0;
+  const allSubmitted = data.withKitting > 0 && data.kittingPending === 0;
+
   return (
     <Card className="h-full min-h-[270px] transition-shadow duration-300 hover:shadow-md">
       <CardContent className="flex h-full flex-col py-4">
@@ -1445,51 +1449,39 @@ function KittingMixCard({ data }: { data: KittingMix }) {
             No tasks created in this period.
           </p>
         ) : (
-          <div className="mt-3 flex flex-1 flex-col items-center justify-center gap-3">
-            {/* Donut — centered */}
-            <div className="relative h-[100px] w-[100px] shrink-0">
-              <svg viewBox="0 0 88 88" className="-rotate-90 h-full w-full" aria-hidden>
-                <circle
-                  cx="44"
-                  cy="44"
-                  r={r}
-                  fill="none"
-                  stroke="rgb(var(--secondary))"
-                  strokeWidth={10}
-                />
-                <circle
-                  cx="44"
-                  cy="44"
-                  r={r}
-                  fill="none"
-                  stroke="rgb(var(--primary))"
-                  strokeWidth={10}
-                  strokeLinecap="round"
-                  strokeDasharray={`${dash} ${c - dash}`}
-                  style={{ transition: "stroke-dasharray 700ms cubic-bezier(0.4,0,0.2,1)" }}
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <p className="text-xl font-bold leading-none tabular-nums text-foreground">
-                  {data.pct}%
-                </p>
-                <p className="mt-0.5 text-[8px] uppercase tracking-wider text-muted-foreground">
-                  need FK
-                </p>
-              </div>
+          <div className="mt-4 flex flex-1 flex-col gap-4">
+            {/* Hero readout — big % + caption */}
+            <div className="flex items-end gap-3">
+              <span className="text-[40px] font-bold leading-none tracking-tight tabular-nums text-primary">
+                {data.pct}%
+              </span>
+              <span className="pb-1 text-xs font-medium leading-snug text-muted-foreground">
+                of {total} task{total === 1 ? "" : "s"}
+                <br />need full kitting
+              </span>
             </div>
-            {/* Legend — single horizontal row, centered under the donut */}
-            <div className="flex items-center justify-center gap-4 text-xs">
-              <LegendInline
-                dot="bg-primary"
-                label="With knitting"
-                value={data.withKitting}
-              />
-              <LegendInline
-                dot="bg-muted-foreground/40"
-                label="Without"
-                value={data.withoutKitting}
-              />
+
+            {/* Proportion bar — one glanceable split of With vs Without FK */}
+            <div>
+              <div className="flex h-4 w-full overflow-hidden rounded-full bg-secondary ring-1 ring-inset ring-border">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-primary/80 transition-[width] duration-700"
+                  style={{ width: `${withPct}%` }}
+                  title={`${data.withKitting} with full kitting`}
+                />
+              </div>
+              <div className="mt-2.5 flex items-center justify-between text-xs">
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-primary" />
+                  With FK
+                  <b className="tabular-nums text-foreground">{data.withKitting}</b>
+                </span>
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-muted-foreground/30" />
+                  Without
+                  <b className="tabular-nums text-foreground">{data.withoutKitting}</b>
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -1497,34 +1489,29 @@ function KittingMixCard({ data }: { data: KittingMix }) {
         {/* Submission progress — only meaningful when some FK tasks exist. */}
         {data.withKitting > 0 && (
           <div className="mt-auto pt-3">
-            <div className="mb-1 flex items-center justify-between text-[10px]">
+            <div className="mb-1.5 flex items-center justify-between text-[10px]">
               <span className="font-semibold uppercase tracking-wider text-muted-foreground">
                 FK form submissions
               </span>
-              <span className="font-semibold tabular-nums text-foreground">
+              <span className={cn("flex items-center gap-1 font-semibold tabular-nums", allSubmitted ? "text-success" : "text-foreground")}>
+                {allSubmitted && <CheckCircle2 className="h-3 w-3" />}
                 {data.kittingSubmitted}/{data.withKitting}
               </span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+            <div className="h-2 overflow-hidden rounded-full bg-secondary">
               <div
                 className={cn(
                   "h-full rounded-full transition-[width] duration-700",
-                  data.kittingPending === 0 ? "bg-success" : "bg-primary"
+                  allSubmitted ? "bg-success" : "bg-primary"
                 )}
-                style={{
-                  width: `${
-                    data.withKitting > 0
-                      ? Math.round((data.kittingSubmitted / data.withKitting) * 100)
-                      : 0
-                  }%`,
-                }}
+                style={{ width: `${submitPct}%` }}
               />
             </div>
-            {data.kittingPending > 0 && (
-              <p className="mt-1 text-[10px] text-warning">
-                {data.kittingPending} pending submission{data.kittingPending !== 1 ? "s" : ""}
-              </p>
-            )}
+            <p className={cn("mt-1 text-[10px]", data.kittingPending > 0 ? "text-warning" : "text-success")}>
+              {data.kittingPending > 0
+                ? `${data.kittingPending} pending submission${data.kittingPending !== 1 ? "s" : ""}`
+                : "All FK forms submitted"}
+            </p>
           </div>
         )}
       </CardContent>

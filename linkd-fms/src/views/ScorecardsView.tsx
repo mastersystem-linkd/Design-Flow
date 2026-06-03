@@ -153,6 +153,71 @@ function countInsights(
 // View
 // ============================================================================
 
+// Compact at-risk panel — designers below 50, clickable to open their card.
+// Replaces the old full-width "Needs Support" banner with something actionable
+// that fills the column beside the composite-score chart.
+function NeedsSupportPanel({
+  rows,
+  onOpen,
+}: {
+  rows: { id: string; name: string; compositeScore: number; hasActivity: boolean }[];
+  onOpen: (id: string) => void;
+}) {
+  const atRisk = rows
+    .filter((r) => r.hasActivity && r.compositeScore < 50)
+    .sort((a, b) => a.compositeScore - b.compositeScore);
+
+  return (
+    <Card className="h-full">
+      <CardContent className="flex h-full flex-col py-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+          <div className="leading-tight">
+            <h3 className="text-sm font-semibold text-foreground">Needs Support</h3>
+            <p className="text-[11px] text-muted-foreground">Composite below 50</p>
+          </div>
+          {atRisk.length > 0 && (
+            <span className="ml-auto rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-bold tabular-nums text-destructive">
+              {atRisk.length}
+            </span>
+          )}
+        </div>
+
+        {atRisk.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-6 text-center">
+            <CheckCircle2 className="h-8 w-8 text-success" />
+            <p className="text-sm font-medium text-foreground">All on track</p>
+            <p className="text-xs text-muted-foreground">No designer is below 50 this period.</p>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-1.5 overflow-y-auto">
+            {atRisk.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(r.id)}
+                  className="flex w-full items-center gap-2.5 rounded-lg border border-border bg-card px-2.5 py-2 text-left outline-none transition-colors hover:border-destructive/40 hover:bg-destructive/5 focus-visible:ring-2 focus-visible:ring-destructive/30"
+                >
+                  <Avatar className="h-7 w-7 shrink-0">
+                    <AvatarFallback className="text-[10px]">{getInitials(r.name)}</AvatarFallback>
+                  </Avatar>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{r.name}</span>
+                  <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-bold tabular-nums text-destructive">
+                    {r.compositeScore}
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ScorecardsView() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -450,20 +515,17 @@ export function ScorecardsView() {
         />
       </div>
 
-      {/* Needs-support alert — surfaces designers below the threshold so
-          managers don't have to scroll the grid to find them. */}
-      {teamSummary.needsSupport > 0 ? (
-        <AlertBanner
-          variant="danger"
-          title="Needs Support"
-          count={teamSummary.needsSupport}
-          description="Designers with a composite score below 50 — open their card to see strengths and watchouts."
-        />
-      ) : null}
-
-      {/* ── Composite-score bar chart — quick leaderboard visual ── */}
-      {!isLoading && rows.some((r) => r.compositeScore > 0) && (
-        <ScoreBars data={rows.map((r) => ({ name: r.firstName, score: r.compositeScore }))} />
+      {/* ── Leaderboard chart + at-risk panel ──
+           Composite-score bars on the left (2/3) so they don't read as an
+           empty full-width strip; the at-risk list on the right replaces the
+           old generic banner with an actionable, clickable shortlist. */}
+      {!isLoading && rows.some((r) => r.hasActivity) && (
+        <div className="grid items-stretch gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <ScoreBars data={rows.map((r) => ({ name: r.firstName, score: r.compositeScore }))} />
+          </div>
+          <NeedsSupportPanel rows={rows} onOpen={openScorecard} />
+        </div>
       )}
 
       {/* ── Grid of scorecards ── */}

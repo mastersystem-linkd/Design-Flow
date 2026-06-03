@@ -13,6 +13,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  LabelList,
 } from "recharts";
 import { Card, CardContent } from "@/components/ui";
 import {
@@ -203,26 +204,38 @@ export function ScoreBars({
       {top.length === 0 ? (
         <EmptyChart text="No scored activity this period" />
       ) : (
-        <div style={{ height: Math.max(180, top.length * 38) }}>
+        <div style={{ height: Math.max(180, top.length * 44) }}>
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-            <BarChart data={top} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 8 }}>
+            <BarChart data={top} layout="vertical" margin={{ top: 4, right: 36, bottom: 4, left: 8 }}>
               <CartesianGrid
                 strokeDasharray="2 4"
                 stroke={CHART_THEME.border}
                 strokeOpacity={0.45}
                 horizontal={false}
               />
-              <XAxis type="number" domain={[0, 100]} {...CHART_AXIS_PROPS} />
-              <YAxis type="category" dataKey="name" width={96} {...CHART_AXIS_PROPS} />
+              <XAxis type="number" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} {...CHART_AXIS_PROPS} />
+              <YAxis type="category" dataKey="name" width={84} {...CHART_AXIS_PROPS} />
               <Tooltip
                 contentStyle={CHART_TOOLTIP_STYLE}
                 labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                 cursor={CHART_TOOLTIP_CURSOR}
+                formatter={(value) => [`${Number(value)} / 100`, "Composite"]}
               />
-              <Bar dataKey="score" name="Composite" radius={[0, 5, 5, 0]} maxBarSize={22} isAnimationActive={animate}>
+              <Bar dataKey="score" name="Composite" radius={[0, 6, 6, 0]} maxBarSize={26} isAnimationActive={animate}>
                 {top.map((d, i) => (
                   <Cell key={i} fill={scoreFill(d.score)} />
                 ))}
+                <LabelList
+                  dataKey="score"
+                  position="right"
+                  offset={8}
+                  style={{
+                    fill: "rgb(var(--foreground))",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                  }}
+                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
