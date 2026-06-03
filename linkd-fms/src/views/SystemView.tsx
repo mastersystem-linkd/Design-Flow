@@ -98,7 +98,7 @@ const TABS: TabSpec[] = [
     icon: Users,
     desc: "Users, roles & designer codes",
     group: "general",
-    canAccess: (role) => role === "admin" || role === "design_coordinator",
+    canAccess: (role) => isAdminOrCoordinator(role),
   },
   {
     id: "concepts",
@@ -130,7 +130,7 @@ const TABS: TabSpec[] = [
     icon: Building2,
     desc: "Party names & dedup merge",
     group: "data",
-    canAccess: (role) => role === "admin" || role === "design_coordinator",
+    canAccess: (role) => isAdminOrCoordinator(role),
   },
   {
     id: "designer-codes",
@@ -138,7 +138,7 @@ const TABS: TabSpec[] = [
     icon: Tag,
     desc: "Unique code letters for designers",
     group: "data",
-    canAccess: (role) => role === "admin",
+    canAccess: (role) => isSuperAdmin(role) || role === "admin",
   },
   {
     id: "storage",
@@ -146,7 +146,7 @@ const TABS: TabSpec[] = [
     icon: HardDrive,
     desc: "Bucket usage & file monitoring",
     group: "system",
-    canAccess: (role) => role === "admin",
+    canAccess: (role) => isSuperAdmin(role) || role === "admin",
   },
   {
     id: "danger",
