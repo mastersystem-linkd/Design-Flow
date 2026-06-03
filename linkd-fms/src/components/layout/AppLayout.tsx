@@ -84,7 +84,12 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
           // pb-20 on mobile clears the 64px MobileTabBar + 16px of
           // breathing room so the last data row isn't pinned under the
           // bar; desktop drops back to pb-8.
-          className="animate-spring-fade-in px-4 pb-20 pt-[72px] sm:px-6 md:px-8 lg:px-10 md:pb-8 outline-none"
+          // `overflow-x-clip` stops any single over-wide child (a fixed-width
+          // table, a long unbroken string, etc.) from making the WHOLE page
+          // scroll/shift sideways on mobile. `clip` (not `hidden`) avoids
+          // turning this into a vertical scroll container, so sticky headers
+          // and normal window scrolling keep working.
+          className="animate-spring-fade-in overflow-x-clip px-4 pb-20 pt-[72px] sm:px-6 md:px-8 lg:px-10 md:pb-8 outline-none"
         >
           {children}
         </main>

@@ -293,7 +293,7 @@ export function AnalyticsView({
               the rebuilt Task Dashboard hero: high-contrast numerals, trend
               pill, quiet sparkline, subtle hover lift. No divided-cell strip,
               no decorative wrapper — hierarchy from grouping + contrast. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <KpiCard
               icon={<FileText className="h-4 w-4 text-primary" />}
               label="Concepts Submitted"
