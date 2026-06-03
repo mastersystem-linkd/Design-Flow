@@ -238,7 +238,8 @@ function AddTaskDialog({
 }) {
   const [requester, setRequester] = useState("");
   const [description, setDescription] = useState("");
-  const [requestedAt, setRequestedAt] = useState(() => new Date().toISOString().slice(0, 16));
+  const [requestDate, setRequestDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [requestTime, setRequestTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,7 +254,9 @@ function AddTaskDialog({
     const { error: err } = await onCreate({
       requester_name: requester.trim(),
       description: description.trim(),
-      requested_at: requestedAt ? new Date(requestedAt).toISOString() : undefined,
+      requested_at: requestDate && requestTime
+        ? new Date(`${requestDate}T${requestTime}`).toISOString()
+        : new Date().toISOString(),
       notes: notes.trim() || null,
     });
     setSaving(false);
@@ -261,7 +264,8 @@ function AddTaskDialog({
     toast.success("Task logged");
     setRequester("");
     setDescription("");
-    setRequestedAt(new Date().toISOString().slice(0, 16));
+    setRequestDate(new Date().toISOString().slice(0, 10));
+    setRequestTime(new Date().toTimeString().slice(0, 5));
     setNotes("");
     onOpenChange(false);
   }
@@ -283,34 +287,51 @@ function AddTaskDialog({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-2.5 px-5 py-4" noValidate>
-          {/* Requester + Date side by side */}
+          {/* Requester */}
           <section className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors hover:border-primary/30">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <User className="h-3 w-3" />
+                Requester <span className="text-destructive">*</span>
+              </span>
+            </Label>
+            <Input
+              value={requester}
+              onChange={(e) => setRequester(e.target.value)}
+              placeholder="Who requested this?"
+              disabled={saving}
+              className="mt-1.5"
+            />
+          </section>
+
+          {/* Date + Time side by side */}
+          <section className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors hover:border-primary/30">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <User className="h-3 w-3" />
-                    Requester <span className="text-destructive">*</span>
+                    <Calendar className="h-3 w-3" />
+                    Date
                   </span>
                 </Label>
                 <Input
-                  value={requester}
-                  onChange={(e) => setRequester(e.target.value)}
-                  placeholder="Who requested this?"
+                  type="date"
+                  value={requestDate}
+                  onChange={(e) => setRequestDate(e.target.value)}
                   disabled={saving}
                 />
               </div>
               <div className="space-y-1">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Date & Time
+                    <Clock className="h-3 w-3" />
+                    Time
                   </span>
                 </Label>
                 <Input
-                  type="datetime-local"
-                  value={requestedAt}
-                  onChange={(e) => setRequestedAt(e.target.value)}
+                  type="time"
+                  value={requestTime}
+                  onChange={(e) => setRequestTime(e.target.value)}
                   disabled={saving}
                 />
               </div>
