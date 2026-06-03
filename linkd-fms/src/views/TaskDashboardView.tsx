@@ -451,21 +451,27 @@ export function TaskDashboardView() {
                 tone={
                   a.kpis.totalCompleted.current === 0
                     ? "muted"
-                    : a.kpis.onTimeRate.current > 85
+                    : a.kpis.onTimeRate.current >= 70
                     ? "success"
-                    : a.kpis.onTimeRate.current < 70
-                      ? "destructive"
-                      : "warning"
+                    : a.kpis.onTimeRate.current >= 50
+                      ? "warning"
+                      : "destructive"
                 }
-                value={a.kpis.totalCompleted.current === 0 ? "—" : `${a.kpis.onTimeRate.current}%`}
+                value={
+                  a.kpis.totalCompleted.current === 0
+                    ? "—"
+                    : a.kpis.totalCompleted.current < 10
+                    ? `${a.kpis.totalCompleted.current - a.kpis.lateCompletions.current} of ${a.kpis.totalCompleted.current}`
+                    : `${a.kpis.onTimeRate.current}%`
+                }
                 trend={a.kpis.totalCompleted.current === 0 ? undefined : a.kpis.onTimeRate}
                 sparklineData={a.kpis.totalCompleted.current === 0 ? undefined : a.sparklines.onTime}
                 sub={
                   a.kpis.totalCompleted.current === 0
-                    ? "no completions yet"
+                    ? undefined
                     : a.kpis.lateCompletions.current > 0
-                    ? `${a.kpis.lateCompletions.current} late this period`
-                    : "No late completions"
+                    ? `${a.kpis.lateCompletions.current} late`
+                    : "all on time"
                 }
                 onClick={() =>
                   navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
@@ -474,15 +480,23 @@ export function TaskDashboardView() {
               <MetricCard
                 icon={Timer}
                 label="Avg Cycle"
-                tone="primary"
+                tone={
+                  a.kpis.avgCycleDays.current === 0
+                    ? "muted"
+                    : a.kpis.avgCycleDays.current <= 3
+                    ? "success"
+                    : a.kpis.avgCycleDays.current <= 5
+                      ? "warning"
+                      : "destructive"
+                }
                 value={a.kpis.avgCycleDays.current > 0 ? `${a.kpis.avgCycleDays.current}d` : "—"}
                 trend={a.kpis.avgCycleDays.current > 0 ? a.kpis.avgCycleDays : undefined}
                 invertTrend
-                sparklineData={a.sparklines.avgDelay}
+                sparklineData={a.kpis.totalCompleted.current >= 3 ? a.sparklines.avgDelay : undefined}
                 sub={
-                  a.kpis.avgCompletionDays.current > 0
+                  a.kpis.avgCycleDays.current > 0 && a.kpis.avgCompletionDays.current > 0
                     ? `${a.kpis.avgCompletionDays.current}d late avg`
-                    : a.kpis.totalCompleted.current > 0
+                    : a.kpis.avgCycleDays.current > 0
                       ? "on schedule"
                       : undefined
                 }
@@ -750,28 +764,28 @@ const TONE_DOT: Record<HeroTone, string> = {
 
 // Trend pill — direction-aware (green up / red down); honours invertTrend so
 // "Avg Cycle 5d ↓20%" reads green even on a primary-toned card.
-function TrendPill({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
+function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
   if (!metric) return null;
-  const t = metric.trend;
-  if (t === 999) {
+  const diff = metric.current - metric.previous;
+  if (diff === 0 && metric.previous === 0) return null;
+  if (diff === 0) {
     return (
-      <span className="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
-        <TrendingUp className="h-2.5 w-2.5" />new
-      </span>
+      <span className="text-[10px] font-medium tabular-nums text-muted-foreground">no change</span>
     );
   }
-  if (t === 0) return null;
-  const positive = invertTrend ? t < 0 : t > 0;
-  const Icon = t > 0 ? TrendingUp : TrendingDown;
+  const positive = invertTrend ? diff < 0 : diff > 0;
+  const sign = diff > 0 ? "+" : "";
+  const label = metric.trend !== 0 && metric.previous > 0
+    ? `${sign}${Math.min(Math.abs(metric.trend), 200)}%`
+    : `${sign}${diff}`;
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
-        positive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+        "text-[10px] font-semibold tabular-nums",
+        positive ? "text-success" : "text-destructive"
       )}
     >
-      <Icon className="h-2.5 w-2.5" />
-      {Math.min(Math.abs(t), 200)}%
+      {label}
     </span>
   );
 }
@@ -802,35 +816,40 @@ function MetricCard({
   const animated = useAnimatedNumber(numericValue);
   const displayValue = typeof value === "number" ? animated : value;
 
+  const isEmpty = displayValue === "—" || displayValue === 0;
+  const hasSparkline = sparklineData && sparklineData.length >= 3;
+
   const body = (
-    <>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", TONE_ICON[tone])}>
-            <Icon className="h-4 w-4" />
-          </span>
-          <span className="truncate text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-            {label}
-          </span>
+    <div className="flex h-full flex-col items-center text-center">
+      <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", TONE_ICON[tone])}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        {label}
+      </span>
+      <span className="mt-1.5 text-[28px] font-bold leading-none tracking-tight tabular-nums text-foreground">
+        {displayValue}
+      </span>
+      <div className="mt-1">
+        <DeltaBadge metric={trend} invertTrend={invertTrend} />
+      </div>
+      {!isEmpty && sub && (
+        <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{sub}</p>
+      )}
+      {hasSparkline && (
+        <div
+          className="mt-auto w-full pt-2"
+          role="img"
+          aria-label={`${label} trend over time`}
+        >
+          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={24} />
         </div>
-        <TrendPill metric={trend} invertTrend={invertTrend} />
-      </div>
-      <div className="mt-2 flex items-end justify-between gap-3 sm:mt-3">
-        <span className="text-2xl font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-[30px]">
-          {displayValue}
-        </span>
-        {sparklineData && sparklineData.length > 1 && (
-          <div className="hidden h-8 w-20 shrink-0 sm:block sm:w-24">
-            <Sparkline data={sparklineData} color={TONE_SPARK[tone]} />
-          </div>
-        )}
-      </div>
-      {sub && <p className="mt-1.5 truncate text-[10px] font-medium text-muted-foreground sm:mt-2 sm:text-[11px]">{sub}</p>}
-    </>
+      )}
+    </div>
   );
 
   const base =
-    "group relative flex flex-col rounded-xl border border-border bg-card p-3 text-left shadow-card transition-all duration-200 sm:p-4";
+    "group relative flex h-full flex-col rounded-xl border border-border bg-card px-3 py-4 shadow-card transition-all duration-200 sm:px-4";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
@@ -872,12 +891,12 @@ function StatusTile({
       <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9", TONE_ICON[tone])}>
         <Icon className="h-4 w-4" />
       </span>
-      <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
+      <div className="min-w-0 text-center sm:text-left">
+        <div className="flex items-center justify-center gap-1.5 sm:justify-start">
           <span className="text-lg font-semibold leading-none tabular-nums text-foreground sm:text-2xl">{displayValue}</span>
           {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
         </div>
-        <span className="mt-1 block truncate text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:text-[11px] sm:tracking-[0.06em]">
+        <span className="mt-1 block text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:truncate sm:text-[11px] sm:tracking-[0.06em]">
           {label}
         </span>
       </div>
@@ -890,7 +909,7 @@ function StatusTile({
   );
 
   const base =
-    "group flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2.5 text-left shadow-card transition-all duration-200 sm:gap-3 sm:px-4 sm:py-3";
+    "group flex flex-col items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-3 text-center shadow-card transition-all duration-200 sm:flex-row sm:gap-3 sm:px-4 sm:py-3 sm:text-left";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button

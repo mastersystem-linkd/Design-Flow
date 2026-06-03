@@ -122,35 +122,29 @@ export function KpiCard({
         to && "cursor-pointer swatch-edge-actionable hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover"
       )}
     >
-      <CardContent className="relative flex h-full flex-col gap-1 px-3.5 py-2.5 sm:px-4 sm:py-3">
-        <div className={cn("flex items-center gap-2", centered ? "justify-center" : "justify-between")}>
-          <div
-            className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06]",
-              tintClass ?? "bg-primary/10"
-            )}
-          >
-            <span className="text-primary">{icon}</span>
-          </div>
-          {!centered && trendPill}
-        </div>
-
-        <div className={cn(centered && "text-center")}>
-          <p className={cn(
-            "font-mono-data text-[24px] font-bold leading-none tracking-tight sm:text-[26px]",
-            valueColor ?? "text-foreground"
-          )}>
-            {displayValue}
-          </p>
-          <p className={cn("mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground", !centered && "truncate")}>{label}</p>
-          {sub && (
-            <p className={cn("mt-0.5 hidden text-[11px] font-medium text-muted-foreground sm:block", !centered && "truncate")}>{sub}</p>
+      <CardContent className="relative flex h-full flex-col items-center px-3 py-3 text-center sm:px-4">
+        <div
+          className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06]",
+            tintClass ?? "bg-primary/10"
           )}
+        >
+          <span className="text-primary">{icon}</span>
         </div>
-
-        {sparklineData && sparklineData.length >= 2 && (
-          <div className="mt-auto hidden pt-0.5 sm:block">
-            <Sparkline data={sparklineData} color={sparkColor} height={18} />
+        <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <p className={cn(
+          "mt-1 text-[26px] font-bold leading-none tracking-tight tabular-nums sm:text-[28px]",
+          valueColor ?? "text-foreground"
+        )}>
+          {displayValue}
+        </p>
+        {trendPill && <div className="mt-1">{trendPill}</div>}
+        {sub && (
+          <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{sub}</p>
+        )}
+        {sparklineData && sparklineData.length >= 3 && (
+          <div className="mt-auto w-full pt-2" role="img" aria-label={`${label} trend`}>
+            <Sparkline data={sparklineData} color={sparkColor} height={20} />
           </div>
         )}
       </CardContent>

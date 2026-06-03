@@ -286,15 +286,12 @@ export function ScorecardsView() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* ── Header — title left; search + leader summary + period filters
-           right-aligned on the same row. Hero strip below carries the
-           team-level KPIs and a subtle textile dot overlay so the page
-           reads in the visual language of digital fabric printing. ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+    <div className="space-y-5">
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div className="flex items-center gap-3 shrink-0">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/10">
-            <Trophy className="h-5 w-5 text-warning" />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-warning/20 to-warning/5 ring-1 ring-inset ring-warning/20">
+            <Trophy className="h-6 w-6 text-warning" />
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
@@ -307,47 +304,44 @@ export function ScorecardsView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          {/* Search */}
           <div className="relative w-full sm:w-[220px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search designer or code…"
-              className="h-9 pl-8 text-sm"
+              className="h-9 rounded-xl pl-8 text-sm"
             />
           </div>
 
-          {/* Leader summary — compact inline form of the old banner */}
           {teamSummary.topPerformer && teamSummary.topPerformer.compositeScore > 0 && (
             <button
               type="button"
               onClick={() => openScorecard(teamSummary.topPerformer!.id)}
-              className="group hidden h-9 items-center gap-2 rounded-lg border border-warning/30 bg-warning/[0.06] px-2.5 text-xs transition-colors hover:bg-warning/[0.12] sm:flex"
+              className="group hidden h-9 items-center gap-2 rounded-xl border border-warning/20 bg-warning/[0.06] px-3 text-xs transition-all hover:bg-warning/[0.12] hover:shadow-sm sm:flex"
               title={`${teamSummary.topPerformer.name} · ${teamSummary.topPerformer.compositeScore}/100`}
             >
               <Trophy className="h-3.5 w-3.5 shrink-0 text-warning" />
               <span className="max-w-[140px] truncate font-medium text-foreground">
                 {teamSummary.topPerformer.name}
               </span>
-              <span className="font-bold tabular-nums text-success">
+              <span className="font-mono-data text-sm text-success">
                 {teamSummary.topPerformer.compositeScore}
               </span>
               <ArrowUpRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </button>
           )}
 
-          {/* Period filter */}
-          <div className="inline-flex rounded-lg bg-secondary p-1">
+          <div className="inline-flex rounded-xl bg-secondary p-1">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
                 type="button"
                 onClick={() => setPeriod(p.value)}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all",
                   period === p.value
-                    ? "bg-primary text-white"
+                    ? "bg-primary text-white shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -538,29 +532,50 @@ function DesignerScorecardCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        "group flex flex-col gap-3 rounded-xl border border-l-[3px] bg-card p-4 text-left transition-all",
-        "hover:-translate-y-0.5 hover:shadow-md",
-        verdict.cardRing,
+        "group relative flex flex-col gap-3 overflow-hidden rounded-2xl border bg-card p-4 text-left shadow-card transition-all duration-300",
+        "hover:-translate-y-1 hover:shadow-card-hover",
         !row.hasActivity
-          ? "border-l-muted-foreground/40"
+          ? "border-border"
           : row.compositeScore >= 80
-          ? "border-l-success"
+          ? "border-success/30"
           : row.compositeScore >= 60
-          ? "border-l-primary"
+          ? "border-primary/30"
           : row.compositeScore >= 40
-          ? "border-l-warning"
-          : "border-l-destructive"
+          ? "border-warning/30"
+          : "border-destructive/30"
       )}
     >
-      {/* Top row: avatar + name + rank */}
+      {/* Top accent line */}
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 h-[2px]",
+          !row.hasActivity
+            ? "bg-muted"
+            : row.compositeScore >= 80
+            ? "bg-gradient-to-r from-success via-success/60 to-transparent"
+            : row.compositeScore >= 60
+            ? "bg-gradient-to-r from-primary via-primary/60 to-transparent"
+            : row.compositeScore >= 40
+            ? "bg-gradient-to-r from-warning via-warning/60 to-transparent"
+            : "bg-gradient-to-r from-destructive via-destructive/60 to-transparent"
+        )}
+      />
+
+      {/* Top row: avatar + name + rank + menu */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5">
-          <Avatar className="h-10 w-10">
-            {row.avatarUrl ? <AvatarImage src={row.avatarUrl} /> : null}
-            <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
-              {getInitials(row.name)}
-            </AvatarFallback>
-          </Avatar>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Avatar className={cn("h-11 w-11 ring-2 ring-offset-2 ring-offset-card", !row.hasActivity ? "ring-border" : row.compositeScore >= 80 ? "ring-success/40" : row.compositeScore >= 60 ? "ring-primary/40" : row.compositeScore >= 40 ? "ring-warning/40" : "ring-destructive/40")}>
+              {row.avatarUrl ? <AvatarImage src={row.avatarUrl} /> : null}
+              <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                {getInitials(row.name)}
+              </AvatarFallback>
+            </Avatar>
+            {medal && (
+              <span className="absolute -bottom-1 -right-1 text-sm leading-none">{medal}</span>
+            )}
+          </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">
               {row.name}
@@ -569,34 +584,23 @@ function DesignerScorecardCard({
               <Badge variant="outline" className="text-[9px] font-mono">
                 {row.designerCode}
               </Badge>
-              {medal && <span className="text-xs">{medal}</span>}
+              <Badge className={cn("border text-[9px] font-semibold", verdict.badgeClass)}>
+                {verdict.label}
+              </Badge>
             </div>
           </div>
         </div>
         <DesignerCardMenu isAdmin={isAdmin} onView={onOpen} onDelete={onDelete} />
       </div>
 
-      {/* Composite score ring + verdict */}
-      <div className="flex items-center gap-3">
-        <ScoreRing score={row.compositeScore} size={80} strokeWidth={5}>
-          <p className={cn("text-xl font-bold tabular-nums leading-none", scoreColor)}>
+      {/* Score ring — centered, prominent */}
+      <div className="flex items-center justify-center gap-4 py-1">
+        <ScoreRing score={row.compositeScore} size={88} strokeWidth={5}>
+          <p className={cn("font-mono-data text-2xl leading-none", scoreColor)}>
             {row.compositeScore}
           </p>
-          <p className="text-[9px] text-muted-foreground">/100</p>
+          <p className="text-[8px] font-medium uppercase tracking-wider text-muted-foreground">/ 100</p>
         </ScoreRing>
-        <div className="flex flex-1 flex-col items-start gap-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Composite
-          </p>
-          <Badge
-            className={cn(
-              "border text-[10px] font-semibold",
-              verdict.badgeClass
-            )}
-          >
-            {verdict.label}
-          </Badge>
-        </div>
       </div>
 
       {/* Concept + Task mini blocks */}
@@ -622,28 +626,26 @@ function DesignerScorecardCard({
       </div>
 
       {/* Insights footer */}
-      <div className="flex items-center justify-between border-t border-border pt-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between border-t border-border/60 pt-2.5 text-[11px] text-muted-foreground">
         <div className="flex items-center gap-2.5">
           {row.insights.strengths > 0 && (
             <span className="inline-flex items-center gap-1 text-success">
               <Sparkles className="h-3 w-3" />
-              {row.insights.strengths} strength
-              {row.insights.strengths !== 1 ? "s" : ""}
+              {row.insights.strengths} strength{row.insights.strengths !== 1 ? "s" : ""}
             </span>
           )}
           {row.insights.watchouts > 0 && (
             <span className="inline-flex items-center gap-1 text-warning">
               <AlertTriangle className="h-3 w-3" />
-              {row.insights.watchouts} watchout
-              {row.insights.watchouts !== 1 ? "s" : ""}
+              {row.insights.watchouts} watchout{row.insights.watchouts !== 1 ? "s" : ""}
             </span>
           )}
           {row.insights.strengths === 0 && row.insights.watchouts === 0 && (
             <span>No signals yet</span>
           )}
         </div>
-        <span className="inline-flex items-center gap-0.5 font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-          Open <TrendingUp className="h-3 w-3" />
+        <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-2 py-0.5 text-[10px] font-semibold text-primary opacity-0 transition-all duration-300 group-hover:opacity-100">
+          View <ChevronRight className="h-3 w-3" />
         </span>
       </div>
     </button>
@@ -674,20 +676,22 @@ function MiniBlock({
       ? "border-l-warning"
       : "border-l-destructive";
   return (
-    <div className={cn("rounded-lg border border-l-[3px] border-border bg-secondary/30 p-2", borderAccent)}>
-      <div className="flex items-baseline justify-between">
+    <div className={cn("rounded-xl border border-l-[3px] border-border/60 bg-secondary/20 p-2.5", borderAccent)}>
+      <div className="flex items-center justify-between gap-1">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </p>
-        <span className={cn("text-xs font-bold tabular-nums", scoreColor)}>
+        <span className={cn("font-mono-data text-sm leading-none", scoreColor)}>
           {score}
         </span>
       </div>
-      {lines.map((l, i) => (
-        <p key={i} className="text-[11px] leading-tight text-muted-foreground">
-          {l}
-        </p>
-      ))}
+      <div className="mt-1.5 space-y-0.5">
+        {lines.map((l, i) => (
+          <p key={i} className="text-[10px] leading-snug text-muted-foreground">
+            {l}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }

@@ -304,7 +304,133 @@ export function TeamView() {
           ) : profiles.length === 0 ? (
             <div className="p-6"><EmptyState icon="👥" title="No members yet" /></div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* ── Mobile: card list (the 6-column table is unusable on a
+                   phone — horizontal scroll + cut-off actions). Same handlers,
+                   stacked per user. ── */}
+              <ul className="divide-y divide-border md:hidden">
+                {profiles.map((p) => {
+                  const userCodes = codesByProfile.get(p.id) ?? [];
+                  const isSelf = p.id === myProfile?.id;
+                  return (
+                    <li key={p.id} className="space-y-3 px-4 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="h-9 w-9 shrink-0">
+                          {p.avatar_url ? <AvatarImage src={p.avatar_url} /> : null}
+                          <AvatarFallback>{getInitials(p.full_name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {p.full_name}
+                            {isSelf && <span className="ml-1 text-[10px] font-normal text-muted-foreground">(you)</span>}
+                          </p>
+                          {canManage && (
+                            <p className="truncate text-[11px] text-muted-foreground" title={emailsById[p.id] ?? ""}>
+                              {emailsById[p.id] ?? "—"}
+                            </p>
+                          )}
+                        </div>
+                        {canManage && (
+                          <TeamRowActionsMenu
+                            showScorecard={p.role === "designer"}
+                            showRemove={!isSelf}
+                            onScorecard={() => setScorecardDesignerId(p.id)}
+                            onEdit={() => setEditUser(p)}
+                            onRemove={() => setDeleteUser(p)}
+                          />
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canManage && !isSelf ? (
+                          <select
+                            value={p.role}
+                            onChange={(e) => setRoleChange({ user: p, newRole: e.target.value as UserRole })}
+                            className="h-9 rounded-md border border-border bg-card px-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-ring"
+                          >
+                            {ALL_ROLES.map((r) => (
+                              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Badge variant="secondary">{ROLE_LABELS[p.role]}</Badge>
+                        )}
+                        <span className="ml-auto text-[11px] text-muted-foreground">
+                          Joined {formatDate(p.created_at)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Codes
+                        </span>
+                        {userCodes.length === 0 && (
+                          <span className="text-xs italic text-muted-foreground">—</span>
+                        )}
+                        {userCodes.map((c) => (
+                          <span
+                            key={c.id}
+                            title={`Joined ${formatDate(c.joining_date)}${c.status === "inactive" ? " · inactive" : ""}`}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] font-semibold",
+                              c.status === "active"
+                                ? "border-primary/60 bg-primary/15 text-foreground"
+                                : "border-border bg-secondary text-muted-foreground line-through"
+                            )}
+                          >
+                            {c.code}
+                            {canManage && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteCode({ id: c.id, code: c.code, userName: p.full_name })}
+                                className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                                title="Remove code"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                        {canManage && (
+                          addCodeFor === p.id ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={newCode}
+                                onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                                placeholder="Code"
+                                className="h-8 w-16 px-1.5 font-mono text-xs"
+                                maxLength={5}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void handleAddCode(p.id);
+                                  if (e.key === "Escape") { setAddCodeFor(null); setNewCode(""); }
+                                }}
+                              />
+                              <Button size="sm" className="h-8 px-2 text-xs" onClick={() => void handleAddCode(p.id)} disabled={addingCode}>
+                                Add
+                              </Button>
+                              <button type="button" onClick={() => { setAddCodeFor(null); setNewCode(""); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setAddCodeFor(p.id); setNewCode(""); }}
+                              className="inline-flex items-center gap-0.5 rounded-md border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                            >
+                              <Plus className="h-3 w-3" /> Add
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* ── Desktop: full table ── */}
+              <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <caption className="sr-only">Team members and roles</caption>
                 <thead className={TABLE_HEAD}>
@@ -464,7 +590,8 @@ export function TeamView() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

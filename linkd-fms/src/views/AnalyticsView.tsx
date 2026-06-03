@@ -150,7 +150,7 @@ export function AnalyticsView({
     : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* ── Header ──
           When `embedded`, the parent (TaskDashboardView) already shows a
           tab strip naming this section, so we drop the giant icon + h1
@@ -293,7 +293,7 @@ export function AnalyticsView({
               the rebuilt Task Dashboard hero: high-contrast numerals, trend
               pill, quiet sparkline, subtle hover lift. No divided-cell strip,
               no decorative wrapper — hierarchy from grouping + contrast. */}
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
             <KpiCard
               icon={<FileText className="h-4 w-4 text-primary" />}
               label="Concepts Submitted"
@@ -358,8 +358,8 @@ export function AnalyticsView({
 
           {/* ── Print Production Pipeline — post-approval lifecycle ── */}
           <Card>
-            <CardContent className="p-4 sm:p-5">
-              <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <CardContent className="p-3 sm:p-4">
+              <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
                     <Layers className="h-[18px] w-[18px]" />
@@ -381,7 +381,7 @@ export function AnalyticsView({
                 </div>
               </header>
 
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 sm:gap-2 xl:grid-cols-6">
                 {/* First-time MD review queue. Sits at the front of the strip
                     because nothing else in the pipeline moves until these
                     are decided. */}
@@ -459,7 +459,7 @@ export function AnalyticsView({
                 a.workStatus.holdRate !== null ||
                 a.workStatus.avgTimeToStartHours !== null ||
                 a.workStatus.avgReviewTurnaroundHours !== null) && (
-                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-3 xl:grid-cols-6">
+                <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-2.5 sm:grid-cols-3 sm:gap-2 xl:grid-cols-6">
                   <QualityKpi
                     icon={<Sparkles className="h-3.5 w-3.5 text-success" />}
                     label="First-Pass Approval"
@@ -562,7 +562,7 @@ export function AnalyticsView({
           </Card>
 
           {/* Charts + Pipeline — compact 2-col row */}
-          <div className="grid gap-3 lg:grid-cols-3">
+          <div className="grid gap-2.5 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <VolumeChart
                 data={a.volumeData}
@@ -573,7 +573,7 @@ export function AnalyticsView({
           </div>
 
           {/* MD Review + Monthly Target — side by side */}
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-2.5 lg:grid-cols-2">
             {isAdminCheck(role) && <MdReviewPanel stats={a.mdReview} />}
             <TeamTargetHero
               data={a.targetRace}
@@ -689,7 +689,7 @@ function WorkPill({
         //         labels like "Pending Approval" / "In Revision" never get
         //         cropped in the 2-column mobile grid.
         // Desktop (sm+): horizontal layout with justify-between.
-        "flex flex-col items-start gap-1 rounded-lg border border-l-[3px] px-2.5 py-2.5 text-left transition-all duration-200 hover:shadow-card-soft hover:brightness-[1.04] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3",
+        "flex flex-col items-start gap-0.5 rounded-lg border border-l-[3px] px-2 py-2 text-left transition-all duration-200 hover:shadow-card-soft hover:brightness-[1.04] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-2.5 sm:py-1.5",
         toneClass
       )}
     >
@@ -730,20 +730,20 @@ function QualityKpi({
   accentClass?: string;
 }) {
   return (
-    <div className={cn("min-w-0 rounded-lg border border-border border-l-[3px] bg-secondary/30 px-2.5 py-2.5 sm:px-3", accentClass ? accentClass.replace("text-", "border-l-") : "border-l-primary")}>
-      <div className="flex items-start gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className={cn("min-w-0 rounded-lg border border-border border-l-[3px] bg-secondary/30 px-2 py-2 sm:px-2.5", accentClass ? accentClass.replace("text-", "border-l-") : "border-l-primary")}>
+      <div className="flex items-start gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         <span className="mt-0.5 shrink-0">{icon}</span>
         <span className="leading-tight">{label}</span>
       </div>
       <p
         className={cn(
-          "mt-1 text-xl font-bold tabular-nums text-foreground",
+          "mt-0.5 text-lg font-bold tabular-nums leading-none text-foreground sm:text-xl",
           accentClass
         )}
       >
         {value}
       </p>
-      <p className="text-[10px] leading-snug text-muted-foreground">{sub}</p>
+      <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{sub}</p>
     </div>
   );
 }

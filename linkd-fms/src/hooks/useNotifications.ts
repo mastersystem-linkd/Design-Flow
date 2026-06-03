@@ -78,13 +78,16 @@ export function useNotifications(): UseNotifications {
 
   // ── Fetch ────────────────────────────────────────────────────────────
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!userId) {
       setNotifications([]);
       setIsLoading(false);
       return;
     }
-    setIsLoading(true);
+    // `quiet` = a background re-sync (focus / interval) — don't toggle the
+    // loading state or wipe the list on a transient error, so the feed and
+    // badge update silently without flashing a spinner.
+    if (!opts?.quiet) setIsLoading(true);
     setError(null);
 
     const { data, error: err } = await supabase
@@ -95,12 +98,14 @@ export function useNotifications(): UseNotifications {
 
     if (err) {
       console.error("[useNotifications] fetch error", err);
-      setError(err.message);
-      setNotifications([]);
+      if (!opts?.quiet) {
+        setError(err.message);
+        setNotifications([]);
+      }
     } else {
       setNotifications(data ?? []);
     }
-    setIsLoading(false);
+    if (!opts?.quiet) setIsLoading(false);
   }, [userId]);
 
   // ── Initial fetch ────────────────────────────────────────────────────
@@ -339,6 +344,30 @@ export function useNotifications(): UseNotifications {
       channelRef.current = null;
     };
   }, [userId, playNotificationSound, startTitleFlash]);
+
+  // ── Self-heal the unread badge ───────────────────────────────────────
+  // The realtime channel above only carries INSERTs, so changes that REMOVE
+  // rows never reach this instance — another tab/device, a mark-all-read
+  // elsewhere, or an admin wiping the table via the service-role API. The
+  // derived `unreadCount` then drifts (classic symptom: sidebar/bell stuck on
+  // an old count while the feed is empty). Re-sync quietly on tab focus and on
+  // a slow interval so it converges to the DB truth without a manual reload.
+  useEffect(() => {
+    if (!userId) return;
+    const resync = () => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        void refetch({ quiet: true });
+      }
+    };
+    window.addEventListener("focus", resync);
+    document.addEventListener("visibilitychange", resync);
+    const id = window.setInterval(resync, 45_000);
+    return () => {
+      window.removeEventListener("focus", resync);
+      document.removeEventListener("visibilitychange", resync);
+      window.clearInterval(id);
+    };
+  }, [userId, refetch]);
 
   // ── Derived state ────────────────────────────────────────────────────
 
