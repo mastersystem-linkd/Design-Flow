@@ -263,19 +263,19 @@ export function TaskDashboardView() {
       <div className="animate-fade-in space-y-6">
 
       {/* ── Page header — display title + accessible status chips ── */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-3 shadow-card">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/25">
-            <LayoutGrid className="h-[18px] w-[18px]" />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2.5 shadow-card sm:px-4 sm:py-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/25 sm:h-9 sm:w-9">
+            <LayoutGrid className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
           </span>
-          <div className="leading-tight">
-            <h1 className="font-display text-xl font-bold tracking-[-0.02em] text-foreground sm:text-2xl">
+          <div className="min-w-0 leading-tight">
+            <h1 className="truncate font-display text-base font-bold tracking-[-0.02em] text-foreground sm:text-xl md:text-2xl">
               Production Studio
             </h1>
-            <p className="text-[11px] font-medium text-muted-foreground">{a.periodLabel}</p>
+            <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">{a.periodLabel}</p>
           </div>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
           {a.kpis.overdueCount > 0 && (
             <StatusChip
               tone={a.kpis.overdueCount > 3 ? "destructive" : "warning"}
