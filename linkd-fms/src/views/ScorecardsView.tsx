@@ -16,6 +16,7 @@ import {
   Eye,
   Pencil,
   Trash2,
+  Download,
 } from "lucide-react";
 import {
   Card,
@@ -51,6 +52,8 @@ import { scorecardDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { KpiCard } from "@/components/analytics/KpiCard";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
+import { exportScorecardsExcel } from "@/lib/exportExcel";
+import { ScoreBars } from "@/components/analytics/DashboardCharts";
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: "week", label: "Week" },
@@ -272,6 +275,37 @@ export function ScorecardsView() {
     return { avgScore, topPerformer, needsSupport, onTrack, total: rows.length };
   }, [rows]);
 
+  // ── Excel export of the full scorecard table ──
+  function handleExportScorecards() {
+    if (!rows.length) return;
+    const exportRows = rows.map((r) => ({
+      name: r.name,
+      designerCode: r.designerCode,
+      compositeScore: r.compositeScore,
+      conceptScore: r.concept?.score ?? 0,
+      taskScore: r.task?.score ?? 0,
+      submitted: r.concept?.submitted ?? 0,
+      approved: r.concept?.approved ?? 0,
+      onTimePct: r.onTimePct,
+      approvalRate: r.approvalRate,
+      verdict: verdictFor(r.compositeScore, r.hasActivity).label,
+      hasActivity: r.hasActivity,
+    }));
+    void exportScorecardsExcel(
+      exportRows,
+      {
+        total: teamSummary.total,
+        avgScore: teamSummary.avgScore,
+        onTrack: teamSummary.onTrack,
+        needsSupport: teamSummary.needsSupport,
+        topPerformerName: teamSummary.topPerformer?.name ?? null,
+        topPerformerScore: teamSummary.topPerformer?.compositeScore ?? 0,
+      },
+      conceptAnalytics.periodLabel,
+      `linkd-scorecards-${period}-${conceptAnalytics.periodLabel.replace(/[^a-zA-Z0-9]+/g, "-")}`
+    );
+  }
+
   // ── Permission gate ──
   if (!canView) {
     return (
@@ -330,6 +364,13 @@ export function ScorecardsView() {
               </span>
               <ArrowUpRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </button>
+          )}
+
+          {rows.length > 0 && (
+            <Button variant="outline" size="sm" onClick={handleExportScorecards} className="h-9 gap-1.5 rounded-xl">
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
           )}
 
           <div className="inline-flex rounded-xl bg-secondary p-1">
@@ -419,6 +460,11 @@ export function ScorecardsView() {
           description="Designers with a composite score below 50 — open their card to see strengths and watchouts."
         />
       ) : null}
+
+      {/* ── Composite-score bar chart — quick leaderboard visual ── */}
+      {!isLoading && rows.some((r) => r.compositeScore > 0) && (
+        <ScoreBars data={rows.map((r) => ({ name: r.firstName, score: r.compositeScore }))} />
+      )}
 
       {/* ── Grid of scorecards ── */}
       {isLoading ? (

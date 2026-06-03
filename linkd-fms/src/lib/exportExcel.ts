@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import type { DesignerConceptStat } from "@/hooks/useAnalytics";
+import type { DesignerTaskStat } from "@/hooks/useTaskAnalytics";
 
 interface KpiSummary {
   periodLabel: string;
@@ -337,7 +338,14 @@ export async function exportConceptDashboardExcel(
     r.eachCell((c) => { c.border = ALL_BORDERS; });
   });
 
-  // ── Download ──
+  await downloadWorkbook(wb, fileName);
+}
+
+// ============================================================================
+// Shared helpers
+// ============================================================================
+
+async function downloadWorkbook(wb: ExcelJS.Workbook, fileName: string) {
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
@@ -346,4 +354,293 @@ export async function exportConceptDashboardExcel(
   a.download = `${fileName}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function reportTitle(ws: ExcelJS.Worksheet, title: string, periodLabel: string) {
+  ws.mergeCells("A1:C1");
+  const t = ws.getCell("A1");
+  t.value = title;
+  t.font = { bold: true, size: 16, color: { argb: `FF${BRAND}` } };
+  t.alignment = { vertical: "middle" };
+
+  ws.mergeCells("A2:C2");
+  ws.getCell("A2").value = periodLabel;
+  ws.getCell("A2").font = { size: 11, color: { argb: "FF64748B" } };
+
+  ws.mergeCells("A3:C3");
+  ws.getCell("A3").value = `Generated: ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+  ws.getCell("A3").font = { size: 10, color: { argb: "FF94A3B8" }, italic: true };
+}
+
+function sectionTitle(ws: ExcelJS.Worksheet, row: number, text: string) {
+  ws.getCell(`A${row}`).value = text;
+  ws.getCell(`A${row}`).font = SECTION_FONT;
+}
+
+function tableHeader(ws: ExcelJS.Worksheet, row: number, headers: string[], leftCols = 1) {
+  const r = ws.getRow(row);
+  headers.forEach((h, i) => {
+    const c = r.getCell(i + 1);
+    c.value = h;
+    c.font = HEADER_FONT;
+    c.fill = HEADER_FILL;
+    c.alignment = { horizontal: i < leftCols ? "left" : "center", vertical: "middle" };
+    c.border = ALL_BORDERS;
+  });
+  r.height = 22;
+}
+
+/** Two-column "label / value" KPI rows with zebra striping + borders. */
+function kpiRows(ws: ExcelJS.Worksheet, startRow: number, data: [string, string | number][]): number {
+  let row = startRow;
+  for (const [label, val] of data) {
+    const r = ws.getRow(row);
+    r.getCell(1).value = label;
+    r.getCell(1).font = { bold: true, size: 10 };
+    r.getCell(2).value = val;
+    r.getCell(2).font = { size: 11, bold: true };
+    r.getCell(2).alignment = { horizontal: "right" };
+    r.eachCell((c) => { c.border = ALL_BORDERS; });
+    if (row % 2 === 0) r.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } }; });
+    row++;
+  }
+  return row;
+}
+
+// ============================================================================
+// Task Dashboard export
+// ============================================================================
+
+export interface TaskKpiSummary {
+  periodLabel: string;
+  totalCompleted: number;
+  totalCreated: number;
+  onTimeRate: number;       // percent
+  avgCycleDays: number;
+  avgDelayDays: number;
+  lateCompletions: number;
+  activePipeline: number;
+  urgentCount: number;
+  overdueCount: number;
+  pipeline: { status: string; count: number; percentage: number }[];
+  priorityMix: { urgent: number; high: number; normal: number; low: number };
+  kittingMix: { withKitting: number; withoutKitting: number; pct: number };
+  volume: { label: string; created: number; completed: number }[];
+}
+
+export async function exportTaskDashboardExcel(
+  designers: DesignerTaskStat[],
+  kpis: TaskKpiSummary,
+  fileName: string
+) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "LinkD Design Flow";
+  wb.created = new Date();
+
+  // ── Sheet 1: Summary ──
+  const ws1 = wb.addWorksheet("Summary", { properties: { tabColor: { argb: `FF${BRAND}` } } });
+  ws1.columns = [{ width: 28 }, { width: 18 }, { width: 14 }];
+  reportTitle(ws1, "TASK DASHBOARD REPORT", kpis.periodLabel);
+
+  let row = 5;
+  sectionTitle(ws1, row, "KEY METRICS");
+  row++;
+  row = kpiRows(ws1, row, [
+    ["Tasks Completed", kpis.totalCompleted],
+    ["Tasks Created", kpis.totalCreated],
+    ["On-Time Rate", `${kpis.onTimeRate}%`],
+    ["Avg Cycle Time", kpis.avgCycleDays > 0 ? `${kpis.avgCycleDays}d` : "—"],
+    ["Avg Delay", kpis.avgDelayDays > 0 ? `${kpis.avgDelayDays}d` : "—"],
+    ["Late Completions", kpis.lateCompletions],
+    ["Active Pipeline", kpis.activePipeline],
+    ["Urgent", kpis.urgentCount],
+    ["Overdue", kpis.overdueCount],
+  ]);
+
+  // Pipeline
+  row += 1;
+  sectionTitle(ws1, row, "PIPELINE STATUS");
+  row++;
+  tableHeader(ws1, row, ["Status", "Count", "Percentage"]);
+  row++;
+  for (const p of kpis.pipeline) {
+    const r = ws1.getRow(row);
+    r.getCell(1).value = p.status;
+    r.getCell(1).font = { size: 10 };
+    r.getCell(2).value = p.count;
+    r.getCell(2).alignment = { horizontal: "center" };
+    r.getCell(3).value = `${p.percentage}%`;
+    r.getCell(3).alignment = { horizontal: "center" };
+    r.eachCell((c) => { c.border = ALL_BORDERS; });
+    row++;
+  }
+
+  // Priority mix
+  row += 1;
+  sectionTitle(ws1, row, "PRIORITY MIX (active pipeline)");
+  row++;
+  row = kpiRows(ws1, row, [
+    ["Urgent", kpis.priorityMix.urgent],
+    ["High", kpis.priorityMix.high],
+    ["Normal", kpis.priorityMix.normal],
+    ["Low", kpis.priorityMix.low],
+  ]);
+
+  // Kitting mix
+  row += 1;
+  sectionTitle(ws1, row, "FULL-KITTING MIX");
+  row++;
+  kpiRows(ws1, row, [
+    ["Needs Kitting", kpis.kittingMix.withKitting],
+    ["No Kitting", kpis.kittingMix.withoutKitting],
+    ["% Requiring Kitting", `${kpis.kittingMix.pct}%`],
+  ]);
+
+  // ── Sheet 2: Designers ──
+  const ws2 = wb.addWorksheet("Designers", { properties: { tabColor: { argb: `FF${SUCCESS}` } } });
+  const headers = ["Designer", "Code", "Assigned", "Completed", "On-Time", "On-Time %", "In Progress", "Avg Cycle (d)", "Avg Delay (d)", "Score"];
+  ws2.columns = [22, 8, 12, 12, 10, 12, 12, 14, 14, 10].map((w) => ({ width: w }));
+  tableHeader(ws2, 1, headers, 2);
+  ws2.getRow(1).height = 24;
+  ws2.views = [{ state: "frozen", ySplit: 1 }];
+
+  const sortedDesigners = [...designers].sort((a, b) => b.score - a.score);
+  sortedDesigners.forEach((d, i) => {
+    const otPct = d.completed > 0 ? Math.round((d.onTime / d.completed) * 100) : 0;
+    const r = ws2.getRow(i + 2);
+    const vals: (string | number)[] = [
+      d.full_name, d.designerCode, d.assigned, d.completed, d.onTime,
+      `${otPct}%`, d.inProgress,
+      d.avgCycleDays > 0 ? Number(d.avgCycleDays.toFixed(1)) : 0,
+      d.avgDays > 0 ? Number(d.avgDays.toFixed(1)) : 0,
+      d.score,
+    ];
+    vals.forEach((v, j) => {
+      const c = r.getCell(j + 1);
+      c.value = v;
+      c.alignment = { horizontal: j <= 1 ? "left" : "center", vertical: "middle" };
+      c.border = ALL_BORDERS;
+      c.font = { size: 10 };
+    });
+    if (i % 2 === 1) r.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } }; });
+
+    const scoreCell = r.getCell(10);
+    scoreCell.font = { bold: true, size: 11, color: { argb: `FF${scoreColor(d.score)}` } };
+    scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${scoreBg(d.score)}` } };
+
+    const otCell = r.getCell(6);
+    if (d.completed > 0) {
+      if (otPct >= 85) otCell.font = { size: 10, bold: true, color: { argb: `FF${SUCCESS}` } };
+      else if (otPct < 60) otCell.font = { size: 10, bold: true, color: { argb: `FF${DANGER}` } };
+    }
+  });
+
+  // ── Sheet 3: Throughput ──
+  const ws3 = wb.addWorksheet("Throughput", { properties: { tabColor: { argb: "FFFBBF24" } } });
+  ws3.columns = [{ width: 18 }, { width: 14 }, { width: 14 }];
+  tableHeader(ws3, 1, ["Period", "Created", "Completed"]);
+  kpis.volume.forEach((v, i) => {
+    const r = ws3.getRow(i + 2);
+    r.getCell(1).value = v.label;
+    r.getCell(1).font = { size: 10, bold: true };
+    r.getCell(2).value = v.created;
+    r.getCell(2).alignment = { horizontal: "center" };
+    r.getCell(3).value = v.completed;
+    r.getCell(3).alignment = { horizontal: "center" };
+    r.eachCell((c) => { c.border = ALL_BORDERS; });
+  });
+
+  await downloadWorkbook(wb, fileName);
+}
+
+// ============================================================================
+// Scorecards export
+// ============================================================================
+
+export interface ScorecardSummary {
+  total: number;
+  avgScore: number;
+  onTrack: number;
+  needsSupport: number;
+  topPerformerName: string | null;
+  topPerformerScore: number;
+}
+
+export interface ScorecardExportRow {
+  name: string;
+  designerCode: string;
+  compositeScore: number;
+  conceptScore: number;
+  taskScore: number;
+  submitted: number;
+  approved: number;
+  onTimePct: number | null;
+  approvalRate: number;
+  verdict: string;
+  hasActivity: boolean;
+}
+
+export async function exportScorecardsExcel(
+  rows: ScorecardExportRow[],
+  summary: ScorecardSummary,
+  periodLabel: string,
+  fileName: string
+) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "LinkD Design Flow";
+  wb.created = new Date();
+
+  // ── Sheet 1: Summary ──
+  const ws1 = wb.addWorksheet("Summary", { properties: { tabColor: { argb: `FF${WARNING}` } } });
+  ws1.columns = [{ width: 28 }, { width: 20 }, { width: 14 }];
+  reportTitle(ws1, "DESIGNER SCORECARDS", periodLabel);
+
+  let row = 5;
+  sectionTitle(ws1, row, "TEAM SUMMARY");
+  row++;
+  kpiRows(ws1, row, [
+    ["Designers Scored", summary.total],
+    ["Avg Composite Score", `${summary.avgScore}/100`],
+    ["On Track (≥60)", summary.onTrack],
+    ["Needs Support (<40)", summary.needsSupport],
+    ["Top Performer", summary.topPerformerName ? `${summary.topPerformerName} (${summary.topPerformerScore})` : "—"],
+  ]);
+
+  // ── Sheet 2: Scorecards ──
+  const ws2 = wb.addWorksheet("Scorecards", { properties: { tabColor: { argb: `FF${BRAND}` } } });
+  const headers = ["Rank", "Designer", "Code", "Composite", "Concept Score", "Task Score", "Submitted", "Approved", "Approval %", "On-Time %", "Verdict"];
+  ws2.columns = [8, 22, 8, 12, 14, 12, 11, 11, 12, 12, 16].map((w) => ({ width: w }));
+  tableHeader(ws2, 1, headers, 2);
+  ws2.getRow(1).height = 24;
+  ws2.views = [{ state: "frozen", ySplit: 1 }];
+
+  rows.forEach((d, i) => {
+    const r = ws2.getRow(i + 2);
+    const vals: (string | number)[] = [
+      i + 1, d.name, d.designerCode, d.compositeScore, d.conceptScore, d.taskScore,
+      d.submitted, d.approved, `${d.approvalRate}%`,
+      d.onTimePct !== null ? `${d.onTimePct}%` : "—", d.verdict,
+    ];
+    vals.forEach((v, j) => {
+      const c = r.getCell(j + 1);
+      c.value = v;
+      c.alignment = { horizontal: j === 1 || j === 10 ? "left" : "center", vertical: "middle" };
+      c.border = ALL_BORDERS;
+      c.font = { size: 10 };
+    });
+    if (i === 0 && d.hasActivity) r.getCell(1).value = "🥇 1";
+    else if (i === 1 && d.hasActivity) r.getCell(1).value = "🥈 2";
+    else if (i === 2 && d.hasActivity) r.getCell(1).value = "🥉 3";
+    if (i % 2 === 1) r.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } }; });
+
+    const scoreCell = r.getCell(4);
+    scoreCell.font = { bold: true, size: 12, color: { argb: `FF${scoreColor(d.compositeScore)}` } };
+    scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${scoreBg(d.compositeScore)}` } };
+
+    const vc = r.getCell(11);
+    const vColor = !d.hasActivity ? "94A3B8" : d.compositeScore >= 80 ? SUCCESS : d.compositeScore >= 60 ? BRAND : d.compositeScore >= 40 ? WARNING : DANGER;
+    vc.font = { bold: true, size: 10, color: { argb: `FF${vColor}` } };
+  });
+
+  await downloadWorkbook(wb, fileName);
 }

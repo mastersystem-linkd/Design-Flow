@@ -37,6 +37,8 @@ import { TrendingUp, TrendingDown } from "lucide-react";
 import type { KpiMetric } from "@/hooks/useAnalytics";
 import { STATUS_LABELS } from "@/lib/constants";
 import { useChartAnimation } from "@/lib/chartConfig";
+import { exportTaskDashboardExcel } from "@/lib/exportExcel";
+import { PriorityDonut, CycleTimeChart } from "@/components/analytics/DashboardCharts";
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { cn } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
@@ -110,6 +112,44 @@ export function TaskDashboardView() {
     ? a.designerStats.find((d) => d.id === profile?.id) ?? null
     : null;
 
+  // Excel export of the whole task dashboard (admins/coordinators only).
+  function handleExportTasks() {
+    if (!a.designerStats.length) return;
+    void exportTaskDashboardExcel(
+      a.designerStats,
+      {
+        periodLabel: a.periodLabel,
+        totalCompleted: a.kpis.totalCompleted.current,
+        totalCreated: a.kpis.totalCreated.current,
+        onTimeRate: a.kpis.onTimeRate.current,
+        avgCycleDays: a.kpis.avgCycleDays.current,
+        avgDelayDays: a.kpis.avgCompletionDays.current,
+        lateCompletions: a.kpis.lateCompletions.current,
+        activePipeline: a.kpis.activePipeline,
+        urgentCount: a.kpis.urgentCount,
+        overdueCount: a.kpis.overdueCount,
+        pipeline: a.pipeline.map((p) => ({
+          status: p.status.charAt(0).toUpperCase() + p.status.slice(1).replace(/_/g, " "),
+          count: p.count,
+          percentage: p.percentage,
+        })),
+        priorityMix: {
+          urgent: a.priorityMix.urgent,
+          high: a.priorityMix.high,
+          normal: a.priorityMix.normal,
+          low: a.priorityMix.low,
+        },
+        kittingMix: {
+          withKitting: a.kittingMix.withKitting,
+          withoutKitting: a.kittingMix.withoutKitting,
+          pct: a.kittingMix.pct,
+        },
+        volume: a.volumeData.map((v) => ({ label: v.label, created: v.created, completed: v.completed })),
+      },
+      `linkd-task-dashboard-${period}-${a.periodLabel.replace(/[^a-zA-Z0-9]+/g, "-")}`
+    );
+  }
+
   // Reusable period-pill cluster. Rendered inside the tab row so it sits on
   // the same baseline as "Task Dashboard / Concept Dashboard" pills — saves
   // the extra caption row that used to live below.
@@ -173,7 +213,15 @@ export function TaskDashboardView() {
       </div>
       <div className="flex items-center gap-2 pb-2">
         {tab === "tasks" ? (
-          taskPeriodPills
+          <>
+            {isAdmin && a.designerStats.length > 0 && (
+              <Button variant="outline" size="sm" onClick={handleExportTasks} className="gap-1.5">
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+            )}
+            {taskPeriodPills}
+          </>
         ) : (
           <>
             {conceptControls?.periodLabel && (
@@ -623,14 +671,17 @@ export function TaskDashboardView() {
             <AtRiskTasks tasks={tasks} />
           </div>
 
-          {/* Detail row — Kitting mix · Priority · Cycle time · Top clients.
-              These rollups were missing from the original dashboard. They
-              cover the FK staffing question, the priority load, the actual
-              effort distribution, and the demand-by-client view. */}
-          <div className="grid items-stretch gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+          {/* Visual charts — priority donut (pie) + cycle-time column chart.
+              Replaces the old compact priority/cycle rollups with real charts
+              so the effort + priority load reads at a glance. */}
+          <div className="grid items-stretch gap-4 lg:grid-cols-2">
+            <PriorityDonut data={a.priorityMix} />
+            <CycleTimeChart data={a.cycleTimeDist} />
+          </div>
+
+          {/* Compact rollups — FK staffing mix + demand-by-client. */}
+          <div className="grid items-stretch gap-4 grid-cols-1 sm:grid-cols-2">
             <KittingMixCard data={a.kittingMix} />
-            <PriorityMixCard data={a.priorityMix} />
-            <CycleTimeCard data={a.cycleTimeDist} />
             <TopClientsCard data={a.topClients} />
           </div>
 
@@ -767,7 +818,15 @@ const TONE_DOT: Record<HeroTone, string> = {
 function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
   if (!metric) return null;
   const diff = metric.current - metric.previous;
-  if (diff === 0 && metric.previous === 0) return null;
+  // No prior-period baseline → the "delta" is just the current value restated
+  // (e.g. "Created 7" showing "+7"), which reads as noise. Only show a trend
+  // once there's real history to compare against.
+  if (metric.previous === 0) return null;
+  if (diff === 0) {
+    return (
+      <span className="text-[10px] font-medium tabular-nums text-muted-foreground">no change</span>
+    );
+  }
   if (diff === 0) {
     return (
       <span className="text-[10px] font-medium tabular-nums text-muted-foreground">no change</span>
