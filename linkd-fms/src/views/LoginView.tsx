@@ -220,7 +220,7 @@ export function LoginView() {
 
           {/* Title */}
           <h1 style={{
-            fontFamily: "'Anton', sans-serif", fontSize: "44px", fontWeight: 400,
+            fontSize: "44px", fontWeight: 700,
             letterSpacing: "0.03em", lineHeight: 1, textTransform: "uppercase",
             color: "#1A1830", marginTop: "6px",
             animation: "loginReveal 700ms cubic-bezier(0.22,1,0.36,1) 200ms both",
@@ -281,7 +281,7 @@ export function LoginView() {
                 <p style={stagger(0)} className="text-[12px] font-bold uppercase tracking-[0.18em]"
                   ><span style={{ color: "#7C5CFF" }}>Design Flow</span></p>
 
-                <h2 style={{ ...stagger(1), fontFamily: "Sora, system-ui, sans-serif" }}
+                <h2 style={stagger(1)}
                   className="mt-2 text-[28px] font-extrabold tracking-tight leading-tight text-white">
                   Welcome back
                 </h2>
@@ -411,7 +411,7 @@ export function LoginView() {
                 <p style={stagger(1)} className="mt-6 text-[12px] font-bold uppercase tracking-[0.18em]"
                   ><span style={{ color: "#7C5CFF" }}>Design Flow</span></p>
 
-                <h2 style={{ ...stagger(2), fontFamily: "Sora, system-ui, sans-serif" }}
+                <h2 style={stagger(2)}
                   className="mt-2 text-[28px] font-extrabold tracking-tight text-white leading-tight">
                   Reset password
                 </h2>

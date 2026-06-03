@@ -59,10 +59,11 @@ const config: Config = {
         ring: "rgb(var(--ring) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["Manrope", "system-ui", "-apple-system", "sans-serif"],
-        // Delicate serif accent — opt-in via `font-serif` or `.font-serif-accent`.
-        // Used for eyebrow labels, hero accents, empty-state headlines.
-        serif: ["Fraunces Variable", "Fraunces", "Georgia", "serif"],
+        // ONE family app-wide. `sans`, `serif`, and `display` all resolve to
+        // Sora so `font-sans` / `font-serif` / `font-display` can never pull a
+        // different face. Only `mono-data` differs — tabular DATA numerals.
+        sans: ["Sora", "system-ui", "-apple-system", "sans-serif"],
+        serif: ["Sora", "system-ui", "-apple-system", "sans-serif"],
         display: ["Sora", "system-ui", "-apple-system", "sans-serif"],
         "mono-data": ["JetBrains Mono", "ui-monospace", "monospace"],
       },

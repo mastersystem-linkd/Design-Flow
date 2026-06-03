@@ -272,8 +272,15 @@
     --gold: 129 140 248;
   }
 
+  /* ────────────────────────────────────────────────────────────────
+     SINGLE app-wide font family. Set ONCE here; the whole app inherits
+     it. Do not declare font-family anywhere else (headings, components,
+     utilities, inline styles). Hierarchy comes from weight + size only.
+     The only deliberate exception is `.font-mono-data` (tabular data
+     numerals) — a functional monospace, not prose.
+     ──────────────────────────────────────────────────────────────── */
   html {
-    font-family: "Manrope", system-ui, -apple-system, sans-serif;
+    font-family: "Sora", system-ui, -apple-system, sans-serif;
     color: rgb(var(--foreground));
     background-color: rgb(var(--background));
     -webkit-font-smoothing: antialiased;
@@ -334,8 +341,9 @@
     body::before { animation: none !important; }
   }
 
+  /* Headings keep weight + tight tracking for hierarchy — NO font-family
+     override; they inherit the single global family. */
   h1, h2, h3, h4 {
-    font-family: "Sora", system-ui, -apple-system, sans-serif;
     font-weight: 600;
     letter-spacing: -0.025em;
   }
@@ -474,21 +482,18 @@
     box-shadow: var(--shadow-dropdown);
   }
 
-  /* ── Display font utility ─────────────────────────────────── */
+  /* ── Display utility — tighter tracking only ────────────────
+     Family inherits the single global font; this just tightens
+     letter-spacing for display-scale headings. */
   .font-display {
-    font-family: "Sora", system-ui, -apple-system, sans-serif;
     letter-spacing: -0.02em;
   }
 
-  /* ── Delicate serif accent (Fraunces) ─────────────────────────
-     The "elegant serif punctuation" against the geometric sans body.
-     Opt-in only — eyebrow labels, hero accents, empty-state headlines,
-     person names. Optical-size + a touch of slant give it warmth.
-     Never use on body copy or data numerals. */
+  /* ── (Removed) serif accent ───────────────────────────────────
+     Previously Fraunces. Normalized to the single global font — this
+     class now only carries tracking so existing usages stay aligned
+     with the rest of the UI (no serif anywhere). */
   .font-serif-accent {
-    font-family: "Fraunces Variable", "Fraunces", Georgia, serif;
-    font-optical-sizing: auto;
-    font-variation-settings: "opsz" 96, "SOFT" 40;
     letter-spacing: -0.01em;
   }
 

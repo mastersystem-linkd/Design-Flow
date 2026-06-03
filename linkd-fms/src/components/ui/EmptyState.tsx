@@ -95,7 +95,7 @@ export function EmptyState({
       ) : (
         <LoomSwatch />
       )}
-      <p className="font-serif-accent text-base font-semibold text-foreground">{title}</p>
+      <p className="text-base font-semibold text-foreground">{title}</p>
       {description && (
         <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
           {description}
