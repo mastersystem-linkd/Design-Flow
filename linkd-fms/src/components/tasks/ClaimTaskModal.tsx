@@ -163,7 +163,7 @@ export function ClaimTaskModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-[680px] max-h-[92vh] overflow-y-auto p-0"
+        className="max-w-[780px] max-h-[92vh] overflow-y-auto p-0"
         srTitle="Claim next task"
       >
         {/* ── Header banner ── */}
@@ -215,7 +215,7 @@ export function ClaimTaskModal({
               <TaskDetails task={task} files={files} filesLoading={filesLoading} kitting={kitting} />
 
               {/* Fabric + Deadline + Claim button */}
-              <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-4">
+              <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_1fr_auto] sm:gap-4">
                 <div>
                   <Label htmlFor="claim-fabric" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Fabric <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
@@ -283,11 +283,11 @@ function TaskDetails({
   const messageDateTime = [task.whatsapp_received_date, task.whatsapp_received_time].filter(Boolean).join(" ") || null;
 
   return (
-    <section className="space-y-4 rounded-lg border border-border bg-card px-5 py-4 shadow-sm">
+    <section className="space-y-4 rounded-xl border border-border bg-secondary/20 px-5 py-5 sm:px-6">
       {/* Header */}
-      <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <Sparkles className="h-3.5 w-3.5" />
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Sparkles className="h-4 w-4" />
         </span>
         <h2 className="text-sm font-semibold tracking-tight text-foreground">Task Details</h2>
         {task.task_code && (
@@ -297,18 +297,15 @@ function TaskDetails({
         )}
       </div>
 
-      {/* Row 1 — key fields, 3 columns */}
-      <dl className="grid grid-cols-3 gap-x-6 gap-y-3">
+      {/* All fields — 2 columns on mobile, 3 on desktop */}
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
         <Detail label="Design Type" value={task.concept} />
         <Detail label="Party Name" value={partyName} />
         <Detail label="Quantity" value={task.qty != null ? `${task.qty}` : null} />
-      </dl>
-
-      {/* Row 2 — secondary fields */}
-      <dl className="grid grid-cols-3 gap-x-6 gap-y-3">
         <Detail label="Source" value={task.whatsapp_group} />
         <Detail label="Assigned By" value={task.assigned_by} />
         {briefTypeLabel && <Detail label="Brief Type" value={briefTypeLabel} />}
+        {messageDateTime && <Detail label="Message Date & Time" value={messageDateTime} />}
       </dl>
 
       {/* Description — full width */}
@@ -349,8 +346,8 @@ function TaskDetails({
 function Detail({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 truncate text-sm font-medium text-foreground" title={value ?? undefined}>{value?.toString().trim() || "—"}</dd>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-[13px] font-medium leading-snug text-foreground" title={value ?? undefined}>{value?.toString().trim() || "—"}</dd>
     </div>
   );
 }

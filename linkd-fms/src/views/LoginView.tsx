@@ -53,7 +53,8 @@ export function LoginView() {
   const handleGoogleSignIn = useCallback(async () => {
     setErrorMsg(null);
     setGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    const redirectTo = import.meta.env.PROD ? "https://linkd-fms.vercel.app" : window.location.origin;
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
     if (error) { setGoogleLoading(false); setErrorMsg(error.message); toast.error(error.message); }
   }, []);
 
