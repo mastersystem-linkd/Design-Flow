@@ -1,9 +1,40 @@
-import { lazy } from "react";
+import { lazy, type ComponentType } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/Toaster";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { RootRedirect } from "@/components/layout/RootRedirect";
 import { ROUTES } from "@/lib/routes";
+
+// A dynamic import can fail to fetch its chunk when the URL goes stale:
+//   • prod — a new deploy replaced the hashed filenames while an old tab is open
+//   • dev  — Vite restarted / HMR bumped the module's `?t=` timestamp
+// Both leave the browser asking for a file that no longer exists, surfacing as
+// "Failed to fetch dynamically imported module". The cure is to load the fresh
+// index.html (which has the current chunk map), so on the FIRST such failure we
+// force one hard reload. A sessionStorage guard (cleared on any success) makes
+// sure we never loop if the chunk is genuinely, permanently missing — in that
+// case the error propagates to the root ErrorBoundary as before.
+const RELOAD_GUARD = "df-chunk-reload";
+function lazyWithReload<T extends ComponentType<unknown>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    try {
+      const mod = await factory();
+      sessionStorage.removeItem(RELOAD_GUARD);
+      return mod;
+    } catch (err) {
+      if (!sessionStorage.getItem(RELOAD_GUARD)) {
+        sessionStorage.setItem(RELOAD_GUARD, "1");
+        window.location.reload();
+        // Suspend until the reload navigates away; never resolve/throw here so
+        // the user never flashes an error before the page reloads.
+        return new Promise<{ default: T }>(() => {});
+      }
+      throw err;
+    }
+  });
+}
 
 // ── Eager: auth-flow + tiny pages on the critical path. Kept in the main
 //    bundle so the login / onboarding paint instantly with no extra fetch. ──
@@ -17,21 +48,21 @@ import { NotFoundView } from "@/views/NotFoundView";
 //    (including login) used to download + parse. The Suspense boundary that
 //    catches these lives inside ProtectedRoute, so the app shell stays put
 //    while a route chunk loads. ──
-const KanbanView = lazy(() => import("@/views/KanbanView").then((m) => ({ default: m.KanbanView })));
-const BriefingView = lazy(() => import("@/views/BriefingView").then((m) => ({ default: m.BriefingView })));
-const ConceptsView = lazy(() => import("@/views/ConceptsView").then((m) => ({ default: m.ConceptsView })));
-const ProductionView = lazy(() => import("@/views/ProductionView").then((m) => ({ default: m.ProductionView })));
-const OrdersView = lazy(() => import("@/views/OrdersView").then((m) => ({ default: m.OrdersView })));
-const NotificationsView = lazy(() => import("@/views/NotificationsView").then((m) => ({ default: m.NotificationsView })));
-const TaskDashboardView = lazy(() => import("@/views/TaskDashboardView").then((m) => ({ default: m.TaskDashboardView })));
-const ScorecardsView = lazy(() => import("@/views/ScorecardsView").then((m) => ({ default: m.ScorecardsView })));
-const ScorecardDetailView = lazy(() => import("@/views/ScorecardDetailView").then((m) => ({ default: m.ScorecardDetailView })));
-const SystemView = lazy(() => import("@/views/SystemView").then((m) => ({ default: m.SystemView })));
-const SalvedgeView = lazy(() => import("@/views/SalvedgeView").then((m) => ({ default: m.SalvedgeView })));
-const ProfileView = lazy(() => import("@/views/ProfileView").then((m) => ({ default: m.ProfileView })));
-const FilesView = lazy(() => import("@/views/FilesView").then((m) => ({ default: m.FilesView })));
-const FullKittingFormView = lazy(() => import("@/views/FullKittingFormView"));
-const KittingQueueView = lazy(() => import("@/views/KittingQueueView"));
+const KanbanView = lazyWithReload(() => import("@/views/KanbanView").then((m) => ({ default: m.KanbanView })));
+const BriefingView = lazyWithReload(() => import("@/views/BriefingView").then((m) => ({ default: m.BriefingView })));
+const ConceptsView = lazyWithReload(() => import("@/views/ConceptsView").then((m) => ({ default: m.ConceptsView })));
+const ProductionView = lazyWithReload(() => import("@/views/ProductionView").then((m) => ({ default: m.ProductionView })));
+const OrdersView = lazyWithReload(() => import("@/views/OrdersView").then((m) => ({ default: m.OrdersView })));
+const NotificationsView = lazyWithReload(() => import("@/views/NotificationsView").then((m) => ({ default: m.NotificationsView })));
+const TaskDashboardView = lazyWithReload(() => import("@/views/TaskDashboardView").then((m) => ({ default: m.TaskDashboardView })));
+const ScorecardsView = lazyWithReload(() => import("@/views/ScorecardsView").then((m) => ({ default: m.ScorecardsView })));
+const ScorecardDetailView = lazyWithReload(() => import("@/views/ScorecardDetailView").then((m) => ({ default: m.ScorecardDetailView })));
+const SystemView = lazyWithReload(() => import("@/views/SystemView").then((m) => ({ default: m.SystemView })));
+const SalvedgeView = lazyWithReload(() => import("@/views/SalvedgeView").then((m) => ({ default: m.SalvedgeView })));
+const ProfileView = lazyWithReload(() => import("@/views/ProfileView").then((m) => ({ default: m.ProfileView })));
+const FilesView = lazyWithReload(() => import("@/views/FilesView").then((m) => ({ default: m.FilesView })));
+const FullKittingFormView = lazyWithReload(() => import("@/views/FullKittingFormView"));
+const KittingQueueView = lazyWithReload(() => import("@/views/KittingQueueView"));
 
 export default function App() {
   return (
