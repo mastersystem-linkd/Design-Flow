@@ -177,7 +177,7 @@ export function TaskDetailDrawer({
 
             <div
               className={cn(
-                "flex-1 space-y-3 overflow-y-auto px-4 py-3",
+                "flex-1 space-y-2.5 overflow-y-auto px-4 py-2.5",
                 editMode && "bg-primary/[0.02]"
               )}
             >
@@ -246,6 +246,7 @@ export function TaskDetailDrawer({
                   task={task}
                   hasFiles={files.length > 0}
                   onUpdated={handleChanged}
+                  readOnly={!canEdit}
                 />
               )}
 
@@ -1115,7 +1116,7 @@ function BriefDetails({
 
   return (
     <Section title="Brief details" icon={<ClipboardList className="h-3.5 w-3.5" />}>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         <InfoCard
           label="Quantity"
           icon={<Package className="h-3 w-3" />}
@@ -1230,23 +1231,23 @@ function BriefDetails({
       </div>
 
       {(task.description || task.notes) && (
-        <div className="mt-2.5 space-y-2.5">
+        <div className="mt-1.5 space-y-1.5">
           {task.description && (
-            <div className="rounded-xl border border-border bg-card px-3 py-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="rounded-lg border border-border bg-card px-2.5 py-2">
+              <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
                 Description
               </p>
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+              <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
                 {task.description}
               </p>
             </div>
           )}
           {task.notes && (
-            <div className="rounded-xl border border-border bg-card px-3 py-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="rounded-lg border border-border bg-card px-2.5 py-2">
+              <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
                 Notes
               </p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+              <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
                 {task.notes}
               </p>
             </div>
@@ -1281,26 +1282,26 @@ function InfoCard({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card px-3 py-2.5 transition-colors hover:border-primary/20",
+        "rounded-lg border border-border bg-card px-2.5 py-2 transition-colors hover:border-primary/20",
         className
       )}
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         {icon && (
           <span
             className={cn(
-              "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+              "flex h-4 w-4 shrink-0 items-center justify-center rounded",
               INFO_TONE[tone] ?? INFO_TONE.muted
             )}
           >
             {icon}
           </span>
         )}
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
           {label}
         </p>
       </div>
-      <div className="mt-1.5 text-sm font-medium text-foreground">{children}</div>
+      <div className="mt-1 text-[13px] font-medium text-foreground">{children}</div>
     </div>
   );
 }
@@ -1897,10 +1898,12 @@ function QtyTracker({
   task,
   hasFiles,
   onUpdated,
+  readOnly = false,
 }: {
   task: TaskWithRelations;
   hasFiles: boolean;
   onUpdated: () => void;
+  readOnly?: boolean;
 }) {
   const { updateQtyCompleted, isPending } = useTaskMutations();
   const [draft, setDraft] = useState<number>(task.qty_completed);
@@ -1977,7 +1980,7 @@ function QtyTracker({
 
         {/* Stepper + Update */}
         <div className="flex items-center gap-2">
-          <StepperButton onClick={() => step(-1)} disabled={pending || draft <= min}>
+          <StepperButton onClick={() => step(-1)} disabled={readOnly || pending || draft <= min}>
             <Minus className="h-3.5 w-3.5" />
           </StepperButton>
           <Input
@@ -1986,11 +1989,11 @@ function QtyTracker({
             step={1}
             value={draft}
             onChange={(e) => setDraft(clamp(Number(e.target.value)))}
-            disabled={pending}
+            disabled={readOnly || pending}
             className="h-9 w-24 text-center tabular-nums"
             aria-label="Quantity completed"
           />
-          <StepperButton onClick={() => step(1)} disabled={pending}>
+          <StepperButton onClick={() => step(1)} disabled={readOnly || pending}>
             <Plus className="h-3.5 w-3.5" />
           </StepperButton>
           <LoadingButton
@@ -1998,7 +2001,7 @@ function QtyTracker({
             size="sm"
             loading={pending}
             loadingText="Saving…"
-            disabled={!valid || !dirty}
+            disabled={readOnly || !valid || !dirty}
             className="ml-auto"
           >
             Update
@@ -2988,8 +2991,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-2.5">
-      <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <section className="space-y-1.5">
+      <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {icon && (
           <span className="flex h-4 w-4 items-center justify-center text-primary/70">
             {icon}
