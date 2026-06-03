@@ -18,6 +18,7 @@ interface TabItem {
 
 function getTabsForRole(role: UserRole): TabItem[] {
   switch (role) {
+    case "super_admin":
     case "admin":
       return [
         { to: ROUTES.taskDashboard, label: "Home", icon: Home },

@@ -64,6 +64,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
           ],
         },
       ];
+    case "super_admin":
     case "admin":
       return [
         {
@@ -122,6 +123,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
 
 /** Background tint for the avatar inside the sidebar. */
 const ROLE_AVATAR_CLASS: Record<UserRole, string> = {
+  super_admin: "bg-primary text-primary-foreground",
   admin: "bg-primary text-primary-foreground",
   design_coordinator: "bg-primary/20 text-primary",
   designer: "bg-primary/10 text-primary",

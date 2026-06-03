@@ -7,6 +7,7 @@ import { ROLE_LABELS } from "@/lib/constants";
 import type { UserRole } from "@/types/database";
 
 const ROLE_PHRASE: Record<UserRole, string> = {
+  super_admin: "super admins",
   admin: "admins",
   design_coordinator: "design coordinators",
   designer: "designers",

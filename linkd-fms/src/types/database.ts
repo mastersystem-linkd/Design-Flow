@@ -10,7 +10,7 @@ export type Json =
 // Enum unions
 // ============================================================================
 
-export type UserRole = "admin" | "design_coordinator" | "designer" | "deo";
+export type UserRole = "super_admin" | "admin" | "design_coordinator" | "designer" | "deo";
 
 export type TaskStatus =
   | "pool"

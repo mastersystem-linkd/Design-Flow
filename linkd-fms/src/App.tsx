@@ -42,7 +42,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["designer", "admin", "design_coordinator"]}
+              allowedRoles={["designer", "super_admin", "admin", "design_coordinator"]}
             />
           }
         >
@@ -54,7 +54,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["admin", "design_coordinator", "designer"]}
+              allowedRoles={["super_admin", "admin", "design_coordinator", "designer"]}
             />
           }
         >
@@ -63,7 +63,7 @@ export default function App() {
 
         {/* /concepts — Concept approval board (all roles) */}
         <Route
-          element={<ProtectedRoute allowedRoles={["designer", "admin", "design_coordinator"]} />}
+          element={<ProtectedRoute allowedRoles={["designer", "super_admin", "admin", "design_coordinator"]} />}
         >
           <Route path={ROUTES.concepts} element={<ConceptsView />} />
         </Route>
@@ -72,7 +72,7 @@ export default function App() {
             now; data model + workflow TBD. Same access scope as Sampling. */}
         <Route
           element={
-            <ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />
+            <ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator"]} />
           }
         >
           <Route path={ROUTES.orders} element={<OrdersView />} />
@@ -81,7 +81,7 @@ export default function App() {
         {/* /sampling — Production queue (admin + coordinator) */}
         <Route
           element={
-            <ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />
+            <ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator"]} />
           }
         >
           <Route path={ROUTES.sampling} element={<ProductionView />} />
@@ -92,7 +92,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["designer", "admin", "design_coordinator"]}
+              allowedRoles={["designer", "super_admin", "admin", "design_coordinator"]}
             />
           }
         >
@@ -112,7 +112,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["designer", "admin", "design_coordinator"]}
+              allowedRoles={["designer", "super_admin", "admin", "design_coordinator"]}
             />
           }
         >
@@ -123,7 +123,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["designer", "admin", "design_coordinator"]}
+              allowedRoles={["designer", "super_admin", "admin", "design_coordinator"]}
             />
           }
         >
@@ -134,7 +134,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["designer", "admin", "design_coordinator"]}
+              allowedRoles={["designer", "super_admin", "admin", "design_coordinator"]}
             />
           }
         >
@@ -142,7 +142,7 @@ export default function App() {
         </Route>
 
         {/* /scorecards — Designer performance scorecards (admin + coordinator) */}
-        <Route element={<ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />}>
+        <Route element={<ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator"]} />}>
           <Route path={ROUTES.scorecards} element={<ScorecardsView />} />
         </Route>
 
@@ -151,7 +151,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["admin", "designer", "design_coordinator"]}
+              allowedRoles={["super_admin", "admin", "designer", "design_coordinator"]}
             />
           }
         >
@@ -163,21 +163,21 @@ export default function App() {
 
         {/* /system — Data management (admin + coordinator) */}
         <Route
-          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator"]} />}
+          element={<ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator"]} />}
         >
           <Route path={ROUTES.system} element={<SystemView />} />
         </Route>
 
         {/* /salvedge — all roles. Designers see only records assigned to them. */}
         <Route
-          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
+          element={<ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator", "designer"]} />}
         >
           <Route path={ROUTES.salvedge} element={<SalvedgeView />} />
         </Route>
 
         {/* /files — File browser (all roles) */}
         <Route
-          element={<ProtectedRoute allowedRoles={["admin", "design_coordinator", "designer"]} />}
+          element={<ProtectedRoute allowedRoles={["super_admin", "admin", "design_coordinator", "designer"]} />}
         >
           <Route path={ROUTES.files} element={<FilesView />} />
         </Route>
@@ -187,7 +187,7 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute
-              allowedRoles={["admin", "design_coordinator", "deo"]}
+              allowedRoles={["super_admin", "admin", "design_coordinator", "deo"]}
             />
           }
         >

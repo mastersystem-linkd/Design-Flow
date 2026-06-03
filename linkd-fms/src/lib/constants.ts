@@ -109,6 +109,7 @@ export const PRIORITY_COLORS: Record<TaskPriority, string> = {
 // ============================================================================
 
 export const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: "Super Admin",
   admin: "Admin",
   design_coordinator: "Design Coordinator",
   designer: "Designer",

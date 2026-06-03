@@ -38,6 +38,7 @@ export function kittingDetailPath(recordId: string): string {
  */
 export function roleHomePath(role: UserRole): string {
   switch (role) {
+    case "super_admin":
     case "admin":
     case "design_coordinator":
     case "designer":

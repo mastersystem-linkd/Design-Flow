@@ -20,7 +20,7 @@ import {
   Card,
   CardContent,
 } from "@/components/ui";
-import { isAdmin as isAdminCheck, isAdminOrCoordinator } from "@/lib/permissions";
+import { isAdmin as isAdminCheck, isAdminOrCoordinator, isSuperAdmin } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 import { ConceptCategoriesTab } from "@/components/system/ConceptCategoriesTab";
@@ -154,13 +154,7 @@ const TABS: TabSpec[] = [
     icon: AlertTriangle,
     desc: "Permanent data deletion",
     group: "system",
-    // Coordinators run the same data-hygiene operations admins do
-    // (year-end resets, clearing test data, etc.) so they need the
-    // Danger Zone tab too. The two-step confirmation in DangerZoneTab
-    // is the real safety net, not the role gate. Supabase RLS on the
-    // affected tables already permits is_admin_or_coordinator() to
-    // delete, so the destructive calls succeed under either role.
-    canAccess: (role) => role === "admin" || role === "design_coordinator",
+    canAccess: (role) => isSuperAdmin(role),
     destructive: true,
   },
 ];
