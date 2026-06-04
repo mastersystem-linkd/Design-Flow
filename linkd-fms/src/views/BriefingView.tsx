@@ -962,7 +962,6 @@ function BriefingForm({
                 type="date"
                 value={whatsappReceivedDate}
                 onChange={(e) => setWhatsappReceivedDate(e.target.value)}
-                max={todayISO()}
                 disabled={submitting}
               />
             </Field>
