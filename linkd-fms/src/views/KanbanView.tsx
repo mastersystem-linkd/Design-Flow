@@ -3160,17 +3160,6 @@ function getCtasForRow(args: {
       return [];
 
     case "in_progress":
-      if (isMine || isAdmin) {
-        return [
-          {
-            label: "Done",
-            variant: "emerald",
-            icon: Check,
-            onClick: onSubmitReview,
-            pendingOp: "updateStatus",
-          },
-        ];
-      }
       return [];
 
     case "full_kitting":
@@ -3208,19 +3197,6 @@ function getCtasForRow(args: {
       return [];
 
     case "done":
-      // 'done' is intermediate — needs fabric + mtr to reach 'completed'.
-      // The owner (designer) OR any admin/coordinator can fill it in.
-      if (isMine || isAdmin) {
-        return [
-          {
-            label: "Complete",
-            variant: "emerald",
-            icon: Check,
-            onClick: onComplete,
-            pendingOp: "complete",
-          },
-        ];
-      }
       return [];
 
     // 'completed' is terminal — no row action.
