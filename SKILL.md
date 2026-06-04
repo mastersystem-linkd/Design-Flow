@@ -31,7 +31,12 @@ Charts:       recharts 3.8.1
 Dates:        date-fns 4.1.0
 UI:           Radix primitives (Dialog, Avatar, DropdownMenu, Label, Slot)
               + hand-written components (no shadcn CLI)
-Font:         Inter (Google Fonts, 400/500/600/700)
+Fonts:        Sora — ONE family app-wide (display + body; font-sans/serif/display
+              all resolve to Sora) · JetBrains Mono — opt-in for data numerals
+              only (.font-mono-data). LoginView additionally loads Bricolage
+              Grotesque + Hanken Grotesk, scoped to `.df-login` only.
+3D:           three.js (login page woven-fabric backdrop, lazy-loaded chunk)
+Excel:        exceljs (styled multi-sheet dashboard/scorecard exports)
 ```
 
 **Pinned:** `@supabase/supabase-js` is locked to **2.45.4** — newer versions cause request-hang bugs.
@@ -532,4 +537,116 @@ npx tsc --noEmit -p api/tsconfig.json
 | `lib/days.ts` | Deadline severity helpers + day calculations |
 | `lib/conceptStatus.ts` | Concept status labels + colors |
 | `lib/chartConfig.ts` | Recharts default config |
-| `lib/utils.ts` | `cn()` class merge helper |
+| `lib/chartGradients.tsx` | Shared `<ChartGradients>` + `CHART_GRAD` gradient ids |
+| `lib/exportExcel.ts` | Styled multi-sheet Excel exports (Concept/Task/Scorecards) |
+| `lib/utils.ts` | `cn()` class merge helper (tailwind-merge) |
+
+---
+
+## 19. UI/UX & Frontend Design System
+
+The whole design vocabulary. **Reuse these primitives — never invent new KPI tiles, chart frames, table looks, or card styles.** When in doubt, dial decoration *down*.
+
+### 19.1 Design thesis
+**Linear / Vercel / Stripe: restraint, crisp high-contrast type, 1px borders, tight spacing, ruthless hierarchy** — not maximalist glow/glass. The brand metaphor is the **selvedge** (the finished edge of woven cloth) + warp/weft "digital fabric printing" motif, used sparingly. Default theme is **light** (`<ThemeProvider defaultTheme="light">`); every surface is tuned to read in **both** light and dark.
+
+### 19.2 Typography
+- **Sora** — single family app-wide. `font-sans`, `font-serif`, `font-display` ALL resolve to Sora (so none can pull a different face). Headings `h1–h4` use Sora via `index.css`. Loaded via Google Fonts `<link>` in `index.html`.
+- **JetBrains Mono** — opt-in ONLY via `.font-mono-data` / `font-mono-data` for tabular DATA numerals (chart ticks, some figures). Never global. Self-hosted (`@fontsource/jetbrains-mono/700.css`).
+- **No serif anywhere.** `font-serif-accent` is de-serifed (letter-spacing only). All faces `font-display: swap` (no CLS).
+- KPI/figure numerals render in **high-contrast `text-foreground`** — NOT the old washed-out indigo gradient-clip (`.metric-value`).
+
+### 19.3 Color & theming — semantic tokens ONLY
+Never hardcode Tailwind colors (`bg-blue-500`, `text-gray-700`). Tokens are CSS variables in `src/index.css` (`:root` + `.dark`), repaint on theme switch with zero per-component branching.
+
+```
+Surfaces:   bg-background  bg-card  bg-secondary  bg-popover  bg-muted
+Text:       text-foreground  text-muted-foreground  text-primary
+Brand:      bg-primary  text-primary  ring-primary  border-primary
+Status:     bg-success / text-success · bg-warning · bg-destructive · bg-coral
+Lines:      border-border  ring-ring  --ruler-tick
+```
+Status pills/dots are token-driven via `STATUS_COLORS`, `CONCEPT_STATUS_COLORS`, `WORK_STATUS_COLORS` in `lib/constants.ts`. Dark mode tuned so card/secondary/border/muted hold separation against the canvas — extend the tokens, never hardcode dark values. Body carries a global "cutting-mat" dot pattern via `--dot-color`.
+
+### 19.4 Selvedge CSS utilities (`@layer components` in `index.css`)
+| Class | Use |
+|-------|-----|
+| `swatch-edge` / `swatch-edge-actionable` | KPI tile left accent (indigo resting, warm on hover when actionable) |
+| `nav-selvedge-active` | Sidebar active item — gradient left edge + brand glow |
+| `row-selvedge` | Table row 2px inset left shadow on hover |
+| `thead-selvedge` | 2px gradient top edge on table headers |
+| `shuttle-dot` | 5px pulsing pipeline connector (hidden under reduced-motion) |
+| `pill-gradient-ring` | Gradient ring on active stepper pill |
+| `dialog-panel` / `dialog-ease` | 2px selvedge top edge + 350/200ms enter/exit on dialogs |
+| `metric-value` / `.font-mono-data` | gradient-clip numerals (legacy) / mono tabular numerals |
+| `warp-draw` / `weft-in` | Dashboard hero entrance (transform+opacity, ≤700ms) |
+| `.aurora-blob` / `body::before` | Subtle drifting aurora canvas (richer dark, restrained light) |
+
+Tokens: `--selvedge` (2px indigo gradient), `--selvedge-warm`, `--brand-glow`, `--ring-focus`, `--ruler-tick`.
+
+### 19.5 KPI cards — THE single system
+| Component | Where | Look |
+|-----------|-------|------|
+| **`<KpiCard>`** (`components/analytics/KpiCard`) | Concept Dash, Scorecards, **Sampling, Salvedge** | The shared tile. `centered` = clean bordered summary card (matches Task Dashboard, **no** left accent). `flat` = compact divided-strip tile. Card mode (non-centered, with `to`) keeps the `swatch-edge` actionable accent. Props: `icon, label, value, metric?, tintClass, valueColor?, sub?, sparklineData?, animateValue?, centered?, flat?, to?`. `metric` is OPTIONAL — omit for snapshot stats (trend pill drops). |
+| **`MetricCard` / `StatusTile`** | Task Dashboard hero ONLY (local to `TaskDashboardView.tsx`) | Clean bordered cards — crisp `text-foreground` numeral, uppercase label, quiet sparkline. **Don't export/reuse elsewhere — use `<KpiCard centered>` grids.** |
+
+Rules: hover lift only fires when `to`/`onClick` is set (non-actionable tiles must not fake interactivity). **No dim gradient numerals.** Trend pill (`DeltaBadge`/`TrendPill`) is **suppressed when there's no prior-period baseline** (`previous === 0`) so new-system "+7" noise doesn't show. Mobile: KPI cards are compacted (smaller icon/label/numeral, sparkline hidden) — desktop unchanged.
+
+### 19.6 Charts — recharts + shared tokens
+Pull ALL styling from `lib/chartConfig.ts`; never inline axis/tooltip styles.
+```ts
+import { CHART_THEME, CHART_GRID_PROPS, CHART_AXIS_PROPS, CHART_TOOLTIP_STYLE,
+         CHART_TOOLTIP_LABEL_STYLE, CHART_TOOLTIP_CURSOR, CHART_BAR_RADIUS,
+         CHART_LEGEND_STYLE, useChartAnimation } from "@/lib/chartConfig";
+import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients"; // <ChartGradients/> first child
+```
+- `useChartAnimation()` → `true` on first render only (no re-animate on refetch, StrictMode-safe).
+- Axis ticks + tooltips use JetBrains Mono. Bars: `CHART_BAR_RADIUS`, gradient fills (`CHART_GRAD.barPrimary/barSuccess`), `maxBarSize`, `barCategoryGap`.
+- Shared analytics chart components: `VolumeChart`, `PipelineHealth`, and `DashboardCharts.tsx` (`PriorityDonut` — donut + center total + full count/% legend; `CycleTimeChart` — column; `ScoreBars` — horizontal bars with value labels). Every chart has a clean **empty-state** when there's no data.
+- `<ScoreRing>` — SVG embroidery-hoop gauge (threshold-colored, 1.2s mount ease, ref-guarded).
+
+### 19.7 Tables — `lib/tableStyles` constants (§5.5) + extras
+- Density toggle (comfortable/compact) — DB-backed via `useUserPreferences`; `.table-compact` overrides; `Rows3` toggle in toolbar.
+- Per-stage column visibility (`<ColumnVisibilityMenu>`, "Set as my default" / Reset) — DB-backed, per pipeline stage.
+- Concepts wide table: lifecycle **stage groups** (Concept Submitted / MD Approval / Designer Working / Final Approval) get a dark `border-l-2 border-l-border` divider at the first visible column of each stage (dynamic via `isStageStart`), plus a per-stage top accent bar.
+- Hidden auto-IDs (`concept_code`, `uid`): keep in CSV export + delete-dialog copy + `title=` tooltip; never their own cell.
+- Filter rows carry a leftmost **Clear** button (`FilterX`) shown only when a filter is non-default; does NOT reset view-mode tabs.
+- Pagination footer ("Showing X of Y / Per page") only renders when `totalPages > 1`.
+
+### 19.8 Dialogs & sheets — mobile-safe (`components/ui/dialog`)
+Base `DialogContent`: `w-[calc(100%-2rem)] max-w-lg`, `rounded-lg` all breakpoints. **Do NOT override with bare `w-full`** (loses the mobile gutter). Tall forms use **(A)** the flex-col + scroll-body pattern (`flex max-h-[92vh] flex-col overflow-hidden p-0` + inner `flex-1 overflow-y-auto`) for combobox-heavy forms, or **(B)** `max-h-[90dvh] overflow-y-auto` for short admin forms. `<Combobox>` is NOT portaled (its menu is `absolute`) — any ancestor `overflow:auto/hidden` clips it, so prefer (A) for combobox forms. Entrance: scale `.96→1` 350ms; backdrop `bg-foreground/40 backdrop-blur-sm`. Sampling "Add Sample" must be a **center dialog**, not a drawer.
+
+### 19.9 Confirmations, toasts, loading, empty states
+- **Toasts:** `import { toast } from "@/components/ui"` → `toast.success/error/info/warning`. Never `sonner`/`react-toastify`.
+- **Confirm:** `<ConfirmDialog>` for destructive actions — never `window.confirm()`. Danger Zone uses a **2-stage** confirm (ConfirmDialog → type `DELETE`).
+- **Loading:** `<AppShellSkeleton>` (full page, theme-aware), `<SkeletonCard>` / `<SkeletonTable>` (localized), `<LoadingButton loading loadingText>` (async submits), `<TShirtLoader>` (auth gate). Skeletons carry `swatch-edge` / `thead-selvedge` / `row-selvedge`.
+- **Empty:** `<EmptyState>` — inline SVG loom-swatch when no `icon`, token-stroked, both themes.
+
+### 19.10 Forms
+- **`<Combobox>`** — searchable single-select; supports per-option `icon?` (used for the WhatsApp-group green icon). Managed dropdowns (Fabrics, Concept Categories, Assigned By per-context, Received By, Sampling fields) come from Settings → Dropdowns via `useAssignedByOptions` / `useReceivedByOptions` / `useSamplingDropdowns` (each falls back to a built-in list so pickers are never blank).
+- **`useFormDraft`** — `localStorage` persistence (300ms debounce) for multi-field forms; "Resume draft?" prompt only fires when ≥2 required fields filled; File objects are NOT persisted.
+- Validation: inline per-field errors with `aria-invalid` + `aria-describedby`; `validate()` blocks submit.
+
+### 19.11 Motion & accessibility
+- `useAnimatedNumber` — count-up 0→target, 800ms cubic ease-out, mount-only, StrictMode-safe, reduced-motion = instant. Used by KpiCard/MetricCard.
+- **Reduced motion:** a blanket `@media (prefers-reduced-motion: reduce)` rule in `index.css` kills all animation/transition durations with `!important`; the login 3D canvas doesn't even start. Always honor it.
+- **Focus:** `:focus-visible` ring (`outline: 2px solid var(--ring-focus)`) on every interactive element. **Never remove outlines.**
+- Touch targets ≥44px; inputs ≥16px (no iOS zoom); `min-h-dvh` for mobile viewport.
+- Status-pill discipline: only ONE indicator may use `animate-urgent-pulse` (the most severe); looping `animate-pulse` is reserved for skeletons/recording — never on status badges.
+
+### 19.12 App shell & responsive
+- **`AppLayout`** → **`Sidebar`** (collapsible to a 64px rail, `localStorage["sidebar-collapsed"]`; hover-overlay expand while collapsed) + **`TopNav`** (thin fixed strip: greeting block left, ConnectionDot · NotificationBell · Avatar · Sign-out right — **no page title**) + `<main>`. TopNav is `position:fixed` and tracks sidebar collapse via its own `left` (mirror this for any new fixed surface). Content padding follows the **pinned** state only, 200ms timing everywhere.
+- **`MobileTabBar`** for small screens. Route splitting: all heavy views are `React.lazy` (via `lazyWithReload`, which hard-reloads once on a stale-chunk fetch error) so the main bundle stays small; a `<Suspense>` inside `ProtectedRoute` keeps the shell while a route chunk streams in.
+
+### 19.13 Premium login (`LoginView.tsx`)
+Faithful "digital loom" port: full-screen dark, **three.js** woven-fabric backdrop (N=64 weft+warp `LineSegments`, indigo↔teal iridescence, additive blend, pointer parallax — lazy-loaded, full cleanup, reduced-motion = single static frame), vignette + SVG-grain overlays, Bricolage Grotesque + Hanken Grotesk (scoped `.df-login`), glass card, real auth (signInWithPassword / Google OAuth / inline reset), autofill kept on-theme, focus rings, 16px inputs.
+
+### 19.14 Reusable canonical patterns
+- **Score/open-detail pill** (§clickable affordance): `inline-flex … rounded-lg border border-primary/30 bg-primary/5 … text-primary` + `<ChevronRight>`; `e.stopPropagation()` if the row is also clickable. Reuse — don't invent new "open detail" styles.
+- **StatusChip / StatusPill / YourTurnPill** — token-driven status indicators.
+- **Pipeline widgets** — 3px left status-color border, `w-[72px] sm:w-[90px]` label, flexed bar with `bg-secondary/60` track + status fill, bold count + `(percentage)` muted. (`PipelineHealth`, `PipelineWidget`.)
+- **`TaskPipelineStepper`** — slim glass-pill stage switcher mounted as the task table header (Pool → In Progress → Completed + standalone Full Kitting side pill).
+- **`TextileHeroWrapper`** — frosted glass hero wrapper for Concept/Sample/Scorecards heroes (Task Dashboard intentionally chrome-free; Salvedge/Sampling KPI strips moved to clean `<KpiCard>` grids).
+
+### 19.15 UI primitives inventory (`components/ui/`, barrel `@/components/ui`)
+Button · LoadingButton · Input · Label · Textarea · Combobox · Dialog/Sheet · ConfirmDialog · Badge · Avatar (+getInitials) · Card/CardContent · Toaster/toast · Skeleton (Card/Table/AppShell/ScoreRing) · TShirtLoader · Sparkline · Pagination · EmptyState · Tooltip. **All hand-written — never run the shadcn CLI.** Import from the barrel, not deep paths.
