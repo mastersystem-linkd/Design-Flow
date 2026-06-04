@@ -53,6 +53,7 @@ import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useFabrics } from "@/hooks/useFabrics";
+import { useConceptCategories } from "@/hooks/useConceptCategories";
 import { useTaskDetail, type FileWithUploader, type TaskLogWithUser } from "@/hooks/useTaskDetail";
 import { useTaskMutations, type UpdateTaskFields } from "@/hooks/useTaskMutations";
 import { useProfiles } from "@/hooks/useProfiles";
@@ -1277,6 +1278,19 @@ function BriefDetails({
               )}
             </InfoCard>
 
+            <InfoCard
+              label="Design Type"
+              icon={<Sparkles className="h-3 w-3" />}
+            >
+              {task.concept?.trim() ? (
+                task.concept
+              ) : canEdit ? (
+                <InlineDeadlineFabricSetter taskId={task.id} field="concept" onSaved={onChanged} />
+              ) : (
+                <span className="text-muted-foreground">Not set</span>
+              )}
+            </InfoCard>
+
             {hasWa && (
               <InfoCard
                 label="WhatsApp group"
@@ -1345,13 +1359,14 @@ function InlineDeadlineFabricSetter({
   onSaved,
 }: {
   taskId: string;
-  field: "planned_deadline" | "fabric";
+  field: "planned_deadline" | "fabric" | "concept";
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState("");
   const [saving, setSaving] = useState(false);
   const { fabrics } = useFabrics();
+  const { categories } = useConceptCategories();
 
   async function handleSave() {
     if (!val.trim()) return;
@@ -1365,7 +1380,7 @@ function InlineDeadlineFabricSetter({
       toast.error("Failed to save: " + error.message);
       return;
     }
-    toast.success(field === "planned_deadline" ? "Deadline set" : "Fabric set");
+    toast.success(field === "planned_deadline" ? "Deadline set" : field === "concept" ? "Design type set" : "Fabric set");
     setEditing(false);
     onSaved();
   }
@@ -1377,7 +1392,7 @@ function InlineDeadlineFabricSetter({
         onClick={() => setEditing(true)}
         className="text-[11px] font-medium text-primary hover:underline"
       >
-        + Set {field === "planned_deadline" ? "deadline" : "fabric"}
+        + Set {field === "planned_deadline" ? "deadline" : field === "concept" ? "design type" : "fabric"}
       </button>
     );
   }
@@ -1395,6 +1410,19 @@ function InlineDeadlineFabricSetter({
           <option value="">Select fabric…</option>
           {fabrics.map((f) => (
             <option key={f.id} value={f.name}>{f.name}</option>
+          ))}
+        </select>
+      ) : field === "concept" ? (
+        <select
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          autoFocus
+          disabled={saving}
+          className="h-7 w-full rounded border border-input bg-card px-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+        >
+          <option value="">Select design type…</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.name}>{c.name}</option>
           ))}
         </select>
       ) : (
