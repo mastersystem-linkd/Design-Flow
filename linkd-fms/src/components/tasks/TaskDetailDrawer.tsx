@@ -171,7 +171,7 @@ export function TaskDetailDrawer({
             <DrawerHeader
               task={task}
               editMode={editMode}
-              canEdit={!!canEdit}
+              canEdit={isAdminRole(profile?.role)}
               canDelete={canDelete}
               onEdit={() => setEditMode(true)}
               onDelete={() => setDeleteOpen(true)}
@@ -244,12 +244,19 @@ export function TaskDetailDrawer({
               <FilesSection task={task} files={files} onUploaded={handleChanged} />
 
               {task.status === "in_progress" && (
-                <QtyTracker
-                  task={task}
-                  hasFiles={files.length > 0}
-                  onUpdated={handleChanged}
-                  readOnly={!canEdit}
-                />
+                task.qty > 0 ? (
+                  <QtyTracker
+                    task={task}
+                    hasFiles={files.length > 0}
+                    onUpdated={handleChanged}
+                    readOnly={!isOwner}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Progress Tracker</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Locked — quantity not set yet. Admin/coordinator will add it.</p>
+                  </div>
+                )
               )}
 
               <ActivityLog logs={logs} />

@@ -395,13 +395,10 @@ function BriefingForm({
     if (!whatsappReceivedTime) e.whatsapp_received_time = "Message time is required.";
     if (!assignedTo) e.assigned_to = "Choose a designer or Open Pool.";
     if (!assignedBy.trim()) e.assigned_by = "Assigned By is required.";
-    // Quantity is required and must be a positive number (DB CHECK qty > 0).
-    if (!qty.trim()) {
-      e.qty = "Quantity is required.";
-    } else {
+    if (qty.trim()) {
       const qtyNum = Number(qty);
-      if (!Number.isFinite(qtyNum) || qtyNum < 1) {
-        e.qty = "Quantity must be at least 1.";
+      if (!Number.isFinite(qtyNum) || qtyNum < 0) {
+        e.qty = "Quantity must be 0 or more.";
       }
     }
     // If the coordinator toggled "Requires Full Knitting" on, they must
@@ -982,32 +979,30 @@ function BriefingForm({
 
         {/* ============== DESIGN BRIEF — Design Type + Quantity + Description ============== */}
         <SectionCard icon={Sparkles} title="Design Brief">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-[120px_1fr] gap-2 sm:grid-cols-[140px_1fr]">
             <Field
               label="Quantity"
               htmlFor="qty"
-              required
               error={show("qty")}
             >
               <Input
                 id="qty"
                 type="number"
-                min={1}
+                min={0}
                 step={1}
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
-                placeholder="Enter quantity"
+                placeholder="Qty"
                 disabled={submitting}
               />
             </Field>
-          </div>
 
-          <Field
-            label="Description"
-            htmlFor="description"
-            required
-            error={show("description")}
-          >
+            <Field
+              label="Description"
+              htmlFor="description"
+              required
+              error={show("description")}
+            >
             <textarea
               id="description"
               value={description}
@@ -1018,6 +1013,7 @@ function BriefingForm({
               className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             />
           </Field>
+          </div>
         </SectionCard>
 
         {/* ============== ASSIGNMENT — Assign To + Assigned By + Priority ============== */}
