@@ -53,10 +53,10 @@ Act as an expert full-stack developer (React 18, TypeScript, Supabase, Tailwind 
 The app has five analytics surfaces: **Task Dashboard**, **Concept Dashboard**, **Sample Dashboard**, **Scorecards (list)**, and **Scorecard Detail**. They share one visual vocabulary. Do not invent new KPI tile styles, new chart frames, or new table looks for these views — extend the existing primitives.
 
 ### 8.1 KPI tiles
-- **Single primitive:** `<KpiCard>` from `@/components/analytics/KpiCard`. Used in every dashboard's KPI grid (Concept Dashboard 4-card row, Scorecards 4-tile strip, Scorecard Detail 5-tile strip, etc.).
-- The `metric` prop is **optional**. Omit it for snapshot stats with no period-over-period comparison (Scorecards summary) — the trend pill drops cleanly. Pass it when you have a `KpiMetric` to drive the trend arrow + sparkline color.
-- Hover lift (`translate-y / ring / shadow`) only fires when `to` is set — non-actionable tiles must not fake interactivity.
-- **Task Dashboard hero (rebuilt 2026-06, Linear/Vercel idiom):** the old 7-tile divided `HeroKpiTile` strip is **gone**. The admin hero is now two clean rows of bordered cards in `TaskDashboardView.tsx`: four **`MetricCard`** (primary throughput — crisp `text-foreground` numeral, uppercase label, `TrendPill`, quiet sparkline) above three compact **`StatusTile`** (Active / Urgent / Overdue — horizontal icon + numeral + trailing note). No decorative/textile wrapper on this hero; hierarchy comes from grouping + contrast. These three are local to `TaskDashboardView.tsx` — don't export or reuse them in other views; use `<KpiCard>` grids there.
+- **`<KpiCard>`** (`@/components/analytics/KpiCard`) still exists for simple snapshot stats (Scorecards summary). The `metric` prop is **optional** — omit it for tiles with no period-over-period comparison. Hover lift only fires when `to` is set.
+- **`<MetricCard>`** (exported from `TaskDashboardView.tsx`) is now the **unified KPI component** across all dashboards — Task Dashboard, Concept Dashboard (via `AnalyticsView`), and Scorecard Detail. It renders a crisp `text-foreground` numeral, uppercase label, `DeltaBadge` trend indicator, and quiet sparkline. Both `DeltaBadge` and the `HeroTone` type are also exported for reuse.
+- **Task Dashboard hero (rebuilt 2026-06, Linear/Vercel idiom):** the old 7-tile divided `HeroKpiTile` strip is **gone**. The admin hero is now two clean rows of bordered cards: four `MetricCard` (primary throughput) above three compact **`StatusTile`** (Active / Urgent / Overdue — horizontal icon + numeral + trailing note). No decorative/textile wrapper; hierarchy comes from grouping + contrast.
+- **Designer Task Dashboard:** uses the same `MetricCard` grid as admin (period-filtered KPIs) + `DesignerWorkloadSummary` (a scalable workload overview showing active task details + completion stats, replaces a raw task list) + a compact pipeline widget. Designers see their own data only.
 - **No dim gradient numerals.** KPI values render in high-contrast `text-foreground` (the `metric-value` indigo gradient-clip read as washed-out, especially in dark mode). The `.metric-value` utility still exists but is **not** the default for KPI figures anymore — `KpiCard` now defaults to `text-foreground`.
 
 ### 8.2 Textile aesthetic (warp/weft motif)
@@ -107,7 +107,7 @@ For dashboard / hub pages, the header row is:
 ```
 - Title block on the left (shrink-0).
 - Filter controls in the middle, **right-aligned** on the same row when present (Sampling Queue search + status pills, Full Knitting search + Export CSV, Scorecards search + leader chip + period pills).
-- Primary actions (Refresh, Export icon, + Add) on the far right (shrink-0).
+- Primary actions (Refresh, Export icon, + Add) on the far right (shrink-0). **Export buttons are icon-only** (Download icon, no text label) across all dashboard pages.
 - Period filter (Week / Month / Quarter) lives **in the same row as the tab strip** when tabs exist (Task Dashboard, Sampling, Scorecards).
 
 ### 8.6 Sound + realtime notifications
@@ -152,12 +152,19 @@ System-generated IDs (`concept_code`, samples `uid`, etc.) clutter primary table
 
 Examples: Concepts table hides `concept_code` (still in export + tooltip on title); Sampling Queue hides `uid` (still in export + tooltip on party name).
 
+- **Brief Details section** in `TaskDetailDrawer` is **collapsible** (collapsed by default). Shows a compact one-line summary when collapsed; expands to full brief fields on click.
+
 ### 8.10 Filter row — Clear button
 Filter rows on list pages (All Tasks, Concepts, Sampling Queue) carry a leftmost **Clear** button that resets every filterable input in that row:
 - Rendered only when at least one filter is non-default (search, designer, date range, status pill, etc.).
 - Style: `inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-2 text-xs font-medium text-muted-foreground hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive`
 - Icon: `FilterX` from lucide-react, with `<span className="hidden sm:inline">Clear</span>` so mobile shows icon only.
 - **Does not** reset view-mode tabs (My/All/Urgent on Tasks, Samples/Dashboard/Kitting on Sampling) — those are navigation, not filters.
+
+### 8.11 Date range filtering
+- **`<DateRangePicker>`** (`@/components/ui/DateRangePicker`) — reusable From/To date picker. Used on Task Dashboard, Concept Dashboard (via `AnalyticsView`), and Scorecards.
+- `useTaskAnalytics` and `useAnalytics` accept an optional `customRange?: { from: Date; to: Date }` parameter that overrides the period-based filtering when set.
+- Clicking a period pill (Week / Month / Quarter) **resets** any active custom range — the two filter modes are mutually exclusive.
 
 ## 9. Privileged Admin Operations (Vercel API routes)
 Operations that require the Supabase `service_role` key — editing any user's email/password, listing all auth users' emails, changing another user's `created_at` — **must not** run from the browser. They live as Vercel serverless functions at `linkd-fms/api/*.ts`.
@@ -201,7 +208,7 @@ The New Brief form (`src/views/BriefingView.tsx`) and the clients table model tw
 - **Required fields:** Design Type, Description, **Quantity** (≥ 1), **Group** (`whatsapp_group`), **Message date** + **Message time** (`whatsapp_received_date` / `_time`), **Assigned By**, and **Assign To**. `validate()` blocks submit and shows inline errors for each. For Job Work briefs, the party picker is also required.
 - **Fabric / Meters / Planned deadline / Due time** were removed from the form (UI only). The DB columns still exist; submit sends `fabric: ""`, the rest `null`. Designers set `planned_deadline` themselves at claim time (see §13). Don't re-add these inputs without a product ask.
 - **Quantity** is **required** and must be ≥ 1 (satisfies the `qty > 0` CHECK).
-- **WhatsApp received date/time** (`tasks.whatsapp_received_date` / `whatsapp_received_time`, migration `0036`) capture when the brief arrived on WhatsApp — independent of `created_at`. **Both are now required.**
+- **WhatsApp received date/time** (`tasks.whatsapp_received_date` / `whatsapp_received_time`, migration `0036`) capture when the brief arrived on WhatsApp — independent of `created_at`. **Both are now required.** Message time uses `<MessageTimeInput>`, a 12-hour AM/PM picker with auto-advance between hour/minute/period segments, arrow key navigation, and blur-padding (single digits pad to `0X` on blur). Don't replace with a native `<input type="time">`.
 - **WhatsApp group** options live in `src/lib/whatsappGroups.ts` (single source of truth, shared by brief form + EditTaskDialog). Entries flagged `isWhatsApp` render a green `<WhatsAppIcon>` in the Combobox.
 - **Assigned By** is an admin/coordinator-managed dropdown (`useAssignedByOptions("task")`, see §16) + an "Other" free-text escape hatch (`ASSIGNED_BY_OTHER`); required, defaults to nothing selected. The old hard-coded `ASSIGNED_BY_OPTIONS` array is gone.
 - **Assign To** defaults to **Open Pool** (sentinel `ASSIGN_TO_POOL` → submits `assigned_to: null` → `status='pool'`). Picking a designer submits their id → `status='in_progress'`. There is no blank option, so the field is always satisfied. Don't reintroduce a "Select…" placeholder.
@@ -251,7 +258,8 @@ The All Tasks wide table (`KanbanView`) has per-user **column visibility**, DB-b
 - **Per-stage storage:** `visible_columns` JSONB now holds `StoredColumnPrefs` = `{ current: VisibleColumnsByStage, defaults: Partial<VisibleColumnsByStage> }` — `current` is the live per-stage selection; `defaults` is the user's *own* pinned default per stage (the Reset target; a stage absent here falls back to the built-in default). `normalizeStored()` tolerates three historical shapes: a legacy flat `string[]` (→ Pool current view), a flat per-stage map (→ `current`, no custom defaults), or the `{ current, defaults }` object (used as-is). No DB migration was needed — the JSONB column absorbs the new shape. `VisibleColumnsByStage = Record<PipelineStage, string[]>`; `PipelineStage = "pool" | "in_progress" | "completed"`; `done` tasks live in the In Progress tab so `KanbanView`'s `toColumnStage()` maps any non pool/completed tab to `in_progress`. Full Kitting has its own separate column system (`fkCols` / `FkColumnMenu`) — unaffected.
 - **Per-stage built-in defaults:** `defaultColumnsForStage(stage)` — In Progress returns `IN_PROGRESS_DEFAULT_COLUMNS` (date, designer, concept, description, party_name, fabric, whatsapp_group, assigned_by, qty, pending, full_kitting); Completed returns `COMPLETED_DEFAULT_COLUMNS` (date, designer, concept, description, party_name, fabric, whatsapp_group, assigned_by, qty, completion_timestamp, completed, started_late); Pool returns the generic `DEFAULT_COLUMNS`.
 - **User-defined default ("Set as my default"):** `<ColumnVisibilityMenu>` shows a **Set as my default** button (`onSetDefault` prop) that pins the stage's current selection into `defaults[stage]` via `setDefaultColumns(stage)`. **Reset** (`defaultColumns` prop = `getDefaultColumns(stage)`) then restores *that* user default, falling back to the built-in stage default if none is pinned. The button reads "This is your default" (disabled) when the current view already equals the effective default, and flashes "Saved as your default" on click. `hasCustomDefault(stage)` only adjusts the Reset tooltip copy.
-- **Column model** lives in the hook: `ColumnKey`, `ALL_COLUMNS` (key + label), `DEFAULT_COLUMNS`, `REQUIRED_ONE_OF`. Toggleable keys map 1:1 to the **real** `<th>`/`<td>` pairs: `date, designer, concept, description, files, party_name, fabric, whatsapp_group, message_date, message_time, assigned_by, qty, deadline, completion_timestamp, completed, pending, started_late`. There is **no** Status/Priority column — don't add phantom keys. (`mtr` was removed.)
+- **Column model** lives in the hook: `ColumnKey`, `ALL_COLUMNS` (key + label), `DEFAULT_COLUMNS`, `REQUIRED_ONE_OF`. Toggleable keys map 1:1 to the **real** `<th>`/`<td>` pairs: `date, designer, concept, description, files, party_name, fabric, whatsapp_group, message_date, message_time, assigned_by, qty, claimed, deadline, completion_timestamp, completed, pending, started_late`. There is **no** Status/Priority column — don't add phantom keys. (`mtr` was removed.)
+- **`date`** column is labelled **"Briefed"** (shows `created_at` — when the brief was created). **`claimed`** column is labelled **"Claimed"** (shows `started_at` — when the designer claimed the task).
 - **Always-on columns (NOT toggleable, absent from `ALL_COLUMNS`):** bulk-select checkbox and the sticky **Action** column only. The **Reference** column (`files`, label "Reference") IS toggleable as of this change — it shows in the Columns menu and is part of `DEFAULT_COLUMNS`. (Existing users whose saved `visible_columns` predate this won't see it until they enable it via the menu / Show All.)
 - **`message_date` / `message_time`** render `whatsapp_received_date` / `whatsapp_received_time` (the brief's Message date/time), via `formatDateOnly` / `formatTimeOnly`.
 - **`deadline`** column is labelled **"Planned Deadline"** (was "Due Date"); the cell renders inline (single line, severity dot + date) to match the other date columns — NOT the shared `<DeadlineCell>` (that's still used in the mobile card).
@@ -381,6 +389,7 @@ The app's visual identity is the **selvedge** — the finished edge of woven clo
 ### 19.7 Components
 - **`<ScoreRing>`** (`@/components/analytics/ScoreRing`) — SVG embroidery hoop. Dashed guide + solid fill arc, round caps, -90deg rotation, 1.2s ease-out on mount (ref-guarded, StrictMode-safe). Track `--secondary`, fill by threshold (success 80+ / warning 60–79 / orange 40–59 / destructive <40). Dark glow via `drop-shadow`. Used in ScorecardsView + ScorecardDetailView. Does NOT replace the ScorePill navigation affordance (§8.8).
 - **`useAnimatedNumber`** — count-up 0→target, 800ms cubic ease-out, mount-only. `done` is React state (StrictMode-safe). Reduced-motion: instant. Applied to KpiCard, HeroKpiTile, DashboardKpiCards.
+- **`<TargetRing>`** — SVG target-progress ring used in the Designer Concept Dashboard. Replaces `RadialBarChart` for the monthly concept target. Renders a dashed guide track + solid fill arc with threshold-based coloring, similar to `ScoreRing` but purpose-built for target/actual counts.
 - **`<EmptyState>`** — inline SVG loom swatch (warp/weft/selvedge in tokens) when no `icon` prop. Token-stroked, both themes.
 - **Skeletons** — `SkeletonCard` has `swatch-edge`, `SkeletonTable` has `thead-selvedge` + `row-selvedge`, `SkeletonScoreRing` is a dashed circle. `AppShellSkeleton` is theme-aware (light sidebar in light mode).
 
@@ -423,3 +432,68 @@ Voice feedback (recording + transcript + audio playback) has been removed from t
 - **Simplified:** `FeedbackDisplay` now renders text only — strips legacy `🎙 Voice feedback:` markers from old records.
 - **Dead code:** `VoiceFeedback.tsx` is no longer imported anywhere. Can be deleted.
 - **No DB changes** — the `md_notes` / `md_feedback` / `final_approval_notes` columns still store text; old records with audio markers display the text portion only.
+
+## 23. Concept editing (designer self-edit)
+
+Designers can edit their own concepts until the MD approves at each stage.
+
+- **Mutation:** `editConcept` in `useConcepts` — updates the concept row with revised fields (title, description, category, fabric, images, etc.).
+- **Dialog reuse:** `<SubmitConceptDialog>` supports edit mode via `editConcept` + `onEdit` props. Pre-fills all fields from the existing concept.
+- **Entry point:** Edit button (pencil icon) in `ConceptDetailDrawer` header, visible when `canDesignerEdit` is true.
+- **Editable stages:** `pending` / `revision_requested` (Stage 1–2, pre-MD-approval); `approved` without `final_approved_at` (Stage 3–4, pre-final-approval). Once the stage's approver acts, the concept locks for that stage.
+
+## 24. Concept permissions — stage-based role split
+
+The 4-stage concept pipeline has strict role gating per stage:
+- **Stage 1 (Submit):** designer submits.
+- **Stage 2 (MD Approval):** `admin` / `super_admin` only — gated by `isMdRole()`. Coordinators cannot MD-approve.
+- **Stage 3 (Designer Completion):** designer-only actions (`isMine` check).
+- **Stage 4 (Final Approval):** `admin` / `super_admin` + `design_coordinator`.
+- **"Your Turn" pill** in `ConceptsView` respects this split — shows only for concepts the current user's role can act on.
+- **`reviewConcept` mutation** has a role check — rejects if the caller lacks the required role for the concept's current stage.
+
+## 25. Editable feedback notes
+
+Feedback text blocks are editable in-place by the appropriate role while the concept is in the right state.
+
+- **`<EditableFeedbackBlock>`** component — renders a text block with an inline edit affordance (pencil icon). Saves on blur/Enter.
+- **MD notes (`md_notes`):** editable by admin/super_admin while concept is `revision_requested`.
+- **Final approval notes (`final_approval_notes`):** editable by admin/super_admin + coordinator while concept is `changes_requested`.
+- **Designer resubmission notes:** `<DesignerResubmitNote>` — designers can add/edit a note explaining their revisions before resubmitting. Notes lock once the designer resubmits (concept leaves `revision_requested` / `changes_requested`).
+
+## 26. Concept activity timeline
+
+The concept detail drawer shows a chronological activity timeline synthesized from concept fields + persisted history.
+
+- **MD review events** are now logged to `completion_history` JSONB (not just synthesized from `md_status` field changes). This ensures timeline entries persist even if later mutations overwrite the status fields.
+- **Timeline sorting:** entries sort by timestamp within each stage group.
+- **`resubmitForReview`** no longer duplicates MD feedback in the timeline — it appends a resubmission event only.
+- **`buildConceptTimeline`** prefers persisted `completion_history` entries over synthesized ones (from field sniffing). If both exist for the same event, the persisted entry wins.
+
+## 27. Held concept alerts
+
+- **`useHeldConceptAlerts`** hook — runs in `AppLayout` for admin/coordinator roles. Checks for concepts stuck in `on_hold` status for more than 4 days.
+- Sends a `warning` notification via `notify_user` RPC when a held concept exceeds the threshold.
+- Deduped per `(user_id × concept_id × day)` — one alert per held concept per day.
+
+## 28. Coordinator Tasks
+
+The `/coordinator-tasks` route gives coordinators a personal task-tracking surface (separate from the design-task pipeline).
+
+- **KPI header:** compact `KpiChip` components that double as filter toggles (click a chip to filter the table to that status).
+- **Date range filter:** From/To date inputs scoping the table and KPIs.
+- **CSV export** of filtered records.
+- **12-hour AM/PM time picker** in the log form (`TimeInput12h`) — same pattern as `MessageTimeInput` (auto-advance, arrow keys, blur-padding).
+- **Table layout:** 4 columns — Requester, Description, Requested (date), Status.
+
+## 29. Designer Concept Dashboard
+
+The designer's Concept Dashboard (`ConceptDashboard` section in `AnalyticsView`) is a scalable summary — not a full concept list.
+
+- **Target ring:** `<TargetRing>` SVG showing monthly concept progress (submitted vs target). Replaces the old `RadialBarChart`.
+- **4 mini stats:** Total / Approved / Pending / Revision — compact `MetricCard`-style chips.
+- **Active concepts:** max 4 rows with a pipeline stage indicator dot. Shows only the designer's in-flight concepts — not a full table.
+- **Lifetime overview:** cumulative stats (total submitted, approval rate, avg turnaround).
+- **Monthly trend chart:** recharts `BarChart`, period-aware (responds to the same period pills as the admin dashboard).
+- **Recent activity feed:** last N timeline events across the designer's concepts.
+- **Scales at any count** — the view never renders an unbounded list; all sections are capped or aggregated.

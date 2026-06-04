@@ -87,7 +87,7 @@
 <body>
 
 <h1>LinkD <span>FMS</span> — System Flow Diagram</h1>
-<p class="subtitle">Complete architecture &middot; 23 views &middot; 29 hooks &middot; 90+ components &middot; 55 migrations &middot; 20+ tables &middot; 1 Vercel serverless route</p>
+<p class="subtitle">Complete architecture &middot; 24 views &middot; 32 hooks &middot; 95+ components &middot; 55 migrations &middot; 22+ tables &middot; 1 Vercel serverless route</p>
 
 <!-- SECTION 1: BOOT -->
 <div class="section">
@@ -118,7 +118,7 @@
 
 <!-- SECTION 2: PAGE MAP -->
 <div class="section">
-<h2>2. Page Map &amp; Navigation (23 views)</h2>
+<h2>2. Page Map &amp; Navigation (24 views)</h2>
 <table class="info-table">
   <thead><tr><th>Route</th><th>View</th><th>Admin</th><th>Coordinator</th><th>Designer</th><th>DEO</th></tr></thead>
   <tbody>
@@ -133,7 +133,8 @@
     <tr><td><code>/analytics</code></td><td><em>Redirects to</em> <code>/task-dashboard?tab=concepts</code></td><td colspan="4" style="text-align:center;color:var(--muted)">Redirect</td></tr>
     <tr><td><code>/orders</code></td><td>OrdersView <span class="tag tag-amber">placeholder</span></td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/sampling</code></td><td>ProductionView (Sampling Hub)</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
-    <tr><td><code>/salvedge</code></td><td>SalvedgeView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/salvedge</code></td><td>SalvedgeView</td><td>yes</td><td>yes</td><td>Own records</td><td style="color:var(--destructive)">Blocked</td></tr>
+    <tr><td><code>/coordinator-tasks</code></td><td>CoordinatorTasksView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td style="color:var(--destructive)">Blocked</td></tr>
     <tr><td><code>/kitting</code></td><td>KittingQueueView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes <span class="tag tag-orange">landing</span></td></tr>
     <tr><td><code>/kitting/:recordId</code></td><td>FullKittingFormView</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td><td>yes</td></tr>
     <tr><td><code>/files</code></td><td>FilesView</td><td>yes</td><td>yes</td><td>yes</td><td style="color:var(--destructive)">Blocked</td></tr>
@@ -173,13 +174,25 @@
 
 <!-- SECTION 3: ROLES -->
 <div class="section">
-<h2>3. Role Permissions (4 Roles)</h2>
+<h2>3. Role Permissions (5 Roles)</h2>
 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 20px 0;">
+  <div class="role-card role-admin">
+    <h3><span class="badge" style="background:var(--destructive);color:#fff">Super Admin</span> Highest Level</h3>
+    <ul>
+      <li>All Admin powers + Danger Zone access</li>
+      <li>Stage 2 concept approval (MD review)</li>
+      <li>Full system configuration</li>
+      <li>User role management + designer codes</li>
+      <li>Scorecards (grid + detail views)</li>
+      <li>CSV Export on all views</li>
+      <li>Sampling, Salvedge, Files, Team</li>
+    </ul>
+  </div>
   <div class="role-card role-admin">
     <h3><span class="badge" style="background:var(--primary);color:#fff">Admin</span> Full Power</h3>
     <ul>
       <li>All Tasks, Task Dashboard, Concept Dashboard</li>
-      <li>Concept approval (review/reject/revision)</li>
+      <li>Stage 2 concept approval (admin/super_admin only)</li>
       <li>Change user roles + manage designer codes</li>
       <li>Manage lookup tables (System CRUD)</li>
       <li>Scorecards (grid + detail views)</li>
@@ -192,6 +205,8 @@
     <ul>
       <li>Same as Admin (permissions now equal)</li>
       <li>Task lifecycle (create, assign, advance)</li>
+      <li>Coordinator Tasks page (/coordinator-tasks)</li>
+      <li>Stage 4 final approval access (NOT Stage 2)</li>
       <li>User management (add/edit/deactivate)</li>
       <li>System CRUD access</li>
       <li>Sampling, Salvedge, Files, Team</li>
@@ -204,9 +219,12 @@
       <li>My Board, Task Dashboard, Concepts, Files</li>
       <li>Claim tasks from open pool</li>
       <li>Submit + finalize concepts</li>
+      <li>Can edit own concepts until MD approves</li>
+      <li>Hold / Resume concepts</li>
       <li>Own scorecard view (/scorecards/:self)</li>
+      <li>Salvedge (own assigned records only)</li>
       <li style="color:var(--destructive)">Cannot create briefs or manage team</li>
-      <li style="color:var(--destructive)">No Salvedge, Sampling, System access</li>
+      <li style="color:var(--destructive)">No Sampling, System access</li>
     </ul>
   </div>
   <div class="role-card role-deo">
@@ -259,13 +277,17 @@
 <div class="flow-col">
   <div class="node teal"><div class="node-label">Designer submits concept</div><div class="node-sub">Min 50-char description + file(s) + client + priority &middot; DB auto-generates code</div></div>
   <div class="arrow-down">&darr;</div>
-  <div class="node warning"><div class="node-label">Admin reviews within 1 day</div><div class="node-sub">ConceptDetailDrawer &rarr; approve / reject / revision_requested</div></div>
+  <div class="flow-row">
+    <div class="node" style="border-style:dashed;border-color:var(--teal)"><div class="node-label">Designer can edit concept</div><div class="node-sub">Editable until MD (Stage 2) approves &middot; SubmitConceptDialog edit mode</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="node warning"><div class="node-label">Stage 2: Admin/Super Admin reviews</div><div class="node-sub">Admin or super_admin only &middot; ConceptDetailDrawer &rarr; approve / reject / revision &middot; Editable feedback</div></div>
+  </div>
   <div class="arrow-down">&darr;</div>
   <div class="flow-row">
     <div class="flow-col">
       <div class="node success"><div class="node-label">Approve</div><div class="node-sub">Designer has +4 days to finalize</div></div>
       <div class="arrow-down">&darr;</div>
-      <div class="node purple"><div class="node-label">Final Approval</div><div class="node-sub">Admin grants final approval</div></div>
+      <div class="node purple"><div class="node-label">Stage 4: Final Approval</div><div class="node-sub">Admin / coordinator grants final approval</div></div>
     </div>
     <div class="flow-col">
       <div class="node warning"><div class="node-label">Revision Requested</div><div class="node-sub">Designer fixes + re-submits (tracked in completion_history)</div></div>
@@ -274,6 +296,8 @@
     </div>
     <div class="node danger"><div class="node-label">Reject</div><div class="node-sub">Terminal state</div></div>
   </div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node" style="border-color:var(--muted)"><div class="node-label">Activity Timeline</div><div class="node-sub">All events logged: submissions, reviews, edits, status changes, hold/resume</div></div>
 </div>
 <div class="note">
   <strong>Monthly target:</strong> 3 approved concepts per designer<br>
@@ -281,6 +305,9 @@
   <strong>Revision tracking:</strong> <code>completion_history</code> JSONB column records each revision cycle with timestamps + delay_days + notes<br>
   <strong>Multi-file:</strong> <code>concepts.files</code> JSONB array supports multiple file uploads per concept (migration 0018)<br>
   <strong>Notifications:</strong> Concept submitted &rarr; admins, reviewed &rarr; designer, re-submitted &rarr; admins<br>
+  <strong>Stage 2 restriction:</strong> Only admin and super_admin can perform the MD review (Stage 2). Coordinators have Stage 4 final approval access but NOT Stage 2.<br>
+  <strong>Concept editing:</strong> Designers can edit their own concepts (description, files, metadata) until MD approves. Uses SubmitConceptDialog in edit mode.<br>
+  <strong>Activity timeline:</strong> All concept events are logged and displayed in the detail drawer — submissions, reviews, edits, hold/resume actions.<br>
   <strong>Dashboards:</strong> Concept analytics tab (funnel + leaderboard + target race + MD review panel)
 </div>
 </div>
@@ -327,9 +354,9 @@
 
 <!-- SECTION 7: DATABASE -->
 <div class="section">
-<h2>7. Database Schema (20+ Tables, 55 Migrations)</h2>
+<h2>7. Database Schema (22+ Tables, 55 Migrations)</h2>
 <div class="grid-4">
-  <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">4 roles &middot; soft-delete (is_active)</div></div>
+  <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">5 roles (incl. super_admin) &middot; soft-delete (is_active)</div></div>
   <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">35+ cols &middot; 8 statuses (incl. completed) &middot; brief_type (0038)</div></div>
   <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses &middot; files JSONB &middot; realtime (0054) &middot; owner CRUD (0053/0055)</div></div>
   <div class="node"><div class="node-label">clients</div><div class="node-sub">party_name + client_group (LD/Job Work, 0037/0042)</div></div>
@@ -348,10 +375,11 @@
   <div class="node orange"><div class="node-label">full_kitting_details</div><div class="node-sub">kitting form + DEO workflow (0013/0021)</div></div>
   <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010) &middot; admin/coord RLS (0048)</div></div>
   <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric distribution (0010) &middot; attachment_url (0050) &middot; admin/coord RLS (0048)</div></div>
+  <div class="node primary"><div class="node-label">coordinator_tasks</div><div class="node-sub">coordinator task tracking &middot; KPI chips &middot; CSV export</div></div>
   <div class="node muted-node"><div class="node-label">task_counters</div><div class="node-sub">internal per-year sequence</div></div>
 </div>
 <div class="note">
-  <strong>Enums:</strong> user_role (admin/design_coordinator/designer/deo) &middot; task_status (8 values incl. <code>completed</code> from 0039) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5)<br>
+  <strong>Enums:</strong> user_role (super_admin/admin/design_coordinator/designer/deo) &middot; task_status (8 values incl. <code>completed</code> from 0039) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5)<br>
   <strong>Storage buckets:</strong> design-files (50 MB) &middot; sample-files (100 MB) &middot; proof-photos (10 MB) &middot; task-files &middot; avatars &mdash; all private with RLS<br>
   <strong>RLS:</strong> 50+ policies &middot; <code>auth_role()</code> + <code>is_admin()</code> + <code>is_admin_or_coordinator()</code> + <code>is_deo()</code> helpers. Coordinator write access widened on concept_categories / fabrics / assigned_by_options (0046) and salvedge_records / samples (0048).<br>
   <strong>Views:</strong> <code>deo_kitting_queue</code> (joins kitting + tasks + clients) &middot; <code>active_profiles</code> (is_active=true)<br>
@@ -396,6 +424,12 @@
   <div class="node warning"><div class="node-label">Premium Dark Mode</div><div class="node-sub">Neutral near-black palette tuned for Twitter/Spotify/Vercel feel &middot; chartConfig tooltip + grid dark-optimised</div></div>
   <div class="node success"><div class="node-label">Mobile Dialog Polish</div><div class="node-sub">Base 1rem gutter + rounded-lg on all bp &middot; max-h-[90dvh] retrofit on short admin forms</div></div>
   <div class="node orange"><div class="node-label">Sampling File Capture</div><div class="node-sub">Add Sample form &middot; Upload + Camera tiles per slot (<code style="font-size:9px">capture="environment"</code>) &middot; row-cell file open as signed-URL "View" pills</div></div>
+  <div class="node teal"><div class="node-label">Concept Editing</div><div class="node-sub">Designers edit own concepts until MD approves &middot; SubmitConceptDialog edit mode &middot; activity timeline logs all events</div></div>
+  <div class="node primary"><div class="node-label">Date Range Picker</div><div class="node-sub"><code style="font-size:9px">DateRangePicker</code> on all dashboards &middot; custom date filtering for KPIs + charts + tables</div></div>
+  <div class="node purple"><div class="node-label">Coordinator Tasks</div><div class="node-sub">CoordinatorTasksView &middot; task tracking for design coordinator &middot; KPI chips &middot; CSV export</div></div>
+  <div class="node warning"><div class="node-label">Held Concept Alerts</div><div class="node-sub"><code style="font-size:9px">useHeldConceptAlerts</code> &middot; 4-day threshold notification for concepts stuck on hold</div></div>
+  <div class="node"><div class="node-label">Unified MetricCard</div><div class="node-sub">Single KPI component across all dashboards &middot; trend pill + sparkline &middot; consistent visual vocabulary</div></div>
+  <div class="node success"><div class="node-label">Mobile Responsive</div><div class="node-sub">Full sweep &middot; grids collapse &middot; filters wrap &middot; dialogs fit &middot; tab bars + safe-area on all surfaces</div></div>
 </div>
 </div>
 
@@ -434,9 +468,9 @@
   <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th><th>Designer Code</th></tr></thead>
   <tbody>
     <tr><td>Harshali Bhopale</td><td>harshali.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Harshali123</td><td>&mdash;</td></tr>
-    <tr><td>Mahesh Ghawane</td><td>maheshgavhane150@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Mahesh123</td><td>&mdash;</td></tr>
-    <tr><td>Aditya Lohar</td><td>aditya.linkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aditya123</td><td>&mdash;</td></tr>
-    <tr><td>Aman Ahmed</td><td>amandeolinkd@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Aman123</td><td>&mdash;</td></tr>
+    <tr><td>Mahesh Ghawane</td><td>maheshgavhane150@gmail.com</td><td><span class="tag tag-red">Super Admin</span></td><td>Mahesh123</td><td>&mdash;</td></tr>
+    <tr><td>Aditya Lohar</td><td>aditya.linkd@gmail.com</td><td><span class="tag tag-red">Super Admin</span></td><td>Aditya123</td><td>&mdash;</td></tr>
+    <tr><td>Aman Ahmed</td><td>amandeolinkd@gmail.com</td><td><span class="tag tag-red">Super Admin</span></td><td>Aman123</td><td>&mdash;</td></tr>
     <tr><td>Naushi Ma'am</td><td>naushi.linkdprints@gmail.com</td><td><span class="tag tag-blue">Admin</span></td><td>Naushi123</td><td>&mdash;</td></tr>
     <tr><td>Supriya</td><td>designcoordinator.linkdprints@gmail.com</td><td><span class="tag tag-purple">Coordinator</span></td><td>Supriya123</td><td>&mdash;</td></tr>
     <tr><td>Krupesh Late</td><td>krupeshlate12@gmail.com</td><td><span class="tag tag-green">Designer</span></td><td>Krupesh123</td><td>K</td></tr>
@@ -456,8 +490,8 @@
 <div class="divider"></div>
 <p style="text-align:center;color:var(--muted);font-size:12px">
   LinkD FMS &mdash; Design Flow System<br>
-  20+ tables &middot; 4 roles &middot; 23 views &middot; 29 hooks &middot; 90+ components &middot; 55 migrations &middot; 1 Vercel serverless route<br>
-  Updated: May 2026
+  22+ tables &middot; 5 roles &middot; 24 views &middot; 32 hooks &middot; 95+ components &middot; 55 migrations &middot; 1 Vercel serverless route<br>
+  Updated: June 2026
 </p>
 
 </body>

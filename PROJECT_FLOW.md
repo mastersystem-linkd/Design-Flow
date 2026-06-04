@@ -270,7 +270,7 @@ admin:
 design_coordinator:
   Dashboards, All Tasks, Concepts
   ─── Manage ───
-  Orders (placeholder), Sampling, Salvedge, Files, Settings
+  Orders (placeholder), Sampling, Salvedge, Coordinator (My Tasks), Files, Settings
   Notifications
 
 (Team Management lives inside Settings as a sub-tab — not its own sidebar entry.)
@@ -424,8 +424,15 @@ Tab: [Tasks] [Concepts]   ← Concepts tab renders AnalyticsView content
 
 **Designer view:**
 ```
-4 personal KPIs + big score card (composite score + breakdown)
+MetricCard KPIs (unified with admin view — same component, designer-scoped data)
+  + DesignerWorkloadSummary (scalable component for personal stats)
+  + compact pipeline visualization
+  + big score card (composite score + breakdown)
 ```
+
+**Custom date ranges:** `useTaskAnalytics` and `useAnalytics` both accept an optional
+`customRange: { from: Date, to: Date }` parameter, enabling DateRangePicker-driven
+filtering across all dashboard surfaces.
 
 **The "Concepts" tab** renders the full Concept Analytics (formerly `/analytics`):
 ```
@@ -624,8 +631,11 @@ Show success screen:
 ```
 1. HEADER         → Task code + status badge + concept + client + urgent flag
                     Edit button toggles INLINE EDIT MODE
+                    "Briefed" date (created_at) + "Claimed" date (assigned_at) shown in header
 2. PIPELINE       → Visual progress indicator (status dots)
-3. BRIEF DETAILS  → 2×3 grid: Fabric, Qty (with progress bar), Deadline (with days-left),
+3. BRIEF DETAILS  → Collapsible section (collapsed by default). When collapsed, shows a compact
+                     one-line summary (concept · party · qty · deadline). Expand to see full
+                     2×3 grid: Fabric, Qty (with progress bar), Deadline (with days-left),
                      Due time, Priority, Assigned to
                      IN EDIT MODE: qty, mtr, deadline, priority, assignee, whatsapp,
                      description, notes — with Save/Cancel + change logging to task_logs
@@ -726,36 +736,51 @@ submitConcept() → INSERT into concepts table
 Send notification to all admins
 ```
 
-**Concept review flow (admin + coordinator):**
+**Concept review flow (4-stage, role-gated):**
 ```
-Admin/coordinator clicks a concept row → ConceptDetailDrawer opens
-  ↓
-Shows: code, title, image, submitter, description, timeline, review notes
-ConceptWorkflowStage shows 5-stage progress bar:
-  Submitted → Review → Decision → Finalize → Complete
-  ↓
-Reviewer chooses one:
-  ├─ APPROVE  → md_status='approved'
-  │   └─ DB trigger: md_actual_date=now, md_reviewed_at=now, designer_planned_date=today+4
-  │   └─ Notification sent to submitter
-  ├─ REJECT   → md_status='rejected'
-  │   └─ DB trigger: md_actual_date=now, md_reviewed_at=now
-  │   └─ Notification sent to submitter
-  └─ REVISION → md_status='revision_requested' (mandatory notes)
-      └─ DB trigger: md_actual_date=now, md_reviewed_at=now
-      └─ Notification sent to submitter
-      └─ completion_history JSONB tracks revision cycles
-```
+Stage 1 — Submission:
+  Designer submits concept → md_status='pending'
 
-**Designer finalization / re-submission:**
-```
-After approval, designer has +4 days
-  ↓
-Designer clicks "Mark Finalized" → designer_actual_date = today
-  ↓
-Re-submission after revision:
-  resubmitConcept → appends to completion_history JSONB
-  → Notification sent to all admins
+Stage 2 — MD Approval (admin/super_admin ONLY — NOT coordinator):
+  Admin/super_admin clicks a concept row → ConceptDetailDrawer opens
+    ↓
+  Shows: code, title, image, submitter, description, timeline, review notes
+  ConceptWorkflowStage shows 5-stage progress bar:
+    Submitted → Review → Decision → Finalize → Complete
+    ↓
+  Reviewer chooses one:
+    ├─ APPROVE  → md_status='approved'
+    │   └─ DB trigger: md_actual_date=now, md_reviewed_at=now, designer_planned_date=today+4
+    │   └─ Notification sent to submitter
+    │   └─ MD review event logged to completion_history JSONB
+    ├─ REJECT   → md_status='rejected'
+    │   └─ DB trigger: md_actual_date=now, md_reviewed_at=now
+    │   └─ Notification sent to submitter
+    └─ REVISION → md_status='revision_requested' (mandatory notes)
+        └─ DB trigger: md_actual_date=now, md_reviewed_at=now
+        └─ Notification sent to submitter
+        └─ completion_history JSONB tracks revision cycles
+
+Stage 3 — Designer Completion (designer-only actions):
+  After approval, designer has +4 days
+    ↓
+  Designer clicks "Mark Finalized" → designer_actual_date = today
+    ↓
+  Re-submission after revision:
+    resubmitConcept → appends to completion_history JSONB
+    → DesignerResubmitNote allows designer to add resubmission notes
+    → Notification sent to all admins
+
+Stage 4 — Final Approval (admin/super_admin + coordinator):
+  Final review/sign-off on completed concepts
+
+Concept editing by designers:
+  Designers can edit their own concepts until MD approves (editConcept mutation
+  in useConcepts). Once md_status leaves 'pending', editing is locked.
+
+Editable feedback notes:
+  EditableFeedbackBlock component allows in-place editing of review/feedback
+  text on concept detail views.
 ```
 
 ---
@@ -912,8 +937,11 @@ Display string     ↔  DB enum (kitting_priority)
 
 **Grid landing page (ScorecardsView.tsx):**
 ```
-4-stat banner: designers / avg composite / on track / needs support
-  + top-performer call-out + search
+4-stat banner (MetricCard replaces KpiCard): designers / avg composite / on track / needs support
+  + designer dropdown (replaces top-performer chip) for quick navigation
+  + search
+  + DateRangePicker for custom date range filtering
+  + export is icon-only (no label text)
   ↓
 Designer cards grid:
   Each card: composite score + verdict pill (Top/Solid/Developing/Needs Support)
@@ -1179,6 +1207,13 @@ Capability aliases:
   canCreateBriefs          → admin + coordinator + designer (all 3 main roles)
   canLogSampling           → isAdminOrCoordinator
   canMoveTaskBackward      → isAdminOrCoordinator
+  canAccessDangerZone      → isSuperAdmin only
+
+Additional role helpers:
+  isSuperAdmin(role)       → role === "super_admin"
+                              super_admin includes ALL admin permissions
+  isMdRole(role)           → admin OR super_admin only (for Stage 2 concept MD review;
+                              coordinators are excluded from MD approval)
 ```
 
 ### 9.2 Backend (Supabase RLS)
@@ -1466,6 +1501,10 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 │ usePagination        │ Client-side pagination state                        │
 │ useAnimatedNumber    │ RAF-based counter with cubic ease-out               │
 │ useKeyboardShortcuts │ Global keydown registrar with auto-skip             │
+│ useHeldConceptAlerts │ Alerts coordinator when a concept has been held     │
+│                      │ (on_hold) for > 4 days — surfaces a warning         │
+│ useCoordinatorTasks  │ CRUD for coordinator task tracking (/coordinator-   │
+│                      │ tasks): personal task list for design coordinators   │
 └──────────────────────┴────────────────────────────────────────────────────┘
 ```
 
@@ -1572,8 +1611,10 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
       for tasks).
 0055  concepts update RLS widened — admins/coordinators OR the owner can update
       (pairs with 0053 so designers can edit their own concepts, not just delete).
+0056  (pending — not yet applied) coordinator_tasks table + RLS for coordinator
+      task tracking.
 
-Next migration: 0056
+Next migration: 0057
 ```
 
 ---
@@ -1714,10 +1755,18 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
 - Sparkline charts (pure SVG, no recharts dependency)
 - Global T-shirt loader (LoaderProvider + useLoader, reference-counted)
 - Combobox search-as-you-type dropdown
+- Concept editing by designers (until MD approves — editConcept mutation)
+- Unified MetricCard component across all dashboards (replaces KpiCard where applicable)
+- Date range picker (DateRangePicker) on dashboards and scorecards
+- Coordinator task tracking (`/coordinator-tasks`) — personal task list for design coordinators
+- Held concept alerts (useHeldConceptAlerts — 4+ day on-hold notification)
+- Mobile responsiveness sweep (layout and component fixes across all surfaces)
+- Collapsible brief details in task detail drawer (collapsed by default, compact summary)
+- 12-hour AM/PM time picker for time inputs
+- Editable feedback notes in concept workflow (EditableFeedbackBlock)
 
 ### Not built:
 - Cross-page search (search is page-local only)
-- Edit own pending concept (DB permits it; UI doesn't expose it)
 - Concept → Task promotion (tasks.concept_id FK exists, no UI)
 - Drag-and-drop reordering in Kanban
 - Edge Function for deadline alerts (removed useDeadlineAlerts; no server-side replacement)
