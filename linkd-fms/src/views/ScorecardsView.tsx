@@ -404,14 +404,14 @@ export function ScorecardsView() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <div className="relative w-full sm:w-[220px]">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:justify-end sm:overflow-visible sm:pb-0">
+          <div className="relative shrink-0">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+            <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search designer or code…"
-              className="h-9 rounded-xl pl-8 text-sm"
+              placeholder="Search…"
+              className="h-8 w-[110px] rounded-lg border border-border bg-card pl-7 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 sm:w-[160px]"
             />
           </div>
 
@@ -419,20 +419,20 @@ export function ScorecardsView() {
             <select
               value=""
               onChange={(e) => { if (e.target.value) openScorecard(e.target.value); }}
-              className="h-9 rounded-xl border border-border bg-card px-2.5 pr-8 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              className="h-8 shrink-0 rounded-lg border border-border bg-card px-2 pr-7 text-[11px] font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
-              <option value="">View Designer…</option>
+              <option value="">Designer…</option>
               {rows.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.name} — {r.compositeScore}/100
+                  {r.name} — {r.compositeScore}
                 </option>
               ))}
             </select>
           )}
 
           {rows.length > 0 && (
-            <Button variant="outline" size="icon" onClick={handleExportScorecards} className="h-9 w-9 rounded-xl" title="Export">
-              <Download className="h-3.5 w-3.5" />
+            <Button variant="outline" size="icon" onClick={handleExportScorecards} className="h-8 w-8 shrink-0 rounded-lg" title="Export">
+              <Download className="h-3 w-3" />
             </Button>
           )}
 
@@ -442,15 +442,16 @@ export function ScorecardsView() {
             onChange={(f, t) => {
               setCustomRange({ from: new Date(f + "T00:00:00"), to: new Date(t + "T23:59:59") });
             }}
+            className="shrink-0"
           />
-          <div className="inline-flex rounded-xl bg-secondary p-1">
+          <div className="inline-flex shrink-0 rounded-lg bg-secondary p-0.5">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
                 type="button"
                 onClick={() => { setPeriod(p.value); setCustomRange(null); }}
                 className={cn(
-                  "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all",
+                  "rounded-md px-2.5 py-1 text-[11px] font-medium transition-all",
                   !customRange && period === p.value
                     ? "bg-primary text-white shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
