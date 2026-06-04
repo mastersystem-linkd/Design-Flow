@@ -25,6 +25,7 @@ import { useTaskMutations } from "@/hooks/useTaskMutations";
 import { useClients } from "@/hooks/useClients";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
+import { useFabrics } from "@/hooks/useFabrics";
 import { useAssignedByOptions, ASSIGNED_BY_OTHER } from "@/hooks/useAssignedByOptions";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/LoadingButton";
@@ -161,6 +162,7 @@ function BriefingForm({
     roles: ["designer"],
   });
   const { categories: conceptCategories } = useConceptCategories();
+  const { fabrics } = useFabrics();
 
   // ---------------- form state ----------------
   // Brief type drives the Party Name section. 'ld' hides the party picker
@@ -177,6 +179,9 @@ function BriefingForm({
   // per product. The DB schema still has those columns (some NOT NULL), so
   // submission below sends placeholder defaults rather than nulls for the
   // required ones. Re-adding the inputs is a UI-only revert.
+  const [fabric, setFabric] = useState("");
+  const [plannedDeadline, setPlannedDeadline] = useState("");
+  const isDesigner = profile?.role === "designer";
   const conceptStartDate = todayISO();
   const [priority, setPriority] = useState<Priority>("normal");
   const [whatsappGroup, setWhatsappGroup] = useState("");
@@ -599,11 +604,10 @@ function BriefingForm({
       client_id: briefType === "job_work" ? clientId : null,
       concept: concept.trim(),
       qty: qtyValue,
-      fabric: "",
+      fabric: fabric.trim() || "",
       priority,
-      // Open Pool → null → status='pool'; a designer id → 'in_progress'.
       assigned_to: assignedTo === ASSIGN_TO_POOL ? null : assignedTo,
-      planned_deadline: null,
+      planned_deadline: plannedDeadline || null,
       due_time: null,
       whatsapp_group: whatsappGroup.trim() || null,
       // Both nullable independently. If user only filled the date, time is
@@ -1014,6 +1018,40 @@ function BriefingForm({
             />
           </Field>
           </div>
+
+          {isDesigner && (
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Field label="Design Type" htmlFor="concept_type">
+                <Picker
+                  id="concept_type"
+                  value={concept}
+                  onChange={setConcept}
+                  placeholder="Pick a design type"
+                  options={conceptCategories.map((c) => ({ value: c.name, label: c.name }))}
+                  disabled={submitting}
+                />
+              </Field>
+              <Field label="Fabric" htmlFor="fabric_brief">
+                <Picker
+                  id="fabric_brief"
+                  value={fabric}
+                  onChange={setFabric}
+                  placeholder="Choose fabric"
+                  options={fabrics.map((f) => ({ value: f.name, label: f.name }))}
+                  disabled={submitting}
+                />
+              </Field>
+              <Field label="Planned Deadline" htmlFor="deadline_brief">
+                <Input
+                  id="deadline_brief"
+                  type="date"
+                  value={plannedDeadline}
+                  onChange={(e) => setPlannedDeadline(e.target.value)}
+                  disabled={submitting}
+                />
+              </Field>
+            </div>
+          )}
         </SectionCard>
 
         {/* ============== ASSIGNMENT — Assign To + Assigned By + Priority ============== */}
