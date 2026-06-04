@@ -674,6 +674,13 @@ export function ConceptDetailDrawer({
               </DetailItem>
 
               <DetailItem
+                icon={<Palette className="h-3.5 w-3.5" />}
+                label="Fabric"
+              >
+                {concept.fabric || "—"}
+              </DetailItem>
+
+              <DetailItem
                 icon={<Tag className="h-3.5 w-3.5" />}
                 label="Assigned By"
               >

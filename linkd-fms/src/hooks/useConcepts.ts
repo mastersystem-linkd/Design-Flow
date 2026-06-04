@@ -83,6 +83,8 @@ export interface SubmitConceptInput {
   files?: string[];
   /** Number of designs in the concept (denominator for final approval). 0028. */
   designs_count?: number | null;
+  /** Fabric the concept is designed for (managed Fabrics lookup). 0058. */
+  fabric?: string | null;
 }
 
 export interface ReviewInput {
@@ -299,6 +301,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         file_url: input.file_url ?? img,
         files: filesArray,
         designs_count: input.designs_count ?? null,
+        fabric: input.fabric?.trim() || null,
       };
 
       let { data, error: err } = await supabase
@@ -400,6 +403,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
       if (input.assigned_by !== undefined) update.assigned_by = input.assigned_by?.trim() || null;
       if (input.designs_count !== undefined) update.designs_count = input.designs_count;
       if (input.start_date !== undefined) update.start_date = input.start_date;
+      if (input.fabric !== undefined) update.fabric = input.fabric?.trim() || null;
 
       if (Object.keys(update).length === 0)
         return { data: null, error: "Nothing to update" };

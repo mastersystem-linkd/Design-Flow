@@ -377,6 +377,8 @@ export type Database = {
           approved_designs_count: number | null;
           /** Total designs the designer submitted (denominator at final approval). Added 0028. */
           designs_count: number | null;
+          /** Fabric the concept is designed for (managed Fabrics lookup). Added 0058. */
+          fabric: string | null;
           /** Storage paths for every uploaded file on this concept (added in 0018).
            *  First entry mirrors `image_url`; revisions append more entries. */
           files: string[] | null;
@@ -423,6 +425,7 @@ export type Database = {
           final_approved_at?: string | null;
           approved_designs_count?: number | null;
           designs_count?: number | null;
+          fabric?: string | null;
           files?: string[] | null;
           remarks?: string | null;
           completion_history?: CompletionHistoryEntry[];
@@ -466,6 +469,7 @@ export type Database = {
           final_approved_at?: string | null;
           approved_designs_count?: number | null;
           designs_count?: number | null;
+          fabric?: string | null;
           files?: string[] | null;
           remarks?: string | null;
           completion_history?: CompletionHistoryEntry[];

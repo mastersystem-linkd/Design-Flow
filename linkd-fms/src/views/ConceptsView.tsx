@@ -214,7 +214,7 @@ function deriveFinalStatus(
 // ============================================================================
 
 type ConceptColKey =
-  | "submitted" | "designer" | "concept" | "description" | "party" | "designs" | "assigned_by"
+  | "submitted" | "designer" | "concept" | "description" | "party" | "fabric" | "designs" | "assigned_by"
   | "decision" | "planned" | "reviewed"
   | "work_status" | "started" | "holds" | "marked_done"
   | "final_decision" | "approved_count" | "md_feedback" | "completed";
@@ -227,6 +227,7 @@ const CONCEPT_COLS: readonly { key: ConceptColKey; label: string; stage: StageGr
   { key: "concept", label: "Concept", stage: "creation" },
   { key: "description", label: "Description", stage: "creation" },
   { key: "party", label: "Party", stage: "creation" },
+  { key: "fabric", label: "Fabric", stage: "creation" },
   { key: "designs", label: "Designs", stage: "creation" },
   { key: "assigned_by", label: "Assigned By", stage: "creation" },
   { key: "decision", label: "Decision", stage: "approval" },
@@ -243,7 +244,7 @@ const CONCEPT_COLS: readonly { key: ConceptColKey; label: string; stage: StageGr
 ];
 
 const CONCEPT_DEFAULT_COLS: ConceptColKey[] = [
-  "submitted", "designer", "concept", "description", "party", "designs", "assigned_by",
+  "submitted", "designer", "concept", "description", "party", "fabric", "designs", "assigned_by",
   "decision", "planned", "reviewed",
   "work_status", "started", "holds", "marked_done",
   "final_decision", "approved_count", "completed",
@@ -883,6 +884,7 @@ export function ConceptsView() {
                 {showCol("concept") && <ColHead>Concept</ColHead>}
                 {showCol("description") && <ColHead>Description</ColHead>}
                 {showCol("party") && <ColHead>Party</ColHead>}
+                {showCol("fabric") && <ColHead>Fabric</ColHead>}
                 {showCol("designs") && <ColHead center>Designs</ColHead>}
                 {showCol("assigned_by") && <ColHead>Assigned By</ColHead>}
                 {showCol("decision") && <ColHead stageStart={isStageStart("decision")}>Decision</ColHead>}
@@ -928,6 +930,7 @@ export function ConceptsView() {
                     {showCol("concept") && <td className="px-3 py-2.5"><span className="text-[13px] font-semibold text-foreground line-clamp-1" title={c.concept_code ?? undefined}>{c.title}</span></td>}
                     {showCol("description") && <td className="px-3 py-2.5">{c.description ? <span className="max-w-[200px] text-xs font-medium text-foreground line-clamp-1" title={c.description}>{c.description}</span> : <Dash />}</td>}
                     {showCol("party") && <Cell>{c.client?.party_name || "—"}</Cell>}
+                    {showCol("fabric") && <Cell>{c.fabric || "—"}</Cell>}
                     {showCol("designs") && <td className="px-3 py-2.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
                     {showCol("assigned_by") && <Cell>{c.assigned_by || "—"}</Cell>}
 
