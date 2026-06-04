@@ -374,10 +374,10 @@ function CompletionSection({
           </div>
           <div>
             <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              MTR
+              Design Type
             </dt>
-            <dd className="font-medium tabular-nums text-foreground">
-              {task.completion_mtr ?? "—"}
+            <dd className="font-medium text-foreground">
+              {task.concept?.trim() || "—"}
             </dd>
           </div>
           <div>
