@@ -2839,6 +2839,7 @@ function ActionFooter({
 
   // ----------------- IN_PROGRESS: Mark Completed (designer only) -----------------
   if (task.status === "in_progress" && isAssignee) {
+    const progressMet = task.qty > 0 && task.qty_completed >= task.qty;
     return (
       <FooterShell>
         <div className="w-full space-y-2">
@@ -2848,10 +2849,16 @@ function ActionFooter({
               <span>{submitWarning}</span>
             </div>
           )}
+          {!progressMet && (
+            <p className="text-center text-[11px] text-muted-foreground">
+              {task.qty === 0 ? "Quantity not set — ask admin to add it." : `Complete progress (${task.qty_completed}/${task.qty}) to mark done.`}
+            </p>
+          )}
           <LoadingButton
             loading={isPending("updateStatus", task.id)}
             onClick={attemptSubmit}
-            className="w-full bg-primary text-foreground hover:bg-primary/90"
+            disabled={!progressMet}
+            className="w-full bg-primary text-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
             size="lg"
           >
             <Send className="mr-1.5 h-4 w-4" />
