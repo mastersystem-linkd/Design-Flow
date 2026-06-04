@@ -389,7 +389,6 @@ function BriefingForm({
     if (briefType === "job_work" && !clientId) {
       e.client_id = "Pick a Job Work party.";
     }
-    if (!concept.trim()) e.concept = "Design type is required.";
     if (!description.trim()) e.description = "Description is required.";
     if (!whatsappGroup.trim()) e.whatsapp_group = "Group is required.";
     if (!whatsappReceivedDate) e.whatsapp_received_date = "Message date is required.";
@@ -983,28 +982,7 @@ function BriefingForm({
 
         {/* ============== DESIGN BRIEF — Design Type + Quantity + Description ============== */}
         <SectionCard icon={Sparkles} title="Design Brief">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <div className="sm:col-span-2">
-              <Field
-                label="Design Type"
-                htmlFor="concept"
-                required
-                error={show("concept")}
-              >
-                <Picker
-                  id="concept"
-                  value={concept}
-                  onChange={setConcept}
-                  placeholder="Pick a design type"
-                  options={conceptCategories.map((c) => ({
-                    value: c.name,
-                    label: c.name,
-                  }))}
-                  disabled={submitting}
-                  error={show("concept")}
-                />
-              </Field>
-            </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Field
               label="Quantity"
               htmlFor="qty"

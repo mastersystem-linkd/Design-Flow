@@ -84,9 +84,8 @@ export interface UseTaskMutations {
   claimPoolTask: (
     taskId: string,
     plannedDeadline: string,
-    /** Optional fabric chosen up-front. Stored on the task so it pre-fills the
-     *  completion modal later. Fabric is only *required* at completion time. */
-    fabric?: string | null
+    fabric?: string | null,
+    designType?: string | null
   ) => Promise<MutationResult<Task>>;
   /** Read-only peek used by the claim modal: returns the top `limit` eligible
    *  Pool tasks (FIFO + urgent-first) so the designer can pick one, whether the
@@ -1021,12 +1020,13 @@ export function useTaskMutations(): UseTaskMutations {
   // claimPoolTask — claim a SPECIFIC pool task with busy-check + deadline
   // --------------------------------------------------------------------
   const claimPoolTask = useCallback<UseTaskMutations["claimPoolTask"]>(
-    async (taskId, plannedDeadline, fabric) => {
+    async (taskId, plannedDeadline, fabric, designType) => {
       if (!profile) return { data: null, error: "Not authenticated" };
       if (!plannedDeadline) {
         return { data: null, error: "Pick a planned deadline first." };
       }
       const fab = (fabric ?? "").trim();
+      const dt = (designType ?? "").trim();
 
       const key = "claimNext";
       setOpPending(key, true);
@@ -1082,9 +1082,8 @@ export function useTaskMutations(): UseTaskMutations {
             // a designer at one active task at a time.
             status: "in_progress" as const,
             task_code: newCode,
-            // Pre-fill fabric if the designer chose one at claim time. It's not
-            // required here — the completion step enforces it.
             ...(fab ? { fabric: fab } : {}),
+            ...(dt ? { concept: dt } : {}),
           })
           .eq("id", chosen.id)
           .eq("status", "pool") // only if still unclaimed

@@ -141,11 +141,11 @@ export function TaskDetailDrawer({
     onChange?.();
   }
 
-  // Complete a 'done' task. If fabric was already chosen at claim time, finish
-  // straight away; otherwise open PostDoneModal to capture fabric first.
+  // Complete a 'done' task. If both fabric AND design type are set, finish
+  // straight away; otherwise open PostDoneModal to capture missing fields.
   async function handleComplete() {
     if (!task) return;
-    if (task.fabric?.trim()) {
+    if (task.fabric?.trim() && task.concept?.trim()) {
       const { error: compErr } = await completeTask(task.id, task.fabric, null);
       if (compErr) {
         toast.error(compErr);
@@ -306,29 +306,31 @@ function CompletionSection({
 }) {
   if (task.status === "done") {
     const hasFabric = !!task.fabric?.trim();
+    const hasDesignType = !!task.concept?.trim();
+    const isReady = hasFabric && hasDesignType;
     return (
       <div
         className={cn(
           "rounded-xl border p-4",
-          hasFabric
+          isReady
             ? "border-success/30 bg-success/10"
             : "border-warning/30 bg-warning/10"
         )}
       >
         <div className="flex items-start gap-2.5">
-          {hasFabric ? (
+          {isReady ? (
             <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
           ) : (
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           )}
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">
-              {hasFabric ? "Ready to Complete" : "Completion Details Needed"}
+              {isReady ? "Ready to Complete" : "Completion Details Needed"}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {hasFabric
-                ? `Fabric: ${task.fabric}. Mark this task completed.`
-                : "Design work is done. Add the fabric to fully close this task."}
+              {isReady
+                ? `${task.concept} · ${task.fabric}. Mark this task completed.`
+                : `Design work is done. Add ${!hasDesignType && !hasFabric ? "design type & fabric" : !hasDesignType ? "design type" : "fabric"} to complete.`}
             </p>
             {canComplete && (
               <Button

@@ -28,6 +28,7 @@ import { supabase } from "@/lib/supabase";
 import { ROUTES, kittingDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { useFabrics } from "@/hooks/useFabrics";
+import { useConceptCategories } from "@/hooks/useConceptCategories";
 import {
   useTaskMutations,
   type PoolTaskPreview,
@@ -69,6 +70,7 @@ export function ClaimTaskModal({
   const navigate = useNavigate();
   const { getNextPoolTasks, claimPoolTask } = useTaskMutations();
   const { fabrics } = useFabrics();
+  const { categories: conceptCategories } = useConceptCategories();
 
   const [loading, setLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
@@ -76,6 +78,7 @@ export function ClaimTaskModal({
   const [task, setTask] = useState<PoolTaskPreview | null>(null);
   const [deadline, setDeadline] = useState("");
   const [fabric, setFabric] = useState("");
+  const [designType, setDesignType] = useState("");
   const [claiming, setClaiming] = useState(false);
 
   const [files, setFiles] = useState<RefFile[]>([]);
@@ -88,6 +91,7 @@ export function ClaimTaskModal({
     setLoading(true);
     setDeadline("");
     setFabric("");
+    setDesignType("");
     setKitting(null);
     void getNextPoolTasks(1).then((res) => {
       if (cancelled) return;
@@ -141,7 +145,7 @@ export function ClaimTaskModal({
   async function handleClaim() {
     if (!deadline || !task) return;
     setClaiming(true);
-    const { error } = await claimPoolTask(task.id, deadline, fabric);
+    const { error } = await claimPoolTask(task.id, deadline, fabric, designType);
     setClaiming(false);
     if (error) {
       toast.error(error);
@@ -215,7 +219,22 @@ export function ClaimTaskModal({
               <TaskDetails task={task} files={files} filesLoading={filesLoading} kitting={kitting} />
 
               {/* Fabric + Deadline + Claim button */}
-              <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_1fr_auto] sm:gap-4">
+              <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 sm:gap-4">
+                <div>
+                  <Label htmlFor="claim-design-type" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Design Type <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
+                  </Label>
+                  <Combobox
+                    id="claim-design-type"
+                    value={designType}
+                    onChange={setDesignType}
+                    options={conceptCategories.map((c) => ({ value: c.name, label: c.name }))}
+                    placeholder="Pick a design type"
+                    searchPlaceholder="Search type…"
+                    disabled={claiming}
+                    clearable
+                  />
+                </div>
                 <div>
                   <Label htmlFor="claim-fabric" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Fabric <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>

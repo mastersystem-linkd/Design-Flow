@@ -12,7 +12,9 @@ import { LoadingButton } from "@/components/ui/LoadingButton";
 import { Combobox } from "@/components/ui/Combobox";
 import { toast } from "@/components/ui/Toaster";
 import { useFabrics } from "@/hooks/useFabrics";
+import { useConceptCategories } from "@/hooks/useConceptCategories";
 import { useTaskMutations } from "@/hooks/useTaskMutations";
+import { supabase } from "@/lib/supabase";
 import type { TaskWithRelations } from "@/types/database";
 
 // ============================================================================
@@ -40,18 +42,17 @@ export function PostDoneModal({
   onCompleted,
 }: PostDoneModalProps) {
   const { fabrics } = useFabrics();
+  const { categories: conceptCategories } = useConceptCategories();
   const { completeTask } = useTaskMutations();
 
   const [fabric, setFabric] = useState("");
+  const [designType, setDesignType] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset the form each time a new task opens the modal. Pre-seed fabric from
-  // the brief's original fabric if one was recorded (often empty in the new
-  // flow where Fabric was dropped from the brief form).
   useEffect(() => {
     if (open && task) {
-      // Pre-fill the fabric the designer chose at claim time, if any.
       setFabric(task.fabric?.trim() ? task.fabric : "");
+      setDesignType(task.concept?.trim() ? task.concept : "");
     }
   }, [open, task]);
 
@@ -60,6 +61,13 @@ export function PostDoneModal({
     if (!fabric.trim()) {
       toast.error("Fabric is required to complete this task.");
       return;
+    }
+    if (!designType.trim()) {
+      toast.error("Design type is required to complete this task.");
+      return;
+    }
+    if (designType.trim() !== (task.concept ?? "").trim()) {
+      await supabase.from("tasks").update({ concept: designType.trim() }).eq("id", task.id);
     }
     setSubmitting(true);
     const { error } = await completeTask(task.id, fabric, null);
@@ -91,7 +99,7 @@ export function PostDoneModal({
       <DialogContent className="max-w-md" srTitle="Add completion details">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
-            Add Fabric to Complete
+            Complete Task
           </DialogTitle>
         </DialogHeader>
 
@@ -114,8 +122,24 @@ export function PostDoneModal({
           {/* Completion form */}
           <div className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Add Fabric Details
+              Completion Details
             </p>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="completion-design-type">
+                Design Type <span className="text-destructive">*</span>
+              </Label>
+              <Combobox
+                id="completion-design-type"
+                value={designType}
+                onChange={setDesignType}
+                options={conceptCategories.map((c) => ({ value: c.name, label: c.name }))}
+                placeholder="Pick a design type"
+                searchPlaceholder="Search type…"
+                disabled={submitting}
+                clearable
+              />
+            </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="completion-fabric">
@@ -141,7 +165,7 @@ export function PostDoneModal({
               onClick={handleComplete}
               loading={submitting}
               loadingText="Completing…"
-              disabled={!fabric.trim()}
+              disabled={!fabric.trim() || !designType.trim()}
               className="w-full"
             >
               Save &amp; Complete Task
@@ -158,8 +182,8 @@ export function PostDoneModal({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Fabric is required to mark this task complete. You can skip for now
-            and add it later — the task stays in Done until then.
+            Design type and fabric are required to complete. You can skip for now
+            and add them later — the task stays in Done until then.
           </p>
         </div>
       </DialogContent>
