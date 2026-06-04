@@ -279,8 +279,9 @@ export function useUserPreferences() {
       }
       return { prev };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(key, ctx.prev);
+      console.error("[useUserPreferences] save failed:", err);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: key });
