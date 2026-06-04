@@ -90,7 +90,7 @@ import { isAdmin as isAdminCheck, isAdminOrCoordinator } from "@/lib/permissions
 import { ROLE_LABELS } from "@/lib/constants";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import { KpiCard } from "@/components/analytics/KpiCard";
+import { MetricCard, type HeroTone } from "@/views/TaskDashboardView";
 import { ScoreRing } from "@/components/analytics/ScoreRing";
 import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
@@ -880,103 +880,44 @@ export function ScorecardDetailView() {
         </div>
       </Card>
 
-      {/* ── KPI strip — same KpiCard tile used on every other dashboard
-           (Concept, Task, Sampling, Scorecards list), wrapped in the
-           shared TextileHeroWrapper. */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="grid grid-cols-2 divide-x divide-y divide-border/30 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-5">
-          <KpiCard
-            flat
-            centered
-            icon={<CalendarIcon className="h-4 w-4 text-primary" />}
-            label="Total Scheduled"
-            value={totals.scheduled}
-            tintClass="bg-primary/10"
-            sub="tasks + concepts in range"
-          />
-          <KpiCard
-            flat
-            centered
-            icon={<CheckCircle className="h-4 w-4 text-success" />}
-            label="Completed"
-            value={totals.completed}
-            tintClass="bg-success/10"
-            valueColor="text-success"
-            sub={totals.completed > 0 ? "delivered this period" : "nothing closed yet"}
-          />
-          <KpiCard
-            flat
-            centered
-            icon={<Clock className="h-4 w-4 text-primary" />}
-            label="On-Time %"
-            value={totals.completed === 0 ? "—" : `${totals.onTimePct}%`}
-            tintClass={
-              totals.completed === 0
-                ? "bg-secondary"
-                : totals.onTimePct >= 85
-                  ? "bg-success/10"
-                  : totals.onTimePct >= 70
-                    ? "bg-warning/10"
-                    : "bg-destructive/10"
-            }
-            valueColor={
-              totals.completed === 0
-                ? "text-muted-foreground"
-                : totals.onTimePct >= 85
-                  ? "text-success"
-                  : totals.onTimePct >= 70
-                    ? "text-warning"
-                    : "text-destructive"
-            }
-            sub={
-              totals.completed === 0
-                ? "no completions yet"
-                : totals.onTimePct >= 85
-                  ? "on target"
-                  : "watch closely"
-            }
-          />
-          <KpiCard
-            flat
-            centered
-            icon={<AlertTriangle className="h-4 w-4 text-warning" />}
-            label="Avg Delay"
-            value={`${totals.avgDelay}d`}
-            tintClass={
-              totals.completed === 0
-                ? "bg-secondary"
-                : totals.avgDelay <= 1
-                  ? "bg-success/10"
-                  : totals.avgDelay <= 3
-                    ? "bg-warning/10"
-                    : "bg-destructive/10"
-            }
-            valueColor={
-              totals.completed === 0
-                ? "text-muted-foreground"
-                : totals.avgDelay <= 1
-                  ? "text-success"
-                  : totals.avgDelay <= 3
-                    ? "text-warning"
-                    : "text-destructive"
-            }
-            sub={totals.completed === 0 ? "no completions" : "avg vs. plan"}
-          />
-          <KpiCard
-            flat
-            centered
-            icon={<Flame className="h-4 w-4 text-primary" />}
-            label="Best Streak"
-            value={bestStreak.best}
-            tintClass={bestStreak.best > 0 ? "bg-primary/10" : "bg-secondary"}
-            valueColor={bestStreak.best > 0 ? "text-primary" : "text-muted-foreground"}
-            sub={
-              bestStreak.current > 0
-                ? `Current: ${bestStreak.current}`
-                : "no active streak"
-            }
-          />
-        </div>
+      {/* ── KPI strip — MetricCard matching Task/Concept dashboards ── */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-5">
+        <MetricCard
+          icon={CalendarIcon}
+          label="Scheduled"
+          tone="primary"
+          value={totals.scheduled}
+          sub="tasks + concepts"
+        />
+        <MetricCard
+          icon={CheckCircle}
+          label="Completed"
+          tone="success"
+          value={totals.completed}
+          sub={totals.completed > 0 ? "delivered" : "none yet"}
+        />
+        <MetricCard
+          icon={Clock}
+          label="On-Time"
+          tone={totals.completed === 0 ? "muted" : totals.onTimePct >= 85 ? "success" : totals.onTimePct >= 70 ? "warning" : "destructive"}
+          value={totals.completed === 0 ? "—" : `${totals.onTimePct}%`}
+          sub={totals.completed === 0 ? "no data" : totals.onTimePct >= 85 ? "on target" : "needs focus"}
+        />
+        <MetricCard
+          icon={AlertTriangle}
+          label="Avg Delay"
+          tone={totals.completed === 0 ? "muted" : totals.avgDelay <= 1 ? "success" : totals.avgDelay <= 3 ? "warning" : "destructive"}
+          value={`${totals.avgDelay}d`}
+          sub="avg vs. plan"
+          invertTrend
+        />
+        <MetricCard
+          icon={Flame}
+          label="Best Streak"
+          tone={bestStreak.best > 0 ? "primary" : "muted"}
+          value={bestStreak.best}
+          sub={bestStreak.current > 0 ? `Current: ${bestStreak.current}` : "no streak"}
+        />
       </div>
 
       {/* ── ROW: Concept + Task performance (detailed score cards) ──
@@ -994,7 +935,7 @@ export function ScorecardDetailView() {
           score={data.concept.score}
         >
           {/* Donut + breakdown bars */}
-          <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:gap-4">
             <ConceptDonut
               approved={data.concept.approved}
               revisions={data.concept.revisions}
@@ -1890,67 +1831,25 @@ function ScoreCard({
 }) {
   const tone = getScoreTone(score);
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/[0.04] via-card to-card shadow-sm">
-      {/* Woven dot grid — textile motif backdrop (§8.2). */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.04]"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, rgb(var(--foreground)) 1px, transparent 1px)",
-          backgroundSize: "14px 14px",
-        }}
-      />
-      {/* Top accent bar — score-quality coloured so the card's tone is
-          legible from the first pixel. */}
-      <div
-        aria-hidden
-        className={cn("pointer-events-none absolute inset-x-0 top-0 h-[3px]", tone.accentClass)}
-      />
-
-      <div className="relative p-4 sm:p-5">
-        {/* Header row: icon chip + title block | hero score block */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div
-              className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
-                tone.bgChipClass,
-                tone.ringClass
-              )}
-            >
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className={cn("h-[2px]", tone.accentClass)} />
+      <div className="p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", tone.bgChipClass)}>
               {icon}
             </div>
             <div className="min-w-0">
-              <h3 className="truncate text-[15px] font-semibold tracking-tight text-foreground">
-                {title}
-              </h3>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {subtitle}
-              </p>
+              <h3 className="truncate text-sm font-semibold text-foreground">{title}</h3>
+              <p className="truncate text-[10px] text-muted-foreground">{subtitle}</p>
             </div>
           </div>
-          <div className="flex flex-col items-center">
-            <ScoreRing score={score} size={72} strokeWidth={5}>
-              <span className={cn("text-lg font-bold tabular-nums leading-none", tone.textClass)}>
-                {score}
-              </span>
-            </ScoreRing>
-            <span
-              className={cn(
-                "mt-1 text-[9px] font-bold uppercase tracking-[0.14em]",
-                tone.textClass
-              )}
-            >
-              {tone.label}
-            </span>
+          <div className="flex items-center gap-2">
+            <span className={cn("text-2xl font-bold tabular-nums", tone.textClass)}>{score}</span>
+            <span className={cn("text-[9px] font-bold uppercase tracking-wider", tone.textClass)}>{tone.label}</span>
           </div>
         </div>
-
-        {/* Subtle divider before the data body — same hairline as inside
-            other dashboards for cohesion. */}
-        <div className="my-4 h-px bg-border/60" />
-
+        <div className="my-3 h-px bg-border/50" />
         {children}
       </div>
     </div>
@@ -2078,9 +1977,9 @@ function ConceptDonut({
   pending: number;
   total: number;
 }) {
-  const r = 52;
+  const r = 42;
   const c = 2 * Math.PI * r;
-  const size = 130;
+  const size = 100;
   const cx = size / 2;
   const cy = size / 2;
 
@@ -2117,7 +2016,7 @@ function ConceptDonut({
             r={r}
             fill="none"
             stroke="rgb(var(--secondary))"
-            strokeWidth={14}
+            strokeWidth={10}
           />
           {segments.map((s, i) => (
             <circle
@@ -2127,14 +2026,14 @@ function ConceptDonut({
               r={r}
               fill="none"
               stroke={s.color}
-              strokeWidth={14}
+              strokeWidth={10}
               strokeDasharray={`${s.length} ${c - s.length}`}
               strokeDashoffset={s.offset}
             />
           ))}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <p className="text-3xl font-bold tabular-nums text-foreground">{total}</p>
+          <p className="text-lg font-bold tabular-nums text-foreground">{total}</p>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
             submitted
           </p>
@@ -2390,7 +2289,7 @@ function CompositionDonut({
           ))}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <p className="text-3xl font-bold tabular-nums text-foreground">{total}</p>
+          <p className="text-lg font-bold tabular-nums text-foreground">{total}</p>
           <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
             tasks
           </p>
