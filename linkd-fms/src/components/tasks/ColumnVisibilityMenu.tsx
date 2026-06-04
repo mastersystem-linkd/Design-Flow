@@ -54,7 +54,7 @@ export function ColumnVisibilityMenu({
         setOpen(false);
       }
     }
-    document.addEventListener("mousedown", handler);
+    setTimeout(() => document.addEventListener("mousedown", handler), 0);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
@@ -113,6 +113,8 @@ export function ColumnVisibilityMenu({
         <div
           className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
           role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
