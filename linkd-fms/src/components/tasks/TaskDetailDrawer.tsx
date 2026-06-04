@@ -2858,7 +2858,7 @@ function ActionFooter({
             loading={isPending("updateStatus", task.id)}
             onClick={attemptSubmit}
             disabled={!progressMet}
-            className="w-full bg-primary text-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
+            className={cn("w-full", progressMet ? "bg-primary text-foreground hover:bg-primary/90" : "bg-muted text-muted-foreground cursor-not-allowed")}
             size="lg"
           >
             <Send className="mr-1.5 h-4 w-4" />
