@@ -420,13 +420,8 @@ export function useTaskMutations(): UseTaskMutations {
       if (input.brief_type === "job_work" && !input.client_id?.trim()) {
         return { data: null, error: "Pick a Job Work party." };
       }
-      if (!input.concept?.trim()) {
-        return { data: null, error: "concept is required" };
-      }
-      // fabric was removed from the brief form; the column is free-text and
-      // accepts an empty string, so we no longer guard on it here.
-      if (!Number.isFinite(input.qty) || input.qty <= 0) {
-        return { data: null, error: "qty must be a positive number" };
+      if (input.qty != null && input.qty < 0) {
+        return { data: null, error: "qty cannot be negative" };
       }
 
       const assigned = input.assigned_to ?? null;

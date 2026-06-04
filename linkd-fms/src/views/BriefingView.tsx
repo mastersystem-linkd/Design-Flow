@@ -592,7 +592,7 @@ function BriefingForm({
     // so we send an empty string; the rest stay nullable and submit as null.
     // qty is validated as required + >= 1 above; parse defensively.
     const qtyParsed = Number(qty);
-    const qtyValue = Number.isFinite(qtyParsed) && qtyParsed >= 1 ? qtyParsed : 1;
+    const qtyValue = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
 
     const { data, error } = await createTask({
       brief_type: briefType,
