@@ -170,9 +170,10 @@ type TableKey = (typeof TABLE_SPECS)[number]["key"];
 
 export function DangerZoneTab() {
   const { profile } = useAuth();
-  // Wiping ALL uploaded files (storage objects + their DB rows) is the most
-  // destructive action in the app, so it's restricted to super-admins.
-  const isSuper = profile?.role === "super_admin";
+  // The whole Danger Zone tab is already gated to super_admin (SystemView TABS
+  // → canAccess: isSuperAdmin), so anyone here is a super_admin. This extra
+  // check is just defense-in-depth for the most destructive action.
+  const canWipeFiles = profile?.role === "super_admin";
   const { files, deleteFiles, refetch: refetchFiles } = useFiles();
 
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -454,10 +455,10 @@ export function DangerZoneTab() {
         </CardContent>
       </Card>
 
-      {/* Delete all files — SUPER-ADMIN ONLY. Wipes every storage object across
-          all buckets + their `files` rows. Moved here out of the Files view,
-          where it was too easy to trigger. */}
-      {isSuper && (
+      {/* Delete all files — top-tier admins only. Wipes every storage object
+          across all buckets + their `files` rows. Moved here out of the Files
+          view, where it was too easy to trigger. */}
+      {canWipeFiles && (
         <Card className="border-destructive/30 bg-destructive/[0.05]">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="flex items-start gap-3">
