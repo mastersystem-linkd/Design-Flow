@@ -347,7 +347,7 @@ function CompletionSection({
                 className="mt-3 gap-1.5"
               >
                 <Check className="h-3.5 w-3.5" />
-                {hasFabric ? "Complete Task" : "Add Fabric Details"}
+                {isReady ? "Complete Task" : "Add Completion Details"}
               </Button>
             )}
           </div>
