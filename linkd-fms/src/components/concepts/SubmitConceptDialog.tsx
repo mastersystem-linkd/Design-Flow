@@ -307,10 +307,6 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
       setError("Enter how many designs are in this concept (minimum 1)");
       return;
     }
-    if (pending.length === 0 && !isEditMode) {
-      setError("Please attach at least one file");
-      return;
-    }
     setUploading(true);
     setProgress(2);
     setError(null);
@@ -573,7 +569,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
               <div className="flex items-center gap-2">
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Paperclip className="h-3 w-3" /></span>
                 <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
-                  Files <span className="text-destructive">*</span>
+                  Files
                   {pending.length > 0 && <span className="ml-1 text-[10px] font-normal text-muted-foreground">{pending.length} attached</span>}
                 </h3>
               </div>
