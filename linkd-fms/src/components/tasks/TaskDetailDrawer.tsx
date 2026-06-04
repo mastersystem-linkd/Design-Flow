@@ -2809,8 +2809,8 @@ function ActionFooter({
     );
   }
 
-  // ----------------- IN_PROGRESS: Mark Completed -----------------
-  if (task.status === "in_progress" && (isAssignee || isAdmin)) {
+  // ----------------- IN_PROGRESS: Mark Completed (designer only) -----------------
+  if (task.status === "in_progress" && isAssignee) {
     return (
       <FooterShell>
         <div className="w-full space-y-2">
