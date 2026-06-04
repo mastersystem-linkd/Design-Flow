@@ -979,7 +979,7 @@ function BriefingForm({
 
         {/* ============== DESIGN BRIEF — Design Type + Quantity + Description ============== */}
         <SectionCard icon={Sparkles} title="Design Brief">
-          <div className="grid grid-cols-[120px_1fr] gap-2 sm:grid-cols-[140px_1fr]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_1fr]">
             <Field
               label="Quantity"
               htmlFor="qty"
