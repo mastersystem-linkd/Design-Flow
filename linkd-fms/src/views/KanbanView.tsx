@@ -3163,37 +3163,6 @@ function getCtasForRow(args: {
       return [];
 
     case "full_kitting":
-      if (isAdmin || isMine) {
-        const isConceptTrack =
-          (task.concept ?? "").trim().toLowerCase() === "concepts";
-        if (isConceptTrack && isAdmin) {
-          return [
-            {
-              label: "Approve",
-              variant: "emerald",
-              icon: Check,
-              onClick: () => onAdvance("done"),
-              pendingOp: "updateStatus",
-            },
-            {
-              label: "Revise",
-              variant: "outline",
-              icon: ArrowRight,
-              onClick: () => onAdvance("in_progress"),
-              pendingOp: "updateStatus",
-            },
-          ];
-        }
-        return [
-          {
-            label: "Completed",
-            variant: "emerald",
-            icon: Check,
-            onClick: () => onAdvance("done"),
-            pendingOp: "updateStatus",
-          },
-        ];
-      }
       return [];
 
     case "done":
