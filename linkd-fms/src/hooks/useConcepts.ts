@@ -271,19 +271,24 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         return { data: null, error: "Only designers can submit concepts. Admins and coordinators can review and approve them." };
       if (!input.title?.trim())
         return { data: null, error: "title is required" };
-      if (!input.image_url?.trim())
-        return { data: null, error: "image is required" };
+
+      // Image / files are OPTIONAL. `concepts.image_url` is NOT NULL in the DB,
+      // so fall back to "" when a designer submits without a file (the display
+      // layer treats "" as "no image").
+      const img = input.image_url?.trim() || "";
 
       const basePayload = {
         title: input.title.trim(),
         description: input.description?.trim() || null,
-        image_url: input.image_url,
+        image_url: img,
         submitted_by: user.id,
       };
       const filesArray =
         input.files && input.files.length > 0
           ? input.files
-          : [input.image_url];
+          : img
+            ? [img]
+            : [];
       const extendedPayload = {
         ...basePayload,
         start_date: input.start_date ?? null,
@@ -291,7 +296,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         client_id: input.client_id ?? null,
         assigned_by: input.assigned_by?.trim() || null,
         priority: input.priority ?? "normal",
-        file_url: input.file_url ?? input.image_url,
+        file_url: input.file_url ?? img,
         files: filesArray,
         designs_count: input.designs_count ?? null,
       };
