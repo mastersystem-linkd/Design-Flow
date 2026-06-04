@@ -3119,19 +3119,6 @@ function getCtasForRow(args: {
 
   switch (task.status) {
     case "pool":
-      // Admin uses "Accept" (assigns via dropdown). Designers use "Claim".
-      if (isAdmin && isUnassigned) {
-        return [
-          {
-            label: "Accept",
-            variant: "gold",
-            icon: HandPlatter,
-            onClick: onAccept,
-            pendingOp: "assign",
-          },
-        ];
-      }
-      // Designer can self-assign if task is unassigned or started_at is null
       if (role === "designer" && (isUnassigned || !task.started_at)) {
         return [
           {
