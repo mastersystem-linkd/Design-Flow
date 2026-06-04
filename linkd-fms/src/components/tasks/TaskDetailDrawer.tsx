@@ -179,7 +179,7 @@ export function TaskDetailDrawer({
 
             <div
               className={cn(
-                "flex-1 space-y-2.5 overflow-y-auto px-4 py-2.5",
+                "flex-1 space-y-2 overflow-y-auto px-4 py-2",
                 editMode && "bg-primary/[0.02]"
               )}
             >
@@ -2232,39 +2232,51 @@ function FilesSection({
   const isPreInProgress =
     STATUS_ORDER.indexOf(task.status) < STATUS_ORDER.indexOf("in_progress");
 
-  // Show full drag-drop when: no files AND status = in_progress
-  const showFullUploadZone = noFiles && isInProgress;
-  // Show small "upload more" button when: files exist AND admin AND status is in_progress or past
-  const showCompactUpload =
-    !noFiles && (isAdmin || (isInProgress && profile?.id === task.assigned_to));
+  const canUpload = isAdmin || (isInProgress && profile?.id === task.assigned_to);
+  const [filesExpanded, setFilesExpanded] = useState(files.length > 0);
 
   return (
-    <Section
-      title="Design files"
-      countBadge={files.length}
-      icon={<FolderOpen className="h-3.5 w-3.5" />}
-    >
-      {showFullUploadZone ? (
-        <FileUploadZone task={task} variant="full" onUploaded={onUploaded} />
-      ) : noFiles ? (
-        <p className="rounded-md border border-dashed border-border bg-card px-3 py-4 text-center text-xs text-muted-foreground">
-          {isPreInProgress
-            ? "Files will appear here once design work begins."
-            : "No files uploaded."}
-        </p>
-      ) : (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setFilesExpanded((p) => !p)}
+        className="flex w-full items-center gap-1.5 text-left"
+      >
+        <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Design files
+        </span>
+        {files.length > 0 && (
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-primary">{files.length}</span>
+        )}
+        <ChevronRight className={cn("h-3 w-3 text-muted-foreground transition-transform duration-200", filesExpanded && "rotate-90")} />
+      </button>
+
+      {filesExpanded && (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            {files.map((f) => (
-              <FileTile key={f.id} file={f} />
-            ))}
-          </div>
-          {showCompactUpload && (
-            <FileUploadZone task={task} variant="compact" onUploaded={onUploaded} />
+          {noFiles ? (
+            canUpload ? (
+              <FileUploadZone task={task} variant="compact" onUploaded={onUploaded} />
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                {isPreInProgress ? "Files appear once work begins." : "No files yet."}
+              </p>
+            )
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {files.map((f) => (
+                  <FileTile key={f.id} file={f} />
+                ))}
+              </div>
+              {canUpload && (
+                <FileUploadZone task={task} variant="compact" onUploaded={onUploaded} />
+              )}
+            </>
           )}
         </>
       )}
-    </Section>
+    </div>
   );
 }
 
