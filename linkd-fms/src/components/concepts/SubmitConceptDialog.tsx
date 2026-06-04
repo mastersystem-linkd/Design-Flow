@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
+import { useFabrics } from "@/hooks/useFabrics";
 import { useFormDraft } from "@/hooks/useFormDraft";
 import {
   Dialog,
@@ -61,6 +62,7 @@ interface Props {
     designs_count?: number | null;
     image_url?: string | null;
     files?: string[] | null;
+    fabric?: string | null;
   } | null;
   onEdit?: (conceptId: string, input: Partial<SubmitConceptInput>) => Promise<{ error: string | null }>;
 }
@@ -76,6 +78,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
 
   const { jobWorkClients } = useClients();
   const { names: assignedByNames } = useAssignedByOptions();
+  const { fabrics } = useFabrics();
 
   // ---------- form state ----------
   // Text fields live in a single draft object so we can persist the whole
@@ -90,6 +93,8 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
     /** Number of designs this concept contains. Required at submit; MD
      *  compares against `approved_designs_count` at final approval. */
     designsCount: string;
+    /** Fabric the concept is designed for (managed Fabrics lookup). Optional. */
+    fabric: string;
   };
   const DEFAULT_DRAFT: Draft = {
     title: "",
@@ -102,6 +107,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
     // behalf of someone else.
     assignedBy: "SELF",
     designsCount: "",
+    fabric: "",
   };
   const [draft, setDraft, clearDraft, draftRestored] = useFormDraft<Draft>(
     user ? `concept-draft:${user.id}` : null,
@@ -116,6 +122,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
     clientId,
     assignedBy,
     designsCount,
+    fabric,
   } = draft;
 
   const isEditMode = !!(editData && onEdit);
@@ -132,6 +139,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
         clientId: editData.client_id || "ld_silk_mills",
         assignedBy: editData.assigned_by || "SELF",
         designsCount: editData.designs_count != null ? String(editData.designs_count) : "",
+        fabric: editData.fabric || "",
       });
     }
     if (!open) editSeedRef.current = null;
@@ -379,6 +387,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
         client_id: clientId && clientId !== "ld_silk_mills" ? clientId : null,
         assigned_by: assignedBy || null,
         designs_count: designsCountNum,
+        fabric: fabric.trim() || null,
       };
       if (uploadedPaths.length > 0) {
         updates.image_url = primary;
@@ -400,6 +409,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
         assigned_by: assignedBy || null,
         priority: "normal",
         designs_count: designsCountNum,
+        fabric: fabric.trim() || null,
       });
       submitErr = result.error;
     }
@@ -533,6 +543,10 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description <span className="text-destructive">*</span></Label>
                 <textarea value={description} onChange={(e) => setField("description", e.target.value)} placeholder="Mood, palette, references…" rows={2} disabled={uploading}
                   className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Fabric</Label>
+                <Combobox value={fabric} onChange={(v) => setField("fabric", v)} options={fabrics.map((f) => ({ value: f.name, label: f.name }))} placeholder="Select fabric…" clearable disabled={uploading} />
               </div>
             </div>
           </section>
