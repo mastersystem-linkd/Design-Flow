@@ -147,8 +147,8 @@ export function EditTaskDialog({
       return;
     }
     const qtyNum = Number(qty);
-    if (!Number.isFinite(qtyNum) || qtyNum < 1) {
-      setError("Quantity must be at least 1.");
+    if (!Number.isFinite(qtyNum) || qtyNum < 0) {
+      setError("Quantity cannot be negative.");
       return;
     }
 
@@ -455,12 +455,12 @@ export function EditTaskDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="edit-qty">
-                    Quantity<span className="ml-0.5 text-destructive">*</span>
+                    Quantity
                   </Label>
                   <Input
                     id="edit-qty"
                     type="number"
-                    min={1}
+                    min={0}
                     step={1}
                     value={qty}
                     onChange={(e) => setQty(e.target.value)}
