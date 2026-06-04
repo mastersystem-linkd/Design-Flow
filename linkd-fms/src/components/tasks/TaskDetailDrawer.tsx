@@ -52,6 +52,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
+import { useFabrics } from "@/hooks/useFabrics";
 import { useTaskDetail, type FileWithUploader, type TaskLogWithUser } from "@/hooks/useTaskDetail";
 import { useTaskMutations, type UpdateTaskFields } from "@/hooks/useTaskMutations";
 import { useProfiles } from "@/hooks/useProfiles";
@@ -1341,6 +1342,7 @@ function InlineDeadlineFabricSetter({
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState("");
   const [saving, setSaving] = useState(false);
+  const { fabrics } = useFabrics();
 
   async function handleSave() {
     if (!val.trim()) return;
@@ -1373,15 +1375,29 @@ function InlineDeadlineFabricSetter({
 
   return (
     <div className="flex items-center gap-1.5">
-      <input
-        type={field === "planned_deadline" ? "date" : "text"}
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        placeholder={field === "fabric" ? "e.g. Cotton" : ""}
-        autoFocus
-        disabled={saving}
-        className="h-7 w-full rounded border border-input bg-card px-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/30"
-      />
+      {field === "fabric" ? (
+        <select
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          autoFocus
+          disabled={saving}
+          className="h-7 w-full rounded border border-input bg-card px-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+        >
+          <option value="">Select fabric…</option>
+          {fabrics.map((f) => (
+            <option key={f.id} value={f.name}>{f.name}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="date"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          autoFocus
+          disabled={saving}
+          className="h-7 w-full rounded border border-input bg-card px-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+      )}
       <button
         type="button"
         onClick={handleSave}
