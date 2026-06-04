@@ -142,10 +142,6 @@ export function EditTaskDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!concept.trim()) {
-      setError("Design type is required.");
-      return;
-    }
     const qtyNum = Number(qty);
     if (!Number.isFinite(qtyNum) || qtyNum < 0) {
       setError("Quantity cannot be negative.");
@@ -441,7 +437,7 @@ export function EditTaskDialog({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                 <div className="sm:col-span-2 space-y-1">
                   <Label htmlFor="edit-concept">
-                    Design Type<span className="ml-0.5 text-destructive">*</span>
+                    Design Type
                   </Label>
                   <Combobox
                     id="edit-concept"
