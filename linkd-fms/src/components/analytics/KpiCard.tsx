@@ -79,8 +79,11 @@ export function KpiCard({
   /* ── Flat mode — compact tiles for divided grid strips ── */
   if (flat) {
     const inner = (
-      <div className="relative flex h-full flex-col justify-center gap-0.5 px-3 py-1.5 swatch-edge sm:px-4 sm:py-2">
-        <div className="flex items-center justify-between gap-2">
+      <div className={cn(
+        "relative flex h-full flex-col justify-center gap-0.5 px-3 py-1.5 swatch-edge sm:px-4 sm:py-2",
+        centered && "items-center text-center"
+      )}>
+        <div className={cn("flex items-center gap-2", centered ? "justify-center" : "justify-between")}>
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
             <span className="text-primary">{icon}</span>
           </div>
@@ -92,11 +95,11 @@ export function KpiCard({
         )}>
           {displayValue}
         </p>
-        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        <p className={cn("text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground", !centered && "truncate")}>
           {label}
         </p>
         {sub && (
-          <p className="mt-0.5 hidden truncate text-[11px] font-medium leading-tight text-muted-foreground sm:block">{sub}</p>
+          <p className={cn("mt-0.5 text-[11px] font-medium leading-tight text-muted-foreground", centered ? "block" : "hidden truncate sm:block")}>{sub}</p>
         )}
         {sparklineData && sparklineData.length >= 2 && (
           <div className="-mb-0.5 mt-auto hidden h-3.5 sm:block">
@@ -118,8 +121,13 @@ export function KpiCard({
   const card = (
     <Card
       className={cn(
-        "group/kpi relative h-full overflow-hidden rounded-xl border-border bg-card swatch-edge shadow-card transition-all duration-200",
-        to && "cursor-pointer swatch-edge-actionable hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover"
+        "group/kpi relative h-full overflow-hidden rounded-xl border border-border bg-card shadow-card transition-all duration-200",
+        // Summary tiles (`centered`) match the Task Dashboard MetricCard: clean
+        // border, no left accent bar. Actionable/non-centered KPIs keep the
+        // selvedge accent.
+        !centered && "swatch-edge",
+        to && "cursor-pointer hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover",
+        to && !centered && "swatch-edge-actionable"
       )}
     >
       <CardContent className="relative flex h-full flex-col items-center px-2.5 py-2.5 text-center sm:px-4 sm:py-3">
@@ -133,7 +141,8 @@ export function KpiCard({
         </div>
         <p className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:mt-2 sm:text-[10px]">{label}</p>
         <p className={cn(
-          "mt-0.5 text-xl font-bold leading-none tracking-tight tabular-nums sm:mt-1 sm:text-[28px]",
+          "mt-0.5 text-xl font-bold leading-none tracking-tight tabular-nums sm:mt-1",
+          centered ? "sm:text-2xl" : "sm:text-[28px]",
           valueColor ?? "text-foreground"
         )}>
           {displayValue}

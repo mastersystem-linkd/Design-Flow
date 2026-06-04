@@ -17,6 +17,7 @@ import type { UserPreferences } from "@/types/database";
 // "Reference" column (reference files, key "files") IS toggleable.
 export type ColumnKey =
   | "date"
+  | "claimed"
   | "designer"
   | "concept"
   | "description"
@@ -37,7 +38,8 @@ export type ColumnKey =
 
 /** Every toggleable column, in render order, with its header label. */
 export const ALL_COLUMNS: readonly { key: ColumnKey; label: string }[] = [
-  { key: "date", label: "Date/Time" },
+  { key: "date", label: "Briefed" },
+  { key: "claimed", label: "Claimed" },
   { key: "designer", label: "Designer" },
   { key: "concept", label: "Concept" },
   { key: "description", label: "Description" },
@@ -92,6 +94,7 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
  *  columns that only matter once a task is closed. */
 export const IN_PROGRESS_DEFAULT_COLUMNS: ColumnKey[] = [
   "date",
+  "claimed",
   "designer",
   "concept",
   "description",
@@ -110,6 +113,7 @@ export const IN_PROGRESS_DEFAULT_COLUMNS: ColumnKey[] = [
  *  and full-kitting. */
 export const COMPLETED_DEFAULT_COLUMNS: ColumnKey[] = [
   "date",
+  "claimed",
   "designer",
   "concept",
   "description",

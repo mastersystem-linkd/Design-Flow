@@ -1928,10 +1928,14 @@ function MessageTimeInput({
   const [min, setMin] = useState("");
   const [period, setPeriod] = useState<"AM" | "PM">("AM");
 
-  // Keep local parts in sync with the stored 24h value (draft restore / reset /
-  // editing an existing record). Crucially, skip when `value` is just our OWN
-  // emit echoing back — otherwise it would re-pad an in-progress single digit
-  // (e.g. minute "5") to "05" and block typing the second digit ("59").
+  const hrRef = useRef<HTMLInputElement>(null);
+  const minRef = useRef<HTMLInputElement>(null);
+  const autoAdvancing = useRef(false);
+  const latestH12 = useRef(h12);
+  const latestMin = useRef(min);
+  latestH12.current = h12;
+  latestMin.current = min;
+
   useEffect(() => {
     const current =
       h12 && min
@@ -1963,6 +1967,8 @@ function MessageTimeInput({
     setH12(nextH);
     setMin(nextMin);
     setPeriod(nextPeriod);
+    latestH12.current = nextH;
+    latestMin.current = nextMin;
     if (!nextH || !nextMin) {
       onChange("");
       return;
@@ -1972,16 +1978,21 @@ function MessageTimeInput({
     onChange(`${String(h).padStart(2, "0")}:${nextMin.padStart(2, "0")}`);
   }
 
-  const minRef = useRef<HTMLInputElement>(null);
+  function clampHour(n: number): string {
+    const c = ((n - 1 + 12) % 12) + 1;
+    return String(c).padStart(2, "0");
+  }
+  function clampMin(n: number): string {
+    return String(((n % 60) + 60) % 60).padStart(2, "0");
+  }
 
-  // Typed entry — digits only, clamped to range. Hour auto-advances to minute
-  // once it can't take more digits (2 chars, or a leading 2-9 that must be a
-  // single-digit hour). Blur zero-pads for a tidy "05" display.
   function onHourInput(raw: string) {
     const d = raw.replace(/\D/g, "").slice(0, 2);
-    const next = d === "" ? "" : String(Math.min(12, parseInt(d, 10) || 0));
-    update(next, min, period);
-    if (next && (next.length === 2 || parseInt(next, 10) > 1)) {
+    const n = parseInt(d, 10);
+    const next = d === "" ? "" : String(Math.min(12, n || 0));
+    update(next, latestMin.current, period);
+    if (next && (next.length === 2 || n > 1)) {
+      autoAdvancing.current = true;
       minRef.current?.focus();
       minRef.current?.select();
     }
@@ -1989,12 +2000,34 @@ function MessageTimeInput({
   function onMinInput(raw: string) {
     const d = raw.replace(/\D/g, "").slice(0, 2);
     const next = d === "" ? "" : d.length === 2 ? String(Math.min(59, parseInt(d, 10))).padStart(2, "0") : d;
-    update(h12, next, period);
+    update(latestH12.current, next, period);
   }
 
-  // Borderless part-selects that live inside the single unified field. The
-  // native control still drives the value (great mobile pickers); we just hide
-  // its chrome so the whole thing reads as one crafted time input.
+  function onHourKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      minRef.current?.focus();
+      minRef.current?.select();
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const cur = parseInt(latestH12.current, 10) || 12;
+      const next = clampHour(e.key === "ArrowUp" ? cur + 1 : cur - 1);
+      update(next, latestMin.current, period);
+    }
+  }
+  function onMinKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      hrRef.current?.focus();
+      hrRef.current?.select();
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const cur = parseInt(latestMin.current, 10) || 0;
+      const next = clampMin(e.key === "ArrowUp" ? cur + 1 : cur - 1);
+      update(latestH12.current, next, period);
+    }
+  }
+
   const partCls =
     "h-9 w-9 rounded-md bg-transparent text-center text-sm font-semibold tabular-nums text-foreground placeholder:font-medium placeholder:text-muted-foreground focus:bg-secondary/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/40 disabled:opacity-50";
 
@@ -2008,6 +2041,7 @@ function MessageTimeInput({
     >
       <Clock className="mr-1 h-4 w-4 shrink-0 text-muted-foreground" />
       <input
+        ref={hrRef}
         id={id}
         type="text"
         inputMode="numeric"
@@ -2017,8 +2051,13 @@ function MessageTimeInput({
         className={partCls}
         value={h12}
         onChange={(e) => onHourInput(e.target.value)}
+        onKeyDown={onHourKey}
         onFocus={(e) => e.target.select()}
-        onBlur={() => h12 && update(h12.padStart(2, "0"), min, period)}
+        onBlur={() => {
+          if (autoAdvancing.current) { autoAdvancing.current = false; return; }
+          const v = latestH12.current;
+          if (v) update(v.padStart(2, "0"), latestMin.current, period);
+        }}
         disabled={disabled}
       />
       <span className="text-sm font-bold text-muted-foreground">:</span>
@@ -2032,8 +2071,12 @@ function MessageTimeInput({
         className={partCls}
         value={min}
         onChange={(e) => onMinInput(e.target.value)}
+        onKeyDown={onMinKey}
         onFocus={(e) => e.target.select()}
-        onBlur={() => min && update(h12, min.padStart(2, "0"), period)}
+        onBlur={() => {
+          const v = latestMin.current;
+          if (v) update(latestH12.current, v.padStart(2, "0"), period);
+        }}
         disabled={disabled}
       />
       {/* Segmented AM/PM — sits on a recessed track, active pill lifts. */}

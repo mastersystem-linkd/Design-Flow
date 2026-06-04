@@ -28,8 +28,8 @@ import { LoadingButton } from "@/components/ui/LoadingButton";
 import { cn, formatDate } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 import { TABLE_HEAD, TABLE_TH, TABLE_ROW, TABLE_TD } from "@/lib/tableStyles";
-import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
+import { KpiCard } from "@/components/analytics/KpiCard";
 import type { SalvedgeRecord } from "@/types/database";
 
 // ============================================================================
@@ -236,17 +236,16 @@ export function SalvedgeView() {
       {/* ── DASHBOARD TAB ── */}
       {activeTab === "dashboard" && isAdmin && (
         <div className="space-y-4">
-          {/* KPI strip — flat divided grid matching Task / Concept dashboards */}
-          <TextileHeroWrapper className="p-0 sm:p-0">
-            <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-6">
-              <FlatKpiTile icon={<Layers className="h-4 w-4 text-primary" />} label="Total Records" value={stats.total} tint="bg-primary/10" />
-              <FlatKpiTile icon={<CheckCircle2 className="h-4 w-4 text-success" />} label="Completed" value={stats.completed} tint="bg-success/10" color="text-success" />
-              <FlatKpiTile icon={<AlertCircle className="h-4 w-4 text-warning" />} label="Pending" value={stats.pending} tint="bg-warning/10" color="text-warning" />
-              <FlatKpiTile icon={<BarChart3 className="h-4 w-4 text-primary" />} label="Total Qty" value={stats.totalQty} tint="bg-primary/10" />
-              <FlatKpiTile icon={<TrendingUp className="h-4 w-4 text-success" />} label="Completion Rate" value={analytics.completionRate} tint="bg-success/10" color={analytics.completionRate >= 70 ? "text-success" : analytics.completionRate >= 40 ? "text-warning" : "text-destructive"} suffix="%" />
-              <FlatKpiTile icon={<Clock className="h-4 w-4 text-primary" />} label="Avg Completion" value={analytics.avgCompletionDays ?? 0} tint="bg-primary/10" suffix={analytics.avgCompletionDays !== null ? "d" : ""} />
-            </div>
-          </TextileHeroWrapper>
+          {/* KPI grid — clean bordered cards (same idiom as Task Dashboard /
+              Scorecards), 2-up on mobile, 6-up on desktop. */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
+            <KpiCard centered icon={<Layers className="h-4 w-4 text-primary" />} label="Total Records" value={stats.total} tintClass="bg-primary/10" animateValue />
+            <KpiCard centered icon={<CheckCircle2 className="h-4 w-4 text-success" />} label="Completed" value={stats.completed} tintClass="bg-success/10" valueColor="text-success" animateValue />
+            <KpiCard centered icon={<AlertCircle className="h-4 w-4 text-warning" />} label="Pending" value={stats.pending} tintClass={stats.pending > 0 ? "bg-warning/10" : "bg-success/10"} valueColor={stats.pending > 0 ? "text-warning" : "text-success"} animateValue />
+            <KpiCard centered icon={<BarChart3 className="h-4 w-4 text-primary" />} label="Total Qty" value={stats.totalQty} tintClass="bg-primary/10" animateValue />
+            <KpiCard centered icon={<TrendingUp className="h-4 w-4 text-success" />} label="Completion Rate" value={`${analytics.completionRate}%`} tintClass="bg-success/10" valueColor={analytics.completionRate >= 70 ? "text-success" : analytics.completionRate >= 40 ? "text-warning" : "text-destructive"} />
+            <KpiCard centered icon={<Clock className="h-4 w-4 text-primary" />} label="Avg Completion" value={analytics.avgCompletionDays !== null ? `${analytics.avgCompletionDays}d` : "—"} tintClass="bg-primary/10" />
+          </div>
 
           {analytics.pendingQtyTotal > 0 && stats.pending >= 3 ? (
             <AlertBanner
@@ -357,39 +356,6 @@ export function SalvedgeView() {
             </CardContent>
           </Card>
 
-          {/* Summary strip — flat divided grid matching the KPI strip */}
-          <TextileHeroWrapper className="p-0 sm:p-0">
-            <div className="grid grid-cols-1 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0">
-              <div className="px-3 py-2.5 sm:px-4 sm:py-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  Avg Completion Time
-                </div>
-                <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground sm:text-xl">
-                  {analytics.avgCompletionDays !== null ? `${analytics.avgCompletionDays} days` : "—"}
-                </p>
-                <p className="text-[9px] text-muted-foreground/60">From creation to completion</p>
-              </div>
-              <div className="px-3 py-2.5 sm:px-4 sm:py-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <Package className="h-3 w-3" />
-                  Avg Qty / Challan
-                </div>
-                <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground sm:text-xl">{analytics.avgQty}</p>
-                <p className="text-[9px] text-muted-foreground/60">Average quantity per record</p>
-              </div>
-              <div className="px-3 py-2.5 sm:px-4 sm:py-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <Building2 className="h-3 w-3" />
-                  Unique Parties
-                </div>
-                <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground sm:text-xl">{analytics.partyData.length}</p>
-                <p className="text-[9px] text-muted-foreground/60">
-                  {analytics.designerData.length} designer{analytics.designerData.length !== 1 ? "s" : ""} assigned
-                </p>
-              </div>
-            </div>
-          </TextileHeroWrapper>
         </div>
       )}
 

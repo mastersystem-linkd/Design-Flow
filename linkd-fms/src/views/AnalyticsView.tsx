@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useAnalytics, type Period } from "@/hooks/useAnalytics";
 import { useConcepts } from "@/hooks/useConcepts";
-import { KpiCard } from "@/components/analytics/KpiCard";
+import { MetricCard, type HeroTone } from "@/views/TaskDashboardView";
 import { VolumeChart } from "@/components/analytics/VolumeChart";
 import { PipelineHealth } from "@/components/analytics/PipelineHealth";
 import { DesignerLeaderboard } from "@/components/analytics/DesignerLeaderboard";
@@ -196,12 +196,12 @@ export function AnalyticsView({
             {canExport && a.designerStats.length > 0 && (
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
                 onClick={handleExportReport}
-                className="gap-1.5"
+                className="h-8 w-8"
+                title="Export"
               >
                 <Download className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Export</span>
               </Button>
             )}
             <div className="inline-flex rounded-lg bg-secondary p-1">
@@ -233,6 +233,7 @@ export function AnalyticsView({
         <DesignerConceptDashboard
           concepts={concepts}
           userId={userId}
+          period={period}
           onSubmit={() => navigate(ROUTES.concepts)}
           onConceptSelect={() => navigate(ROUTES.concepts)}
         />
@@ -318,65 +319,46 @@ export function AnalyticsView({
               pill, quiet sparkline, subtle hover lift. No divided-cell strip,
               no decorative wrapper — hierarchy from grouping + contrast. */}
           <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
-            <KpiCard
-              icon={<FileText className="h-4 w-4 text-primary" />}
+            <MetricCard
+              icon={FileText}
               label="Concepts Submitted"
+              tone="primary"
               value={a.kpis.totalSubmitted.current}
-              metric={a.kpis.totalSubmitted}
-              tintClass="bg-primary/10"
-              to={`${ROUTES.concepts}?tab=all`}
-              animateValue
+              trend={a.kpis.totalSubmitted}
               sparklineData={a.sparklines.submitted}
               sub={`by ${a.designerStats.filter(d => d.submitted > 0).length} designer${a.designerStats.filter(d => d.submitted > 0).length !== 1 ? "s" : ""}`}
+              onClick={() => navigate(`${ROUTES.concepts}?tab=all`)}
             />
-            <KpiCard
-              icon={<CheckCircle2 className="h-4 w-4 text-success" />}
+            <MetricCard
+              icon={CheckCircle2}
               label="Approved"
+              tone={a.kpis.approvalRate.current > 80 ? "success" : a.kpis.approvalRate.current < 50 ? "destructive" : "success"}
               value={a.kpis.totalApproved.current}
-              metric={a.kpis.totalApproved}
-              tintClass="bg-success/10"
-              to={`${ROUTES.concepts}?tab=approved`}
-              animateValue
+              trend={a.kpis.totalApproved}
               sparklineData={a.sparklines.approved}
-              valueColor={
-                a.kpis.approvalRate.current > 80 ? "text-success" : a.kpis.approvalRate.current < 50 ? "text-destructive" : undefined
-              }
               sub={`${a.kpis.approvalRate.current}% rate · ${a.kpis.totalApproved.current + (a.statusDistribution.find(s => s.status === "rejected")?.count ?? 0)} reviewed`}
+              onClick={() => navigate(`${ROUTES.concepts}?tab=approved`)}
             />
-            <KpiCard
-              icon={<PackageCheck className="h-4 w-4 text-success" />}
+            <MetricCard
+              icon={PackageCheck}
               label="Completed"
+              tone={a.kpis.completionRate.current >= 70 ? "success" : a.kpis.completionRate.current >= 40 ? "warning" : "muted"}
               value={a.kpis.totalCompleted.current}
-              metric={a.kpis.totalCompleted}
-              tintClass="bg-success/10"
-              to={`${ROUTES.concepts}?tab=completed`}
-              animateValue
+              trend={a.kpis.totalCompleted}
               sparklineData={a.sparklines.completed}
-              valueColor={
-                a.kpis.completionRate.current >= 70 ? "text-success" :
-                a.kpis.completionRate.current >= 40 ? "text-warning" : undefined
-              }
-              sub={
-                a.kpis.totalApproved.current > 0
-                  ? `${a.kpis.completionRate.current}% of approved shipped`
-                  : "No approved concepts yet"
-              }
+              sub={a.kpis.totalApproved.current > 0 ? `${a.kpis.completionRate.current}% of approved shipped` : "No approved concepts yet"}
+              onClick={() => navigate(`${ROUTES.concepts}?tab=completed`)}
             />
-            <KpiCard
-              icon={<RotateCcw className="h-4 w-4 text-warning" />}
+            <MetricCard
+              icon={RotateCcw}
               label="Avg Review Time"
+              tone={a.kpis.avgApprovalHours.current === 0 ? "muted" : a.kpis.avgApprovalHours.current < 24 ? "success" : a.kpis.avgApprovalHours.current < 48 ? "warning" : "destructive"}
               value={a.kpis.avgApprovalHours.current > 0 ? `${a.kpis.avgApprovalHours.current}h` : "—"}
-              metric={a.kpis.avgApprovalHours}
-              tintClass="bg-warning/10"
+              trend={a.kpis.avgApprovalHours}
               invertTrend
               sparklineData={a.sparklines.avgReviewHours}
-              valueColor={
-                a.kpis.avgApprovalHours.current === 0 ? undefined :
-                a.kpis.avgApprovalHours.current < 24 ? "text-success" :
-                a.kpis.avgApprovalHours.current < 48 ? "text-warning" : "text-destructive"
-              }
-              to={`${ROUTES.concepts}?tab=pending`}
               sub="Target: < 24 hours"
+              onClick={() => navigate(`${ROUTES.concepts}?tab=pending`)}
             />
           </div>
 

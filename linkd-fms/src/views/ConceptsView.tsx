@@ -284,6 +284,7 @@ export function ConceptsView() {
     error,
     refetch,
     submitConcept,
+    editConcept,
     reviewConcept,
     finalizeConcept,
     finalApproveConcept,
@@ -302,7 +303,8 @@ export function ConceptsView() {
   // designers no longer needed — dashboards moved to AnalyticsView.
 
   const role = profile?.role ?? "designer";
-  const isAdmin = role === "admin" || role === "design_coordinator";
+  const isAdmin = role === "admin" || role === "super_admin" || role === "design_coordinator";
+  const isMd = role === "admin" || role === "super_admin";
   const isDesigner = role === "designer";
   const userId = profile?.id;
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
@@ -340,6 +342,16 @@ export function ConceptsView() {
   function stageColSpan(stage: StageGroup): number {
     return CONCEPT_COLS.filter((c) => c.stage === stage && conceptCols.includes(c.key)).length;
   }
+  // First visible column of each stage AFTER creation — these get a darker
+  // left divider so the eye can see where one lifecycle stage's columns end
+  // and the next begins (the header colSpan alone read as one flat band).
+  function isStageStart(key: ConceptColKey): boolean {
+    const firstOf: Partial<Record<StageGroup, ConceptColKey>> = {};
+    for (const col of CONCEPT_COLS) {
+      if (conceptCols.includes(col.key) && !(col.stage in firstOf)) firstOf[col.stage] = col.key;
+    }
+    return (["approval", "completion", "final"] as StageGroup[]).some((s) => firstOf[s] === key);
+  }
   // Secondary tab — work-status. Drives the second chip row when md_status
   // filter is "All" or "Approved". Stays "all" otherwise so switching back
   // doesn't surprise the user with a hidden filter.
@@ -354,6 +366,9 @@ export function ConceptsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlTab]);
   const [submitOpen, setSubmitOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Props["editConcept"] | null>(null);
+
+  type Props = React.ComponentProps<typeof SubmitConceptDialog>;
   // Track the selected concept by id, not by snapshot. We then derive the
   // live concept object from the `concepts` array on each render — so after
   // any mutation invalidates the cache, the drawer reflects the new state
@@ -480,11 +495,24 @@ export function ConceptsView() {
   // We expose this as a predicate so both the inbox count AND the per-row
   // "Your turn" pill below stay in lockstep with whatever counts as
   // actionable.
-  const needsMdAction = useCallback(
+  // Two distinct "it's your turn" states, each tied to a different lifecycle
+  // stage so the YOUR TURN pill renders in the column that's actually waiting:
+  //   • Concept review  → Stage 02 (MD Approval). MD only (isMd).
+  //   • Final review    → Stage 04 (Final Approval). Admin + coordinator
+  //     (isAdmin) — this is the one that was wrongly showing in Stage 02 for
+  //     coordinators.
+  const needsConceptReview = useCallback(
+    (c: ConceptWithRelations): boolean => c.md_status === "pending" && isMd,
+    [isMd]
+  );
+  const needsFinalReview = useCallback(
     (c: ConceptWithRelations): boolean =>
-      c.md_status === "pending" ||
-      (c.md_status === "approved" && c.work_status === "in_revision"),
-    []
+      c.md_status === "approved" && c.work_status === "in_revision" && isAdmin,
+    [isAdmin]
+  );
+  const needsMdAction = useCallback(
+    (c: ConceptWithRelations): boolean => needsConceptReview(c) || needsFinalReview(c),
+    [needsConceptReview, needsFinalReview]
   );
   const needsApprovalCount = useMemo(
     () => concepts.filter(needsMdAction).length,
@@ -613,10 +641,12 @@ export function ConceptsView() {
                 <span className="hidden sm:inline">Export</span>
               </Button>
             )}
-            <Button size="sm" className="gap-1 px-2.5" onClick={() => setSubmitOpen(true)}>
-              <Plus className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Submit Concept</span>
-            </Button>
+            {isDesigner && (
+              <Button size="sm" className="gap-1 px-2.5" onClick={() => setSubmitOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Submit Concept</span>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -808,7 +838,7 @@ export function ConceptsView() {
               : "Try switching to a different filter."
           }
           action={
-            tab === "all"
+            tab === "all" && isDesigner
               ? {
                   label: "Submit Concept",
                   onClick: () => setSubmitOpen(true),
@@ -855,17 +885,17 @@ export function ConceptsView() {
                 {showCol("party") && <ColHead>Party</ColHead>}
                 {showCol("designs") && <ColHead center>Designs</ColHead>}
                 {showCol("assigned_by") && <ColHead>Assigned By</ColHead>}
-                {showCol("decision") && <ColHead>Decision</ColHead>}
-                {showCol("planned") && <ColHead>Planned</ColHead>}
-                {showCol("reviewed") && <ColHead>Reviewed</ColHead>}
-                {showCol("work_status") && <ColHead>Work Status</ColHead>}
-                {showCol("started") && <ColHead>Started</ColHead>}
-                {showCol("holds") && <ColHead center>Holds</ColHead>}
-                {showCol("marked_done") && <ColHead>Marked Done</ColHead>}
-                {showCol("final_decision") && <ColHead>Decision</ColHead>}
-                {showCol("approved_count") && <ColHead center>Approved</ColHead>}
-                {showCol("md_feedback") && <ColHead wider>MD Feedback</ColHead>}
-                {showCol("completed") && <ColHead>Completed</ColHead>}
+                {showCol("decision") && <ColHead stageStart={isStageStart("decision")}>Decision</ColHead>}
+                {showCol("planned") && <ColHead stageStart={isStageStart("planned")}>Planned</ColHead>}
+                {showCol("reviewed") && <ColHead stageStart={isStageStart("reviewed")}>Reviewed</ColHead>}
+                {showCol("work_status") && <ColHead stageStart={isStageStart("work_status")}>Work Status</ColHead>}
+                {showCol("started") && <ColHead stageStart={isStageStart("started")}>Started</ColHead>}
+                {showCol("holds") && <ColHead center stageStart={isStageStart("holds")}>Holds</ColHead>}
+                {showCol("marked_done") && <ColHead stageStart={isStageStart("marked_done")}>Marked Done</ColHead>}
+                {showCol("final_decision") && <ColHead stageStart={isStageStart("final_decision")}>Decision</ColHead>}
+                {showCol("approved_count") && <ColHead center stageStart={isStageStart("approved_count")}>Approved</ColHead>}
+                {showCol("md_feedback") && <ColHead wider stageStart={isStageStart("md_feedback")}>MD Feedback</ColHead>}
+                {showCol("completed") && <ColHead stageStart={isStageStart("completed")}>Completed</ColHead>}
               </tr>
             </thead>
 
@@ -901,23 +931,23 @@ export function ConceptsView() {
                     {showCol("designs") && <td className="px-3 py-2.5 text-center">{c.designs_count != null ? <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-primary/8 px-1.5 text-[11px] font-bold tabular-nums text-primary ring-1 ring-inset ring-primary/20">{c.designs_count}</span> : <Dash />}</td>}
                     {showCol("assigned_by") && <Cell>{c.assigned_by || "—"}</Cell>}
 
-                    {showCol("decision") && <td className="px-3 py-2.5"><div className="flex items-center gap-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} />{isAdmin && needsMdAction(c) && <YourTurnPill />}</div></td>}
-                    {showCol("planned") && <Cell>{fmtDate(c.md_planned_date)}</Cell>}
-                    {showCol("reviewed") && <td className="px-3 py-2.5"><span className="text-xs">{fmtDate(c.md_actual_date)}</span>{approvalDelay !== null && <DelayLabel days={approvalDelay} />}</td>}
+                    {showCol("decision") && <td className={cn("px-3 py-2.5", isStageStart("decision") && "border-l-2 border-l-border")}><div className="flex items-center gap-1.5"><StatusPill status={c.md_status} label={c.md_status === "pending" && Array.isArray(c.completion_history) && c.completion_history.length > 0 ? "Re-submitted" : undefined} />{needsConceptReview(c) && <YourTurnPill />}</div></td>}
+                    {showCol("planned") && <Cell stageStart={isStageStart("planned")}>{fmtDate(c.md_planned_date)}</Cell>}
+                    {showCol("reviewed") && <td className={cn("px-3 py-2.5", isStageStart("reviewed") && "border-l-2 border-l-border")}><span className="text-xs">{fmtDate(c.md_actual_date)}</span>{approvalDelay !== null && <DelayLabel days={approvalDelay} />}</td>}
 
                     {/* ── Stage 3 · Designer Working — lifecycle-driven. The
                          legacy "Done / Done Date / Delayed" columns are gone;
                          work-status, started_at, hold_count, revision_count,
                          and designer_actual_date (set automatically by
                          markConceptDone) now drive the picture. ── */}
-                    {showCol("work_status") && <td className="px-3 py-2.5 whitespace-nowrap">{c.md_status === "approved" ? <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset", WORK_STATUS_COLORS[c.work_status])}><span className={cn("h-1.5 w-1.5 rounded-full", WORK_STATUS_DOT[c.work_status], c.work_status === "in_progress" && "animate-pulse")} aria-hidden />{WORK_STATUS_LABELS[c.work_status]}</span> : <Dash />}</td>}
-                    {showCol("started") && <Cell>{fmtDate(c.work_started_at)}</Cell>}
-                    {showCol("holds") && <td className="px-3 py-2.5 text-center whitespace-nowrap"><HoldCell concept={c} /></td>}
-                    {showCol("marked_done") && <td className="px-3 py-2.5 whitespace-nowrap">{c.designer_actual_date ? <span className="text-xs">{fmtDate(c.designer_actual_date)}</span> : <Dash />}</td>}
-                    {showCol("final_decision") && <td className="px-3 py-2.5 whitespace-nowrap"><FinalDecisionPill concept={c} /></td>}
-                    {showCol("approved_count") && <td className="px-3 py-2.5 text-center text-xs tabular-nums">{c.work_status === "completed" ? <span className="font-semibold text-success">{c.approved_designs_count ?? "—"}<span className="text-muted-foreground/60">{c.designs_count != null ? ` / ${c.designs_count}` : ""}</span></span> : c.designs_count != null ? <span className="text-muted-foreground/60">— / {c.designs_count}</span> : <Dash />}</td>}
-                    {showCol("md_feedback") && <td className="max-w-[180px] px-3 py-2.5 text-xs text-muted-foreground">{c.md_feedback ? <span className="line-clamp-1 italic" title={c.md_feedback}>"{c.md_feedback}"</span> : <Dash />}</td>}
-                    {showCol("completed") && <td className="px-3 py-2.5 whitespace-nowrap">{c.work_completed_at ? <span className="text-xs font-medium text-success">{fmtDate(c.work_completed_at)}</span> : <Dash />}</td>}
+                    {showCol("work_status") && <td className={cn("px-3 py-2.5 whitespace-nowrap", isStageStart("work_status") && "border-l-2 border-l-border")}>{c.md_status === "approved" ? <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset", WORK_STATUS_COLORS[c.work_status])}><span className={cn("h-1.5 w-1.5 rounded-full", WORK_STATUS_DOT[c.work_status], c.work_status === "in_progress" && "animate-pulse")} aria-hidden />{WORK_STATUS_LABELS[c.work_status]}</span> : <Dash />}</td>}
+                    {showCol("started") && <Cell stageStart={isStageStart("started")}>{fmtDate(c.work_started_at)}</Cell>}
+                    {showCol("holds") && <td className={cn("px-3 py-2.5 text-center whitespace-nowrap", isStageStart("holds") && "border-l-2 border-l-border")}><HoldCell concept={c} /></td>}
+                    {showCol("marked_done") && <td className={cn("px-3 py-2.5 whitespace-nowrap", isStageStart("marked_done") && "border-l-2 border-l-border")}>{c.designer_actual_date ? <span className="text-xs">{fmtDate(c.designer_actual_date)}</span> : <Dash />}</td>}
+                    {showCol("final_decision") && <td className={cn("px-3 py-2.5 whitespace-nowrap", isStageStart("final_decision") && "border-l-2 border-l-border")}><div className="flex items-center gap-1.5"><FinalDecisionPill concept={c} />{needsFinalReview(c) && <YourTurnPill />}</div></td>}
+                    {showCol("approved_count") && <td className={cn("px-3 py-2.5 text-center text-xs tabular-nums", isStageStart("approved_count") && "border-l-2 border-l-border")}>{c.work_status === "completed" ? <span className="font-semibold text-success">{c.approved_designs_count ?? "—"}<span className="text-muted-foreground/60">{c.designs_count != null ? ` / ${c.designs_count}` : ""}</span></span> : c.designs_count != null ? <span className="text-muted-foreground/60">— / {c.designs_count}</span> : <Dash />}</td>}
+                    {showCol("md_feedback") && <td className={cn("max-w-[180px] px-3 py-2.5 text-xs text-muted-foreground", isStageStart("md_feedback") && "border-l-2 border-l-border")}>{c.md_feedback ? <span className="line-clamp-1 italic" title={c.md_feedback}>"{c.md_feedback}"</span> : <Dash />}</td>}
+                    {showCol("completed") && <td className={cn("px-3 py-2.5 whitespace-nowrap", isStageStart("completed") && "border-l-2 border-l-border")}>{c.work_completed_at ? <span className="text-xs font-medium text-success">{fmtDate(c.work_completed_at)}</span> : <Dash />}</td>}
 
                     {/* Sticky right Actions cell — ⋮ menu with View / Edit /
                          Delete. stopPropagation everywhere so a menu click
@@ -988,8 +1018,9 @@ export function ConceptsView() {
         </>
       )}
 
-      {/* -- Pagination -- */}
-      {allVisible.length > 0 && (
+      {/* -- Pagination -- only when there's more than one page; a single
+           page of results needs no "Showing 1–1 of 1 / Per page" footer. -- */}
+      {conceptPg.totalPages > 1 && (
         <Pagination
           page={conceptPg.page}
           totalPages={conceptPg.totalPages}
@@ -1007,6 +1038,17 @@ export function ConceptsView() {
         open={submitOpen}
         onOpenChange={setSubmitOpen}
         onSubmit={submitConcept}
+      />
+      <SubmitConceptDialog
+        open={!!editTarget}
+        onOpenChange={(o) => { if (!o) setEditTarget(null); }}
+        onSubmit={submitConcept}
+        editConcept={editTarget}
+        onEdit={async (id, input) => {
+          const r = await editConcept(id, input);
+          if (!r.error) setEditTarget(null);
+          return r;
+        }}
       />
       <ConceptDetailDrawer
         concept={selectedConcept}
@@ -1030,6 +1072,17 @@ export function ConceptsView() {
         onApproveDesign={approveDesign}
         onSuggestChanges={suggestChanges}
         onStartChanges={startChanges}
+        onEditConcept={(c) => setEditTarget({
+          id: c.id,
+          title: c.title,
+          description: c.description,
+          start_date: c.start_date,
+          client_id: c.client_id,
+          assigned_by: c.assigned_by,
+          designs_count: c.designs_count,
+          image_url: c.image_url,
+          files: c.files,
+        })}
       />
 
       <ExportDialog
@@ -1108,7 +1161,12 @@ function StageHeader({
   return (
     <th
       colSpan={colSpan}
-      className="relative border-b border-border/50 bg-secondary/40 p-0"
+      className={cn(
+        "relative border-b border-border/50 bg-secondary/40 p-0",
+        // Darker divider between stage groups (creation needs none — it sits
+        // right after the sticky # column's own right border).
+        stage !== "creation" && "border-l-2 border-l-border"
+      )}
     >
       <div className={cn("absolute inset-x-0 top-0 h-[2px]", CAT_ACCENT[stage])} />
       <div className="flex items-center justify-center gap-1.5 px-3 py-2">
@@ -1129,15 +1187,18 @@ function StageHeader({
 function Cell({
   children,
   border,
+  stageStart,
 }: {
   children: React.ReactNode;
   border?: boolean;
+  stageStart?: boolean;
 }) {
   return (
     <td
       className={cn(
         "px-3 py-2.5 text-xs text-foreground whitespace-nowrap",
-        border && "border-r border-border/20"
+        border && "border-r border-border/20",
+        stageStart && "border-l-2 border-l-border"
       )}
     >
       {children}
@@ -1150,11 +1211,13 @@ function ColHead({
   border,
   center,
   wider,
+  stageStart,
 }: {
   children: React.ReactNode;
   border?: boolean;
   center?: boolean;
   wider?: boolean;
+  stageStart?: boolean;
 }) {
   return (
     <th
@@ -1162,6 +1225,7 @@ function ColHead({
         "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.07em] text-foreground border-b border-border bg-secondary/40",
         center && "text-center",
         border && "border-r border-border/30",
+        stageStart && "border-l-2 border-l-border",
         wider && "min-w-[200px]"
       )}
     >

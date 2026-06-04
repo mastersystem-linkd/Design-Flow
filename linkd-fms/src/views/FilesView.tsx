@@ -210,8 +210,6 @@ export function FilesView() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [deleting, setDeleting] = useState<StorageFile | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
-  const [deleteAllBusy, setDeleteAllBusy] = useState(false);
 
   // ── "Linked To" lookup — maps storage paths to structured source info ──
   interface LinkedInfo {
@@ -503,20 +501,6 @@ export function FilesView() {
 
   // Bulk delete — operates on whatever is currently shown (`filtered`), so it
   // respects the active tab/filters (e.g. "Concepts 21" deletes just those).
-  const handleDeleteAll = useCallback(async () => {
-    setDeleteAllBusy(true);
-    const { deleted, error: err } = await deleteFiles(filtered);
-    setDeleteAllBusy(false);
-    setConfirmDeleteAll(false);
-    if (err) {
-      toast.error(
-        `Deleted ${deleted} file${deleted !== 1 ? "s" : ""}, but some failed: ${err}`
-      );
-    } else {
-      toast.success(`Deleted ${deleted} file${deleted !== 1 ? "s" : ""}`);
-    }
-  }, [deleteFiles, filtered]);
-
   // ── "Clear filters" — only meaningful when at least one is active ──
   const filterActive =
     bucket !== "all" ||
@@ -592,22 +576,9 @@ export function FilesView() {
               <List className="h-4 w-4" />
             </button>
           </div>
-          {/* Delete all — admin-only, acts on the currently shown set */}
-          {isAdminUser && filtered.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmDeleteAll(true)}
-              className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
-              title={`Delete all ${filtered.length} shown file${filtered.length !== 1 ? "s" : ""}`}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Delete all</span>
-              <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
-                {filtered.length}
-              </span>
-            </Button>
-          )}
+          {/* Bulk "Delete all" was removed from the Files view — it was too easy
+              to hit. The destructive all-files wipe now lives in Settings →
+              Danger Zone, gated to super-admins. Per-file delete stays here. */}
         </div>
       </div>
 
@@ -786,22 +757,6 @@ export function FilesView() {
         onConfirm={handleDelete}
       />
 
-      {/* ── Delete-all confirm ── */}
-      <ConfirmDialog
-        open={confirmDeleteAll}
-        onCancel={() => setConfirmDeleteAll(false)}
-        title={`Delete all ${filtered.length} file${filtered.length !== 1 ? "s" : ""}?`}
-        description={`This permanently removes ${filtered.length} file${
-          filtered.length !== 1 ? "s" : ""
-        } ${
-          filterActive
-            ? "matching the current filters"
-            : "across every bucket"
-        } from storage. This cannot be undone.`}
-        confirmLabel={deleteAllBusy ? "Deleting…" : "Delete all"}
-        variant="danger"
-        onConfirm={handleDeleteAll}
-      />
     </div>
   );
 }
@@ -903,7 +858,7 @@ function UploaderCell({
   const roleLabel =
     ROLE_LABELS[uploader.role as keyof typeof ROLE_LABELS] ?? uploader.role;
   const isElevated =
-    uploader.role === "admin" || uploader.role === "design_coordinator";
+    uploader.role === "admin" || uploader.role === "super_admin" || uploader.role === "design_coordinator";
   return (
     <div className="flex items-center gap-2">
       <Avatar className="h-6 w-6">

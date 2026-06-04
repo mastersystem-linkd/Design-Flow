@@ -247,7 +247,7 @@ export function DashboardView() {
                 description="View task pipeline"
                 accent="foreground"
               />
-              {(role === "admin" || role === "designer") && (
+              {(role === "admin" || role === "super_admin" || role === "designer") && (
                 <QuickAction
                   to={ROUTES.concepts}
                   icon={Lightbulb}

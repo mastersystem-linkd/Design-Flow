@@ -102,6 +102,7 @@ export interface UseConcepts {
   error: string | null;
   refetch: () => unknown;
   submitConcept: (input: SubmitConceptInput) => Promise<MutationResult<Concept>>;
+  editConcept: (conceptId: string, input: Partial<SubmitConceptInput>) => Promise<MutationResult<Concept>>;
   reviewConcept: (
     conceptId: string,
     input: ReviewInput
@@ -266,6 +267,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
   const submitConcept = useCallback<UseConcepts["submitConcept"]>(
     async (input) => {
       if (!user) return { data: null, error: "Not authenticated" };
+      if (profile?.role && profile.role !== "designer")
+        return { data: null, error: "Only designers can submit concepts. Admins and coordinators can review and approve them." };
       if (!input.title?.trim())
         return { data: null, error: "title is required" };
       if (!input.image_url?.trim())
@@ -378,19 +381,65 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
     [user, profile, invalidateAll]
   );
 
+  const editConcept = useCallback<UseConcepts["editConcept"]>(
+    async (conceptId, input) => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      const update: Record<string, unknown> = {};
+      if (input.title !== undefined) update.title = input.title.trim();
+      if (input.description !== undefined) update.description = input.description?.trim() || null;
+      if (input.image_url !== undefined) update.image_url = input.image_url;
+      if (input.file_url !== undefined) update.file_url = input.file_url;
+      if (input.files !== undefined) update.files = input.files;
+      if (input.client_id !== undefined) update.client_id = input.client_id;
+      if (input.assigned_by !== undefined) update.assigned_by = input.assigned_by?.trim() || null;
+      if (input.designs_count !== undefined) update.designs_count = input.designs_count;
+      if (input.start_date !== undefined) update.start_date = input.start_date;
+
+      if (Object.keys(update).length === 0)
+        return { data: null, error: "Nothing to update" };
+
+      const { data, error: err } = await supabase
+        .from("concepts")
+        .update(update)
+        .eq("id", conceptId)
+        .select("*")
+        .single();
+
+      if (err) return { data: null, error: err.message };
+      invalidateAll();
+      return { data: data as Concept, error: null };
+    },
+    [user, invalidateAll]
+  );
+
   const reviewConcept = useCallback<UseConcepts["reviewConcept"]>(
     async (conceptId, input) => {
       if (!user) return { data: null, error: "Not authenticated" };
+      if (profile?.role && profile.role !== "admin" && profile.role !== "super_admin")
+        return { data: null, error: "Only MD (Admin) can review concepts at this stage." };
       // Client-side mirror of the 0029 DB trigger — when MD approves, the
       // concept auto-starts (work_status='in_progress' + work_started_at).
       // The trigger already does this server-side; setting it here too
       // means the row we return to the caller reflects the new state
       // immediately without a refetch.
       const now = new Date().toISOString();
+      const historyType =
+        input.status === "approved" ? "md_concept_approved"
+          : input.status === "rejected" ? "md_concept_rejected"
+          : "md_concept_revision";
+      const history = await appendHistory(conceptId, {
+        type: historyType as CompletionHistoryEntry["type"],
+        date: now,
+        by: profile?.full_name ?? "Admin",
+        feedback: input.notes?.trim() || undefined,
+      });
       const update: Record<string, unknown> = {
         md_status: input.status,
         md_reviewed_by: user.id,
+        md_reviewed_at: now,
         md_notes: input.notes?.trim() || null,
+        completion_history: history,
       };
       if (input.status === "approved") {
         update.work_status = "in_progress";
@@ -593,7 +642,6 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         .from("concepts")
         .update({
           work_status: "changes_requested",
-          md_feedback: notes.trim(),
           final_approval_notes: notes.trim(),
           completion_history: history as unknown as any,
         })
@@ -711,14 +759,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         type: "resubmit",
         date: now,
         by: profile?.full_name ?? "Designer",
-        // Original MD feedback preserved for audit. If designer added their
-        // own "what changed" notes, prepend them so the timeline reads as
-        // "designer addressed: <notes> · prior feedback: <md_notes>".
-        feedback: changesNotes
-          ? previous?.md_notes
-            ? `Changes: ${changesNotes} · Prior feedback: ${previous.md_notes}`
-            : `Changes: ${changesNotes}`
-          : previous?.md_notes ?? undefined,
+        feedback: changesNotes || undefined,
       });
 
       // Schema-fallback for the files column (post-0018) — drop it if the
@@ -1253,6 +1294,7 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
     error: error instanceof Error ? error.message : null,
     refetch,
     submitConcept,
+    editConcept,
     reviewConcept,
     finalizeConcept,
     finalApproveConcept,

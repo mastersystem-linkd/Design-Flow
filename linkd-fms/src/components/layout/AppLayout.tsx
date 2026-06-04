@@ -5,6 +5,7 @@ import { TopNav } from "@/components/layout/TopNav";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useConceptReminders } from "@/hooks/useConceptReminders";
+import { useHeldConceptAlerts } from "@/hooks/useHeldConceptAlerts";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/types/database";
 
@@ -38,6 +39,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
   const location = useLocation();
   const { unreadCount } = useNotifications();
   useConceptReminders();
+  useHeldConceptAlerts();
 
   const mainRef = useRef<HTMLElement>(null);
 

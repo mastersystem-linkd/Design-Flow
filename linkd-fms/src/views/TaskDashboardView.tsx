@@ -42,6 +42,7 @@ import { PriorityDonut, CycleTimeChart } from "@/components/analytics/DashboardC
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { cn } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
 
 const PERIODS: { value: Period; label: string }[] = [
   { value: "week", label: "Week" },
@@ -95,7 +96,8 @@ export function TaskDashboardView() {
   }
 
   const [period, setPeriod] = useState<Period>("month");
-  const a = useTaskAnalytics(period);
+  const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | null>(null);
+  const a = useTaskAnalytics(period, customRange);
   const { tasks } = useTasks();
 
   // Scorecard drawer state (admin-only opens; for designer self-view this
@@ -154,24 +156,31 @@ export function TaskDashboardView() {
   // the same baseline as "Task Dashboard / Concept Dashboard" pills — saves
   // the extra caption row that used to live below.
   const taskPeriodPills = (
-    <div className="inline-flex shrink-0 rounded-lg bg-secondary p-1">
-      {PERIODS.map((p) => (
-        <button
-          key={p.value}
-          type="button"
-          onClick={() => setPeriod(p.value)}
-          className={cn(
-            // Touch-friendly on mobile (px-3 py-1.5) — keeps the 36-44px
-            // target the spec calls for, then shrinks slightly on sm+.
-            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:py-1",
-            period === p.value
-              ? "bg-primary text-white"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {p.label}
-        </button>
-      ))}
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <DateRangePicker
+        from={a.periodStart.toISOString().slice(0, 10)}
+        to={a.periodEnd.toISOString().slice(0, 10)}
+        onChange={(f, t) => {
+          setCustomRange({ from: new Date(f + "T00:00:00"), to: new Date(t + "T23:59:59") });
+        }}
+      />
+      <div className="inline-flex rounded-lg bg-secondary p-1">
+        {PERIODS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => { setPeriod(p.value); setCustomRange(null); }}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:py-1",
+              !customRange && period === p.value
+                ? "bg-primary text-white"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 
@@ -211,13 +220,12 @@ export function TaskDashboardView() {
           label="Concept Dashboard"
         />
       </div>
-      <div className="flex items-center gap-2 pb-2">
+      <div className="flex flex-wrap items-center gap-2 pb-2">
         {tab === "tasks" ? (
           <>
             {isAdmin && a.designerStats.length > 0 && (
-              <Button variant="outline" size="sm" onClick={handleExportTasks} className="gap-1.5">
+              <Button variant="outline" size="icon" onClick={handleExportTasks} className="h-8 w-8" title="Export">
                 <Download className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Export</span>
               </Button>
             )}
             {taskPeriodPills}
@@ -233,12 +241,12 @@ export function TaskDashboardView() {
             {conceptControls?.onExport && (
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
                 onClick={conceptControls.onExport}
-                className="gap-1.5"
+                className="h-8 w-8"
+                title="Export"
               >
                 <Download className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Export</span>
               </Button>
             )}
             {conceptPeriodPills}
@@ -286,6 +294,21 @@ export function TaskDashboardView() {
     return s ? `/dashboard?${s}` : "/dashboard";
   }
 
+  // Designer header chips are personal (their own overdue + in-flight), not the
+  // team-wide a.kpis numbers — those read as "meaningless" on a personal view.
+  const myOverdue =
+    isDesigner && profile
+      ? tasks.filter(
+          (t) =>
+            t.assigned_to === profile.id &&
+            t.status !== "completed" &&
+            t.status !== "done" &&
+            t.planned_deadline &&
+            new Date(t.planned_deadline) < new Date()
+        ).length
+      : 0;
+  const myInFlight = myStats?.inProgress ?? 0;
+
   if (a.isLoading) {
     return (
       <div className="space-y-4">
@@ -318,39 +341,64 @@ export function TaskDashboardView() {
           </span>
           <div className="min-w-0 leading-tight">
             <h1 className="truncate font-display text-base font-bold tracking-[-0.02em] text-foreground sm:text-xl md:text-2xl">
-              Production Studio
+              {isDesigner ? "My Work" : "Production Studio"}
             </h1>
             <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">{a.periodLabel}</p>
           </div>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
-          {a.kpis.overdueCount > 0 && (
-            <StatusChip
-              tone={a.kpis.overdueCount > 3 ? "destructive" : "warning"}
-              icon={Flame}
-              count={a.kpis.overdueCount}
-              label="overdue"
-              pulse={a.kpis.overdueCount > 3}
-              onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
-            />
-          )}
-          {a.kpis.urgentCount > 0 && (
-            <StatusChip
-              tone="destructive"
-              icon={Zap}
-              count={a.kpis.urgentCount}
-              label="urgent"
-              onClick={() => navigate(dashLink({ status: "in_progress" }))}
-            />
-          )}
-          {a.kpis.activePipeline > 0 && (
-            <StatusChip
-              tone="primary"
-              icon={Activity}
-              count={a.kpis.activePipeline}
-              label="in flight"
-              onClick={() => navigate(dashLink({ status: "in_progress" }))}
-            />
+          {isDesigner ? (
+            <>
+              {myOverdue > 0 && (
+                <StatusChip
+                  tone="warning"
+                  icon={Flame}
+                  count={myOverdue}
+                  label="overdue"
+                  onClick={() => navigate(dashLink({ filter: "mine", overdue: "1" }))}
+                />
+              )}
+              {myInFlight > 0 && (
+                <StatusChip
+                  tone="primary"
+                  icon={Activity}
+                  count={myInFlight}
+                  label="in flight"
+                  onClick={() => navigate(dashLink({ filter: "mine", status: "in_progress" }))}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {a.kpis.overdueCount > 0 && (
+                <StatusChip
+                  tone={a.kpis.overdueCount > 3 ? "destructive" : "warning"}
+                  icon={Flame}
+                  count={a.kpis.overdueCount}
+                  label="overdue"
+                  pulse={a.kpis.overdueCount > 3}
+                  onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
+                />
+              )}
+              {a.kpis.urgentCount > 0 && (
+                <StatusChip
+                  tone="destructive"
+                  icon={Zap}
+                  count={a.kpis.urgentCount}
+                  label="urgent"
+                  onClick={() => navigate(dashLink({ status: "in_progress" }))}
+                />
+              )}
+              {a.kpis.activePipeline > 0 && (
+                <StatusChip
+                  tone="primary"
+                  icon={Activity}
+                  count={a.kpis.activePipeline}
+                  label="in flight"
+                  onClick={() => navigate(dashLink({ status: "in_progress" }))}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -358,117 +406,83 @@ export function TaskDashboardView() {
       {/* Designer personal view */}
       {isDesigner && myStats ? (
         <>
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-            <KpiCard
-              icon={<CheckCircle2 className="h-4 w-4 text-success" />}
+          {/* KPI cards — same MetricCard as admin view */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
+            <MetricCard
+              icon={CheckCircle2}
               label="Completed"
+              tone="success"
               value={myStats.completed}
-              metric={{ current: myStats.completed, previous: 0, trend: 0 }}
-              tintClass="bg-success/10"
-              to={dashLink({ filter: "mine", status: "done", from: periodFrom, to: periodTo })}
+              onClick={() => navigate(dashLink({ filter: "mine", status: "done", from: periodFrom, to: periodTo }))}
             />
-            <KpiCard
-              icon={<Clock className="h-4 w-4 text-primary" />}
+            <MetricCard
+              icon={Clock}
               label="On-Time Rate"
+              tone="primary"
               value={myStats.assigned > 0 ? `${Math.round((myStats.onTime / myStats.assigned) * 100)}%` : "—"}
-              metric={{ current: 0, previous: 0, trend: 0 }}
-              tintClass="bg-primary/10"
-              to={dashLink({ filter: "mine", status: "done", from: periodFrom, to: periodTo })}
+              sub={myStats.assigned > 0 ? `${myStats.onTime} of ${myStats.assigned}` : undefined}
             />
-            <KpiCard
-              icon={<Timer className="h-4 w-4 text-primary" />}
+            <MetricCard
+              icon={Timer}
               label="Avg Days"
+              tone="muted"
               value={myStats.completed > 0 ? `${myStats.avgDays}d` : "—"}
-              metric={{ current: 0, previous: 0, trend: 0 }}
-              tintClass="bg-primary/10"
-              to={dashLink({ filter: "mine", status: "done", from: periodFrom, to: periodTo })}
+              invertTrend
             />
-            <KpiCard
-              icon={<LayoutGrid className="h-4 w-4 text-warning" />}
+            <MetricCard
+              icon={LayoutGrid}
               label="In Progress"
+              tone="warning"
               value={myStats.inProgress}
-              metric={{ current: 0, previous: 0, trend: 0 }}
-              tintClass="bg-warning/10"
-              to={dashLink({ filter: "mine", status: "in_progress" })}
+              onClick={() => navigate(dashLink({ filter: "mine", status: "in_progress" }))}
             />
           </div>
-          {/* Compact score strip */}
-          <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2">
-            <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", myStats.score >= 90 ? "bg-success/10" : myStats.score >= 75 ? "bg-warning/10" : "bg-destructive/10")}>
-              <span className={cn("text-lg font-bold tabular-nums", myStats.score >= 90 ? "text-success" : myStats.score >= 75 ? "text-warning" : "text-destructive")}>{myStats.score}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-foreground">Performance Score</p>
-              <div className="mt-1 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-secondary">
-                <div className={cn("h-full rounded-full transition-[width] duration-700", myStats.score >= 90 ? "bg-success" : myStats.score >= 75 ? "bg-warning" : "bg-destructive")} style={{ width: `${myStats.score}%` }} />
+
+          {/* Score + Pipeline side by side */}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {/* Performance score */}
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+              <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", myStats.score >= 80 ? "bg-success/10" : myStats.score >= 60 ? "bg-warning/10" : "bg-destructive/10")}>
+                <span className={cn("text-xl font-bold tabular-nums", myStats.score >= 80 ? "text-success" : myStats.score >= 60 ? "text-warning" : "text-destructive")}>{myStats.score}</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-foreground">Performance Score</p>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                  <div className={cn("h-full rounded-full transition-[width] duration-700", myStats.score >= 80 ? "bg-success" : myStats.score >= 60 ? "bg-warning" : "bg-destructive")} style={{ width: `${myStats.score}%` }} />
+                </div>
               </div>
             </div>
-            <span className="text-[10px] text-muted-foreground">This {period}</span>
+
+            {/* Pipeline mini */}
+            <div className="rounded-xl border border-border bg-card px-4 py-3">
+              <p className="mb-2 text-xs font-semibold text-foreground">My Pipeline</p>
+              {(() => {
+                const mine = tasks.filter((t) => t.assigned_to === profile?.id);
+                const counts = {
+                  pool: mine.filter((t) => t.status === "pool").length,
+                  active: mine.filter((t) => t.status === "in_progress" || t.status === "todo" || t.status === "full_kitting").length,
+                  done: mine.filter((t) => t.status === "done" || t.status === "completed").length,
+                };
+                const max = Math.max(1, counts.pool, counts.active, counts.done);
+                return (
+                  <div className="space-y-1.5">
+                    {([["Pool", counts.pool, "bg-muted"], ["In Progress", counts.active, "bg-primary"], ["Done", counts.done, "bg-success"]] as const).map(([label, count, color]) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="w-[72px] shrink-0 text-[11px] text-muted-foreground sm:w-[80px]">{label}</span>
+                        <div className="h-4 flex-1 overflow-hidden rounded bg-secondary/60">
+                          <div className={cn("h-full rounded transition-[width] duration-500", color)} style={{ width: `${Math.max(count > 0 ? 8 : 0, (count / max) * 100)}%` }} />
+                        </div>
+                        <span className="w-5 text-right text-xs font-semibold tabular-nums text-foreground">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
-          {/* My active tasks */}
-          <MyTasksTable tasks={tasks} userId={profile?.id ?? ""} />
-
-          {/* My pipeline snapshot — simplified 3-stage (Pool → In Progress → Done).
-              Legacy todo/full_kitting/approved/sampling rows roll up into In Progress. */}
-          <Card>
-            <CardContent className="py-4">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">My Pipeline</h3>
-              <div className="space-y-2">
-                {(["pool", "in_progress", "done"] as const).map((s) => {
-                  const mine = tasks.filter((t) => t.assigned_to === profile?.id);
-                  const myCount =
-                    s === "in_progress"
-                      ? mine.filter(
-                          (t) =>
-                            t.status === "in_progress" ||
-                            t.status === "todo" ||
-                            t.status === "full_kitting" ||
-                            t.status === "approved" ||
-                            t.status === "sampling"
-                        ).length
-                      : s === "done"
-                        ? mine.filter(
-                            (t) =>
-                              t.status === "done" || t.status === "completed"
-                          ).length
-                        : mine.filter((t) => t.status === s).length;
-                  const label = STATUS_LABELS[s] ?? s;
-                  const barColor =
-                    s === "pool"
-                      ? "bg-muted"
-                      : s === "in_progress"
-                        ? "bg-primary"
-                        : "bg-success";
-                  const maxBar = Math.max(
-                    1,
-                    mine.filter((t) => t.status === "pool").length,
-                    mine.filter(
-                      (t) =>
-                        t.status === "in_progress" ||
-                        t.status === "todo" ||
-                        t.status === "full_kitting" ||
-                        t.status === "approved" ||
-                        t.status === "sampling"
-                    ).length,
-                    mine.filter(
-                      (t) => t.status === "done" || t.status === "completed"
-                    ).length
-                  );
-                  return (
-                    <div key={s} className="flex items-center gap-3">
-                      <span className="w-[90px] shrink-0 text-xs text-foreground">{label}</span>
-                      <div className="flex-1 overflow-hidden rounded-md bg-secondary/60">
-                        <div className={cn("h-6 rounded-md transition-[width] duration-500", barColor)}
-                          style={{ width: `${Math.max(myCount > 0 ? 8 : 4, (myCount / maxBar) * 100)}%` }} />
-                      </div>
-                      <span className="w-6 text-right text-sm font-semibold tabular-nums text-foreground">{myCount}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Workload summary — scalable, not a full task list */}
+          <DesignerWorkloadSummary tasks={tasks} userId={profile?.id ?? ""} />
         </>
       ) : (
         /* Admin / Coordinator view */
@@ -820,7 +834,7 @@ const TONE_DOT: Record<HeroTone, string> = {
 
 // Trend pill — direction-aware (green up / red down); honours invertTrend so
 // "Avg Cycle 5d ↓20%" reads green even on a primary-toned card.
-function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
+export function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
   if (!metric) return null;
   const diff = metric.current - metric.previous;
   // No prior-period baseline → the "delta" is just the current value restated
@@ -854,7 +868,8 @@ function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?:
   );
 }
 
-function MetricCard({
+export { type HeroTone };
+export function MetricCard({
   icon: Icon,
   label,
   value,
@@ -1124,6 +1139,141 @@ const RANK_EMOJI: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 // ============================================================================
 // Designer's personal task list
 // ============================================================================
+
+function DesignerWorkloadSummary({
+  tasks,
+  userId,
+}: {
+  tasks: { id: string; task_code: string; concept: string; status: string; priority: string; planned_deadline: string | null; client?: { party_name: string } | null; assigned_to: string | null; completed_at?: string | null; delay_days?: number | null }[];
+  userId: string;
+}) {
+  const mine = tasks.filter((t) => t.assigned_to === userId);
+  const active = mine.filter((t) => t.status !== "done" && t.status !== "completed");
+  const done = mine.filter((t) => t.status === "done" || t.status === "completed");
+  const now = Date.now();
+
+  const overdue = active.filter((t) => t.planned_deadline && new Date(t.planned_deadline).getTime() < now);
+  const dueToday = active.filter((t) => {
+    if (!t.planned_deadline) return false;
+    const d = new Date(t.planned_deadline);
+    const today = new Date();
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  });
+  const upcoming = active
+    .filter((t) => t.planned_deadline && new Date(t.planned_deadline).getTime() >= now)
+    .sort((a, b) => new Date(a.planned_deadline!).getTime() - new Date(b.planned_deadline!).getTime())
+    .slice(0, 3);
+  const urgent = active.filter((t) => t.priority === "urgent");
+
+  const recentDone = done
+    .sort((a, b) => new Date(b.completed_at ?? 0).getTime() - new Date(a.completed_at ?? 0).getTime())
+    .slice(0, 3);
+
+  const onTimeCount = done.filter((t) => t.delay_days == null || t.delay_days <= 1).length;
+  const lateCount = done.filter((t) => t.delay_days != null && t.delay_days > 1).length;
+
+  return (
+    <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+      {/* Left: Workload overview */}
+      <Card>
+        <CardContent className="py-3">
+          <h4 className="mb-2.5 text-xs font-semibold text-foreground">Workload Overview</h4>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <WorkloadStat label="Active" value={active.length} color="text-primary" icon={Activity} />
+            <WorkloadStat label="Overdue" value={overdue.length} color={overdue.length > 0 ? "text-destructive" : "text-muted-foreground"} icon={AlertTriangle} />
+            <WorkloadStat label="Due Today" value={dueToday.length} color={dueToday.length > 0 ? "text-warning" : "text-muted-foreground"} icon={Clock} />
+            <WorkloadStat label="Urgent" value={urgent.length} color={urgent.length > 0 ? "text-destructive" : "text-muted-foreground"} icon={Flame} />
+          </div>
+
+          {upcoming.length > 0 && (
+            <div className="mt-3 border-t border-border pt-2.5">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Upcoming Deadlines</p>
+              <div className="space-y-1">
+                {upcoming.map((t) => {
+                  const dl = t.planned_deadline ? new Date(t.planned_deadline) : null;
+                  const daysLeft = dl ? Math.ceil((dl.getTime() - now) / 86400000) : null;
+                  return (
+                    <div key={t.id} className="flex items-center gap-2 text-[11px]">
+                      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", daysLeft != null && daysLeft <= 1 ? "bg-destructive" : daysLeft != null && daysLeft <= 3 ? "bg-warning" : "bg-success")} />
+                      <span className="min-w-0 flex-1 truncate font-medium text-foreground">{t.concept}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {daysLeft != null ? (daysLeft === 0 ? "Today" : daysLeft === 1 ? "Tomorrow" : `${daysLeft}d`) : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {active.length === 0 && (
+            <p className="mt-2 text-center text-xs text-muted-foreground">No active tasks — check the Pool to claim one!</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Right: Completion history */}
+      <Card>
+        <CardContent className="py-3">
+          <h4 className="mb-2.5 text-xs font-semibold text-foreground">Completion History</h4>
+          <div className="mb-3 flex gap-3">
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="h-2 w-2 rounded-full bg-success" />
+              <span className="text-muted-foreground">On time</span>
+              <span className="font-semibold tabular-nums text-success">{onTimeCount}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="h-2 w-2 rounded-full bg-destructive" />
+              <span className="text-muted-foreground">Late</span>
+              <span className="font-semibold tabular-nums text-destructive">{lateCount}</span>
+            </div>
+            <div className="ml-auto text-[11px] text-muted-foreground">
+              {done.length} total
+            </div>
+          </div>
+
+          {done.length > 0 && (
+            <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-secondary">
+              <div className="h-full bg-success transition-[width] duration-500" style={{ width: `${(onTimeCount / Math.max(1, done.length)) * 100}%` }} />
+              <div className="h-full bg-destructive transition-[width] duration-500" style={{ width: `${(lateCount / Math.max(1, done.length)) * 100}%` }} />
+            </div>
+          )}
+
+          {recentDone.length > 0 ? (
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Recent</p>
+              <div className="space-y-1">
+                {recentDone.map((t) => (
+                  <div key={t.id} className="flex items-center gap-2 text-[11px]">
+                    <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">{t.concept}</span>
+                    {t.delay_days != null && t.delay_days <= 1 ? (
+                      <span className="shrink-0 text-success">On time</span>
+                    ) : t.delay_days != null ? (
+                      <span className="shrink-0 text-destructive">+{t.delay_days}d</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-xs text-muted-foreground">No completed tasks yet</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function WorkloadStat({ label, value, color, icon: Icon }: { label: string; value: number; color: string; icon: React.ComponentType<{ className?: string }> }) {
+  return (
+    <div className="flex flex-col items-center rounded-lg border border-border bg-card px-2 py-2 text-center">
+      <Icon className={cn("h-3.5 w-3.5", color)} />
+      <span className={cn("mt-0.5 text-lg font-bold tabular-nums leading-none", color)}>{value}</span>
+      <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+    </div>
+  );
+}
 
 function MyTasksTable({
   tasks,

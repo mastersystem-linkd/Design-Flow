@@ -50,9 +50,22 @@ interface Props {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onSubmit: (input: SubmitConceptInput) => Promise<{ error: string | null }>;
+  /** When set, the dialog opens in edit mode with pre-filled values. */
+  editConcept?: {
+    id: string;
+    title: string;
+    description?: string | null;
+    start_date?: string | null;
+    client_id?: string | null;
+    assigned_by?: string | null;
+    designs_count?: number | null;
+    image_url?: string | null;
+    files?: string[] | null;
+  } | null;
+  onEdit?: (conceptId: string, input: Partial<SubmitConceptInput>) => Promise<{ error: string | null }>;
 }
 
-export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
+export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept: editData, onEdit }: Props) {
   const { user, profile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,6 +117,25 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
     assignedBy,
     designsCount,
   } = draft;
+
+  const isEditMode = !!(editData && onEdit);
+
+  // Pre-fill form in edit mode
+  const editSeedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (open && editData && editData.id !== editSeedRef.current) {
+      editSeedRef.current = editData.id;
+      setDraft({
+        title: editData.title || "",
+        description: editData.description || "",
+        startDate: editData.start_date?.slice(0, 10) || todayISO(),
+        clientId: editData.client_id || "ld_silk_mills",
+        assignedBy: editData.assigned_by || "SELF",
+        designsCount: editData.designs_count != null ? String(editData.designs_count) : "",
+      });
+    }
+    if (!open) editSeedRef.current = null;
+  }, [open, editData]);
 
   // One-shot defaulters — fire once per dialog open, never overwrite typed work.
   const defaultClientAppliedRef = useRef(false);
@@ -275,7 +307,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       setError("Enter how many designs are in this concept (minimum 1)");
       return;
     }
-    if (pending.length === 0) {
+    if (pending.length === 0 && !isEditMode) {
       setError("Please attach at least one file");
       return;
     }
@@ -337,35 +369,53 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       setProgress(startPct + perFileShare);
     }
 
-    // First uploaded file becomes the "primary" reference (image_url + file_url)
-    // so the detail-drawer hero preview keeps working. Every path lands in
-    // `files` so admins can grab the rest from the concept record.
-    const primary = uploadedPaths[0]!;
-    // Concept's designer = submitter, always. The Designer picker was
-    // removed because the submitter is by definition the designer working
-    // on this concept; an admin/coordinator submitting on behalf of a
-    // designer should ask that designer to submit it directly.
-    const { error: submitErr } = await onSubmit({
-      title: title.trim(),
-      description: description.trim() || null,
-      image_url: primary,
-      file_url: primary,
-      files: uploadedPaths,
-      start_date: startDate || null,
-      designer_id: user.id,
-      client_id: clientId && clientId !== "ld_silk_mills" ? clientId : null,
-      assigned_by: assignedBy || null,
-      priority: "normal",
-      designs_count: designsCountNum,
-    });
+    const primary = uploadedPaths[0] ?? (isEditMode ? editData?.image_url ?? "" : "");
+    const allFiles = uploadedPaths.length > 0
+      ? uploadedPaths
+      : (isEditMode ? editData?.files ?? [] : []);
+
+    let submitErr: string | null;
+    if (isEditMode && editData) {
+      const updates: Partial<SubmitConceptInput> = {
+        title: title.trim(),
+        description: description.trim() || null,
+        start_date: startDate || null,
+        client_id: clientId && clientId !== "ld_silk_mills" ? clientId : null,
+        assigned_by: assignedBy || null,
+        designs_count: designsCountNum,
+      };
+      if (uploadedPaths.length > 0) {
+        updates.image_url = primary;
+        updates.file_url = primary;
+        updates.files = allFiles;
+      }
+      const result = await onEdit!(editData.id, updates);
+      submitErr = result.error;
+    } else {
+      const result = await onSubmit({
+        title: title.trim(),
+        description: description.trim() || null,
+        image_url: primary,
+        file_url: primary,
+        files: allFiles,
+        start_date: startDate || null,
+        designer_id: user.id,
+        client_id: clientId && clientId !== "ld_silk_mills" ? clientId : null,
+        assigned_by: assignedBy || null,
+        priority: "normal",
+        designs_count: designsCountNum,
+      });
+      submitErr = result.error;
+    }
 
     setProgress(100);
 
     if (submitErr) {
       setUploading(false);
       setError(submitErr);
-      // Best-effort orphan cleanup — wipe every file we just uploaded.
-      void supabase.storage.from(FK_BUCKET).remove(uploadedPaths);
+      if (uploadedPaths.length > 0) {
+        void supabase.storage.from(FK_BUCKET).remove(uploadedPaths);
+      }
       return;
     }
 
@@ -373,7 +423,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
       setUploading(false);
       setProgress(0);
     }, 250);
-    toast.success("Concept submitted");
+    toast.success(isEditMode ? "Concept updated" : "Concept submitted");
     resetForm();
     onOpenChange(false);
   }
@@ -397,7 +447,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
               <Sparkles className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">Submit a Concept</h2>
+              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">{isEditMode ? "Edit Concept" : "Submit a Concept"}</h2>
               <p className="text-[10px] text-muted-foreground">Captures who started it, for which party, and the supporting files.</p>
             </div>
           </div>
@@ -567,6 +617,25 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
                   </div>
                 )}
               </div>
+            ) : isEditMode && editData?.files && editData.files.length > 0 ? (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-medium text-muted-foreground">
+                  {editData.files.length} existing file{editData.files.length > 1 ? "s" : ""} — upload new files to replace
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {editData.files.map((path, i) => {
+                    const name = path.split("/").pop() ?? `File ${i + 1}`;
+                    const isImg = /\.(jpe?g|png|gif|webp|svg)$/i.test(path);
+                    return (
+                      <ExistingFileThumb key={path + i} path={path} name={name} isImage={isImg} isPrimary={path === editData.image_url} />
+                    );
+                  })}
+                </div>
+                <button type="button" onClick={pickFile} disabled={uploading}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
+                  <Upload className="h-3.5 w-3.5" /> Upload new files to replace
+                </button>
+              </div>
             ) : (
               <button type="button" onClick={pickFile} disabled={uploading}
                 className={cn("flex h-20 w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-card transition-colors hover:border-primary/40 hover:bg-secondary/30", uploading && "opacity-50")}>
@@ -586,12 +655,44 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit }: Props) {
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={uploading}>Cancel</Button>
             <Button type="submit" disabled={uploading} className="gap-2 px-6 shadow-sm shadow-primary/20">
               {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {uploading ? "Submitting…" : "Submit Concept"}
+              {uploading ? (isEditMode ? "Saving…" : "Submitting…") : (isEditMode ? "Save Changes" : "Submit Concept")}
             </Button>
           </div>
         </form>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ExistingFileThumb({ path, name, isImage, isPrimary }: { path: string; name: string; isImage: boolean; isPrimary: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function resolve() {
+      if (path.startsWith("http")) { setUrl(path); return; }
+      for (const bucket of ["sample-files", "design-files"] as const) {
+        const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+        if (!cancelled && data?.signedUrl) { setUrl(data.signedUrl); return; }
+      }
+    }
+    void resolve();
+    return () => { cancelled = true; };
+  }, [path]);
+
+  return (
+    <div className={cn("relative overflow-hidden rounded-md border border-border", isPrimary && "ring-2 ring-primary ring-offset-1")}>
+      {isImage && url ? (
+        <img src={url} alt={name} className="h-16 w-full object-cover" />
+      ) : (
+        <div className="flex h-16 w-full items-center justify-center bg-secondary/30">
+          <ImageIcon className="h-5 w-5 text-muted-foreground" />
+        </div>
+      )}
+      <p className="truncate px-1 py-0.5 text-[9px] text-muted-foreground">{name}</p>
+      {isPrimary && (
+        <span className="absolute right-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold text-white">Primary</span>
+      )}
+    </div>
   );
 }

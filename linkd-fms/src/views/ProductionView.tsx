@@ -32,6 +32,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
 import { supabase } from "@/lib/supabase";
@@ -44,9 +45,18 @@ import {
 import { useProfiles } from "@/hooks/useProfiles";
 import { SamplingFormDialog } from "@/components/sampling/SamplingFormDialog";
 import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
-import { TextileHeroWrapper } from "@/components/analytics/TextileHeroWrapper";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
-import { useChartAnimation } from "@/lib/chartConfig";
+import { KpiCard } from "@/components/analytics/KpiCard";
+import {
+  CHART_THEME,
+  CHART_GRID_PROPS,
+  CHART_AXIS_PROPS,
+  CHART_TOOLTIP_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+  CHART_TOOLTIP_CURSOR,
+  CHART_BAR_RADIUS,
+  useChartAnimation,
+} from "@/lib/chartConfig";
 import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
 import {
   Badge,
@@ -1034,61 +1044,68 @@ function SampleDashboard({
 
   return (
     <div className="space-y-4">
-      {/* ── Hero KPI strip — every primary metric in one row, dividers
-           between tiles. Wrapped in the shared TextileHeroWrapper so the
-           Sample Dashboard reads as part of the same visual system. */}
-      <TextileHeroWrapper className="p-0 sm:p-0">
-        <div className="grid grid-cols-2 divide-x divide-y divide-border/40 sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-6">
-          <KpiTile
-            icon={Calendar}
-            label="Today"
-            value={stats.today}
-            tone="primary"
-            sub="new entries"
-          />
-          <KpiTile
-            icon={Package}
-            label="This Month"
-            value={stats.thisMonth}
-            tone="info"
-            sub={`of ${aggregates.total} total`}
-          />
-          <KpiTile
-            icon={Users}
-            label="Customers"
-            value={stats.customers}
-            tone="muted"
-            sub="active parties"
-          />
-          <KpiTile
-            icon={TrendingUp}
-            label="Received"
-            value={aggregates.totalReceived}
-            unit="m"
-            tone="muted"
-            sub="fabric in"
-          />
-          <KpiTile
-            icon={Layers}
-            label="Printed"
-            value={aggregates.totalPrinted}
-            unit="m"
-            tone="primary"
-            sub={`avg ${aggregates.avgPrinted}m / sample`}
-          />
-          <KpiTile
-            icon={Clock}
-            label="Pending"
-            value={aggregates.pending}
-            tone={aggregates.pending > 0 ? "warning" : "success"}
-            sub={
-              aggregates.totalPendingMtr > 0
-                ? `${aggregates.totalPendingMtr}m · ${pendingShare}% of received`
-                : "all clear"
-            }
-          />
-        </div>
-      </TextileHeroWrapper>
+      {/* ── KPI grid — clean bordered cards (same idiom as the Task Dashboard /
+           Scorecards), 2-up on mobile, 6-up on desktop. ── */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
+        <KpiCard
+          centered
+          icon={<Calendar className="h-4 w-4 text-primary" />}
+          label="Today"
+          value={stats.today}
+          tintClass="bg-primary/10"
+          animateValue
+          sub="new entries"
+        />
+        <KpiCard
+          centered
+          icon={<Package className="h-4 w-4 text-success" />}
+          label="This Month"
+          value={stats.thisMonth}
+          tintClass="bg-success/10"
+          valueColor="text-success"
+          animateValue
+          sub={`of ${aggregates.total} total`}
+        />
+        <KpiCard
+          centered
+          icon={<Users className="h-4 w-4 text-primary" />}
+          label="Customers"
+          value={stats.customers}
+          tintClass="bg-primary/10"
+          animateValue
+          sub="active parties"
+        />
+        <KpiCard
+          centered
+          icon={<TrendingUp className="h-4 w-4 text-primary" />}
+          label="Received"
+          value={`${aggregates.totalReceived}m`}
+          tintClass="bg-primary/10"
+          sub="fabric in"
+        />
+        <KpiCard
+          centered
+          icon={<Layers className="h-4 w-4 text-primary" />}
+          label="Printed"
+          value={`${aggregates.totalPrinted}m`}
+          tintClass="bg-primary/10"
+          sub={`avg ${aggregates.avgPrinted}m / sample`}
+        />
+        <KpiCard
+          centered
+          icon={<Clock className={cn("h-4 w-4", aggregates.pending > 0 ? "text-warning" : "text-success")} />}
+          label="Pending"
+          value={aggregates.pending}
+          tintClass={aggregates.pending > 0 ? "bg-warning/10" : "bg-success/10"}
+          valueColor={aggregates.pending > 0 ? "text-warning" : "text-success"}
+          animateValue
+          sub={
+            aggregates.totalPendingMtr > 0
+              ? `${aggregates.totalPendingMtr}m · ${pendingShare}% of received`
+              : "all clear"
+          }
+        />
+      </div>
 
       {/* Alert when the pending-sample pile starts stacking up. */}
       {aggregates.pending > 5 && (
@@ -1117,34 +1134,23 @@ function SampleDashboard({
             </div>
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
-                <BarChart data={chartData}>
+                <BarChart data={chartData} barCategoryGap="26%">
                   <ChartGradients />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: "rgb(var(--muted-foreground))", fontSize: 10, fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={25}
-                  />
+                  <CartesianGrid {...CHART_GRID_PROPS} />
+                  <XAxis dataKey="date" {...CHART_AXIS_PROPS} dy={4} />
+                  <YAxis allowDecimals={false} width={26} {...CHART_AXIS_PROPS} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: "rgb(var(--card))",
-                      border: "1px solid rgb(var(--border))",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-                    }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                    cursor={CHART_TOOLTIP_CURSOR}
+                    formatter={(v) => [`${Number(v)} sample${Number(v) === 1 ? "" : "s"}`, "Count"]}
                   />
                   <Bar
                     dataKey="count"
+                    name="Samples"
                     fill={`url(#${CHART_GRAD.barPrimary})`}
-                    radius={[5, 5, 0, 0]}
+                    radius={CHART_BAR_RADIUS}
+                    maxBarSize={40}
                     isAnimationActive={chartAnimate}
                   />
                 </BarChart>

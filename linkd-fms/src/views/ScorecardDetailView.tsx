@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
   ChevronRight,
+  ChevronDown,
+  Check,
   Download,
   MessageSquare,
   Send as SendIcon,
@@ -837,7 +839,7 @@ export function ScorecardDetailView() {
       {/* ── HERO: identity + date filter + reliability ── */}
       <Card className="border border-border">
         <div className="flex flex-col gap-2 p-3 sm:p-4">
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
             <div className="flex items-center gap-3 shrink-0">
               <Avatar className="h-10 w-10">
                 {data.profile.avatar_url ? (
@@ -859,7 +861,7 @@ export function ScorecardDetailView() {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 xl:ml-auto">
+            <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
               <RangeControls
                 preset={preset}
                 setPreset={setPreset}
@@ -885,6 +887,7 @@ export function ScorecardDetailView() {
         <div className="grid grid-cols-2 divide-x divide-y divide-border/30 sm:grid-cols-3 sm:divide-y-0 md:grid-cols-5">
           <KpiCard
             flat
+            centered
             icon={<CalendarIcon className="h-4 w-4 text-primary" />}
             label="Total Scheduled"
             value={totals.scheduled}
@@ -893,6 +896,7 @@ export function ScorecardDetailView() {
           />
           <KpiCard
             flat
+            centered
             icon={<CheckCircle className="h-4 w-4 text-success" />}
             label="Completed"
             value={totals.completed}
@@ -902,6 +906,7 @@ export function ScorecardDetailView() {
           />
           <KpiCard
             flat
+            centered
             icon={<Clock className="h-4 w-4 text-primary" />}
             label="On-Time %"
             value={totals.completed === 0 ? "—" : `${totals.onTimePct}%`}
@@ -933,6 +938,7 @@ export function ScorecardDetailView() {
           />
           <KpiCard
             flat
+            centered
             icon={<AlertTriangle className="h-4 w-4 text-warning" />}
             label="Avg Delay"
             value={`${totals.avgDelay}d`}
@@ -958,6 +964,7 @@ export function ScorecardDetailView() {
           />
           <KpiCard
             flat
+            centered
             icon={<Flame className="h-4 w-4 text-primary" />}
             label="Best Streak"
             value={bestStreak.best}
@@ -2482,6 +2489,72 @@ function LegendChip({ color, label }: { color: string; label: string }) {
 // RangeControls
 // ============================================================================
 
+// Compact period selector — a single dropdown replacing the old 6-pill strip.
+function PeriodDropdown({
+  preset,
+  setPreset,
+}: {
+  preset: RangePreset;
+  setPreset: (p: RangePreset) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const OPTIONS: { value: RangePreset; label: string }[] = [
+    ...RANGE_PRESETS.map((p) => ({ value: p.value, label: p.label })),
+    { value: "custom", label: "Custom" },
+  ];
+  const current = OPTIONS.find((o) => o.value === preset)?.label ?? "30 days";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
+        <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="min-w-[48px] text-left capitalize">{current}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div role="listbox" className="absolute right-0 z-30 mt-1.5 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-dropdown">
+          {OPTIONS.map((o) => {
+            const active = preset === o.value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => { setPreset(o.value); setOpen(false); }}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition-colors",
+                  active ? "bg-primary/10 font-semibold text-primary" : "text-foreground hover:bg-secondary"
+                )}
+              >
+                <span className="capitalize">{o.label}</span>
+                {active && <Check className="h-3.5 w-3.5" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RangeControls({
   preset,
   setPreset,
@@ -2502,74 +2575,43 @@ function RangeControls({
   rangeEnd: Date;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1 rounded-lg bg-secondary/50 p-0.5">
-        {RANGE_PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            onClick={() => setPreset(p.value)}
-            className={cn(
-              "rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wider transition-colors",
-              preset === p.value
-                ? "bg-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {p.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setPreset("custom")}
-          className={cn(
-            "rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-wider transition-colors",
-            preset === "custom"
-              ? "bg-primary text-white shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Custom
-        </button>
-      </div>
+    <div className="flex flex-wrap items-center gap-2">
+      <PeriodDropdown preset={preset} setPreset={setPreset} />
 
-      <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
-        <input
-          type="date"
-          value={preset === "custom" ? customFrom : format(rangeStart, "yyyy-MM-dd")}
-          onChange={(e) => {
-            setPreset("custom");
-            setCustomFrom(e.target.value);
-          }}
-          max={customTo || undefined}
-          className="rounded-md border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        <ArrowRight className="h-3 w-3 text-muted-foreground" />
-        <input
-          type="date"
-          value={preset === "custom" ? customTo : format(rangeEnd, "yyyy-MM-dd")}
-          onChange={(e) => {
-            setPreset("custom");
-            setCustomTo(e.target.value);
-          }}
-          min={customFrom || undefined}
-          className="rounded-md border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        {preset === "custom" && (
+      {preset === "custom" ? (
+        <div className="flex items-center gap-1.5 text-xs">
+          <input
+            type="date"
+            value={customFrom}
+            onChange={(e) => { setPreset("custom"); setCustomFrom(e.target.value); }}
+            max={customTo || undefined}
+            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <input
+            type="date"
+            value={customTo}
+            onChange={(e) => { setPreset("custom"); setCustomTo(e.target.value); }}
+            min={customFrom || undefined}
+            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              setPreset("30d");
-              setCustomFrom("");
-              setCustomTo("");
-            }}
+            onClick={() => { setPreset("30d"); setCustomFrom(""); setCustomTo(""); }}
           >
             <RotateCcw className="mr-1 h-3 w-3" />
             Reset
           </Button>
-        )}
-      </div>
+        </div>
+      ) : (
+        // For a preset, show the resolved range inline (read-only) instead of
+        // two editable date inputs — far less visual weight.
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+          <CalendarIcon className="h-3 w-3" />
+          {format(rangeStart, "dd MMM")} – {format(rangeEnd, "dd MMM yyyy")}
+        </span>
+      )}
     </div>
   );
 }

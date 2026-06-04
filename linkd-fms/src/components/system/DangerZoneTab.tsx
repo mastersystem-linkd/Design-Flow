@@ -9,9 +9,12 @@ import {
   ChevronRight,
   Search,
   X,
+  FolderOpen,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { callAdminApi } from "@/lib/adminApi";
+import { useAuth } from "@/hooks/useAuth";
+import { useFiles } from "@/hooks/useFiles";
 import {
   Card,
   CardContent,
@@ -166,6 +169,12 @@ const CLEAR_ALL_ORDER: string[] = [
 type TableKey = (typeof TABLE_SPECS)[number]["key"];
 
 export function DangerZoneTab() {
+  const { profile } = useAuth();
+  // Wiping ALL uploaded files (storage objects + their DB rows) is the most
+  // destructive action in the app, so it's restricted to super-admins.
+  const isSuper = profile?.role === "super_admin";
+  const { files, deleteFiles, refetch: refetchFiles } = useFiles();
+
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [countsLoading, setCountsLoading] = useState(true);
   const [busyTable, setBusyTable] = useState<string | null>(null);
@@ -176,6 +185,7 @@ export function DangerZoneTab() {
     | { kind: "clear-table"; spec: TableSpec }
     | { kind: "clear-all" }
     | { kind: "delete-selected"; spec: TableSpec; ids: string[] }
+    | { kind: "delete-files" }
     | null
   >(null);
   const [stage2, setStage2] = useState<typeof stage1>(null);
@@ -303,6 +313,23 @@ export function DangerZoneTab() {
     }
   }
 
+  async function executeDeleteFiles() {
+    setBusyTable("__files__");
+    try {
+      const { deleted, error } = await deleteFiles(files);
+      if (error) {
+        toast.error(`Deleted ${deleted.toLocaleString()} file${deleted !== 1 ? "s" : ""}, but some failed — ${error}`);
+      } else {
+        toast.success(`${deleted.toLocaleString()} file${deleted !== 1 ? "s" : ""} deleted from all buckets`);
+      }
+      void refetchFiles();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete files");
+    } finally {
+      setBusyTable(null);
+    }
+  }
+
   function onStage1Confirm() {
     setStage2(stage1);
     setStage1(null);
@@ -320,6 +347,7 @@ export function DangerZoneTab() {
     else if (action.kind === "clear-table") await executeClearTable(action.spec);
     else if (action.kind === "delete-selected") await executeDeleteSelected(action.spec, action.ids);
     else if (action.kind === "clear-all") await executeClearAll();
+    else if (action.kind === "delete-files") await executeDeleteFiles();
   }
 
   const stage1Dialog = (() => {
@@ -352,6 +380,15 @@ export function DangerZoneTab() {
         onConfirm: onStage1Confirm,
       };
     }
+    if (stage1.kind === "delete-files") {
+      return {
+        title: `Delete ALL ${files.length.toLocaleString()} files?`,
+        description: `Permanently removes all ${files.length.toLocaleString()} uploaded file${files.length !== 1 ? "s" : ""} from every storage bucket (briefs, concepts, samples, salvedge, full-knitting) AND their database records. Cannot be undone.`,
+        confirmLabel: "I understand, continue",
+        variant: "danger" as const,
+        onConfirm: onStage1Confirm,
+      };
+    }
     const total = Object.values(counts).reduce((s, n) => s + n, 0);
     return {
       title: "Clear ALL transactional data?",
@@ -367,6 +404,7 @@ export function DangerZoneTab() {
     if (stage2.kind === "clear-all") return "Final confirmation";
     if (stage2.kind === "clear-table") return `Confirm clearing ${stage2.spec.label}`;
     if (stage2.kind === "delete-selected") return `Confirm deleting ${stage2.ids.length} records`;
+    if (stage2.kind === "delete-files") return "Confirm deleting ALL files";
     return "Confirm";
   })();
 
@@ -415,6 +453,34 @@ export function DangerZoneTab() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Delete all files — SUPER-ADMIN ONLY. Wipes every storage object across
+          all buckets + their `files` rows. Moved here out of the Files view,
+          where it was too easy to trigger. */}
+      {isSuper && (
+        <Card className="border-destructive/30 bg-destructive/[0.05]">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="flex items-start gap-3">
+              <FolderOpen className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">Delete all files</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {files.length.toLocaleString()} file{files.length !== 1 ? "s" : ""} across all storage buckets · removes the objects and their records. Super-admin only.
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm" variant="outline"
+              disabled={busyTable === "__files__" || files.length === 0}
+              onClick={() => setStage1({ kind: "delete-files" })}
+              className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+            >
+              {busyTable === "__files__" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete all files
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Expandable per-table sections */}
       <div className="space-y-2">

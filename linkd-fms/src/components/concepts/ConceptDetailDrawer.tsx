@@ -16,8 +16,13 @@ import {
   CalendarDays,
   Tag,
   Layers,
+  Paperclip,
+  Download,
+  Eye,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { differenceInDays, format, parseISO } from "date-fns";
+import { supabase } from "@/lib/supabase";
 import { toast } from "@/components/ui";
 import type { CompletionHistoryEntry } from "@/types/database";
 // The concept detail surface is now a centered modal (was a right-side
@@ -79,7 +84,10 @@ import {
 import { LoadingButton } from "@/components/ui/LoadingButton";
 
 function isAdminRole(role: UserRole | null | undefined): boolean {
-  return role === "admin" || role === "design_coordinator";
+  return role === "admin" || role === "super_admin" || role === "design_coordinator";
+}
+function isMdRole(role: UserRole | null | undefined): boolean {
+  return role === "admin" || role === "super_admin";
 }
 
 function fmtDate(d: string | null | undefined): string {
@@ -227,6 +235,7 @@ interface Props {
     feedback: string
   ) => Promise<MutationResult<Concept>>;
   onStartChanges?: (id: string) => Promise<MutationResult<Concept>>;
+  onEditConcept?: (concept: ConceptWithRelations) => void;
 }
 
 // ============================================================================
@@ -250,8 +259,11 @@ export function ConceptDetailDrawer({
   onApproveDesign,
   onSuggestChanges,
   onStartChanges,
+  onEditConcept,
 }: Props) {
   const { profile } = useAuth();
+  const queryClient = useQueryClient();
+  const invalidateAll = () => void queryClient.invalidateQueries({ queryKey: ["concepts"] });
   const [reviewNotes, setReviewNotes] = useState("");
   const [finalNotes, setFinalNotes] = useState("");
   const [approvedCount, setApprovedCount] = useState("");
@@ -272,10 +284,11 @@ export function ConceptDetailDrawer({
   }
 
   const isAdmin = isAdminRole(profile?.role);
+  const isMd = isMdRole(profile?.role);
   const isMine =
     profile?.id === concept.submitted_by ||
     profile?.id === concept.designer_id;
-  const canReview = isAdmin && concept.md_status === "pending";
+  const canReview = isMd && concept.md_status === "pending";
   // Admin can only re-review AFTER the designer re-submits (status flips
   // back to "pending"). While status is "revision_requested" the ball is
   // with the designer — hide the review buttons so admins don't double-click.
@@ -293,6 +306,16 @@ export function ConceptDetailDrawer({
     !concept.final_approved_at &&
     concept.work_status === "in_revision" &&
     !hasPendingFeedback;
+
+  // Designer can edit at each stage until MD approves that stage:
+  //  - Stage 1: editable while md_status is "pending" or "revision_requested"
+  //  - Stage 3: editable while designer is working (approved, not final_approved)
+  const canDesignerEdit =
+    isMine &&
+    onEditConcept &&
+    (concept.md_status === "pending" ||
+     concept.md_status === "revision_requested" ||
+     (concept.md_status === "approved" && !concept.final_approved_at));
 
   const submitter = concept.submitter ?? concept.designer;
 
@@ -475,13 +498,11 @@ export function ConceptDetailDrawer({
   // submitted_by and designer_id; `isAdmin` here = admin OR coordinator.
   const ws = concept.work_status;
   const showWorkActions = concept.md_status === "approved";
-  const canDriveWork = isMine || isAdmin;
-  const canStart = !!onStart && canDriveWork && ws === "not_started";
-  const canHold = !!onHold && canDriveWork && ws === "in_progress";
-  const canResume = !!onResume && canDriveWork && ws === "on_hold";
-  const canMarkDone = !!onMarkDone && canDriveWork && ws === "in_progress";
-  const canStartChanges =
-    !!onStartChanges && canDriveWork && ws === "changes_requested";
+  const canStart = !!onStart && isMine && ws === "not_started";
+  const canHold = !!onHold && isMine && ws === "in_progress";
+  const canResume = !!onResume && isMine && ws === "on_hold";
+  const canMarkDone = !!onMarkDone && isMine && ws === "in_progress";
+  const canStartChanges = !!onStartChanges && isMine && ws === "changes_requested";
   const canReviewDesign = isAdmin && ws === "in_revision";
 
   return (
@@ -526,9 +547,21 @@ export function ConceptDetailDrawer({
                 </Badge>
               )}
             </div>
-            <DialogTitle className="text-base font-semibold leading-tight tracking-tight">
-              {concept.title}
-            </DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-base font-semibold leading-tight tracking-tight">
+                {concept.title}
+              </DialogTitle>
+              {canDesignerEdit && (
+                <button
+                  type="button"
+                  onClick={() => onEditConcept?.(concept)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                  title="Edit concept"
+                >
+                  <PencilLine className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </DialogHeader>
 
           {/* ── Pipeline progress bar ── */}
@@ -592,6 +625,15 @@ export function ConceptDetailDrawer({
         <div className="space-y-0 pb-4">
           {/* ═══════ STAGE 1: Concept Creation ═══════ */}
           <StageSection stage="creation" concept={concept}>
+            {/* Concept name */}
+            <DetailItem
+              icon={<Palette className="h-3.5 w-3.5" />}
+              label="Concept Name"
+              className="mb-2"
+            >
+              <span className="text-sm font-semibold">{concept.title}</span>
+            </DetailItem>
+
             {/* Details grid */}
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               <DetailItem
@@ -652,18 +694,14 @@ export function ConceptDetailDrawer({
               )}
             </div>
 
-            {/* Image */}
-            <ConceptImage
-              src={concept.image_url}
-              alt={concept.title}
-              className="mt-3 h-56 w-full rounded-lg border border-border"
-              showDownload
-            />
+            {/* Files */}
+            <ConceptFilesGallery concept={concept} />
 
             {/* Description */}
             {concept.description && (
-              <div className="mt-3 rounded-lg bg-secondary/50 p-3 text-sm leading-relaxed text-foreground">
-                {concept.description}
+              <div className="mt-3 rounded-lg border border-border bg-secondary/30 px-3 py-2">
+                <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Description</p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{concept.description}</p>
               </div>
             )}
 
@@ -757,11 +795,15 @@ export function ConceptDetailDrawer({
               </div>
             )}
 
-            {/* MD notes */}
-            {concept.md_notes && (
-              <div className="mt-2 rounded-lg border border-border bg-card p-3">
-                <FeedbackDisplay text={concept.md_notes} />
-              </div>
+            {/* MD notes — editable by MD while revision_requested */}
+            {(concept.md_notes || (isMd && concept.md_status === "revision_requested")) && (
+              <EditableFeedbackBlock
+                text={concept.md_notes ?? ""}
+                field="md_notes"
+                conceptId={concept.id}
+                canEdit={isMd && concept.md_status === "revision_requested"}
+                onSaved={invalidateAll}
+              />
             )}
 
             {/* ── Designer's resubmit surface ──
@@ -795,8 +837,8 @@ export function ConceptDetailDrawer({
                 </div>
               )}
 
-            {/* ── Admin: waiting for designer to revise ── */}
-            {isAdmin && concept.md_status === "revision_requested" && (
+            {/* ── Admin/Coordinator: waiting for designer to revise ── */}
+            {isAdmin && !isMine && concept.md_status === "revision_requested" && (
               <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
                 <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
                   <Clock className="h-3.5 w-3.5" />
@@ -808,62 +850,80 @@ export function ConceptDetailDrawer({
               </div>
             )}
 
+            {/* ── Designer's resubmission note (editable until MD reviews) ── */}
+            {isMine &&
+              concept.md_status === "pending" &&
+              Array.isArray(concept.completion_history) &&
+              concept.completion_history.some((h: any) => h.type === "resubmit") && (
+                <DesignerResubmitNote concept={concept} onSaved={invalidateAll} />
+              )}
+
             {/* ── Action: Review (pending concepts) ── */}
             {canReview && (
-              <div className="mt-3 space-y-3 rounded-lg border border-border bg-card p-4">
-                <p className="text-xs font-medium text-foreground">
-                  This concept is awaiting your review.
-                </p>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Feedback</Label>
-                  <textarea
-                    value={reviewNotes}
-                    onChange={(e) => setReviewNotes(e.target.value)}
-                    placeholder="Type your feedback…"
-                    disabled={busy !== null}
-                    rows={3}
-                    className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                  />
+              <div className="mt-3 rounded-lg border border-primary/20 bg-gradient-to-b from-primary/[0.04] to-transparent">
+                <div className="flex items-center gap-2 border-b border-primary/10 px-4 py-2.5">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10">
+                    <Eye className="h-3 w-3 text-primary" />
+                  </div>
+                  <p className="text-xs font-semibold text-foreground">
+                    Awaiting Your Review
+                  </p>
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <Button
-                    onClick={() => handleReview("approved")}
-                    disabled={busy !== null}
-                    className="h-10 w-full gap-1.5"
-                  >
-                    {busy === "approved" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Check className="h-4 w-4" />
-                    )}
-                    Approve
+                <div className="space-y-3 px-4 py-3">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Feedback (optional)</Label>
+                    <textarea
+                      value={reviewNotes}
+                      onChange={(e) => setReviewNotes(e.target.value)}
+                      placeholder="Add notes for the designer…"
+                      disabled={busy !== null}
+                      rows={2}
+                      className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => handleReview("approved")}
+                      disabled={busy !== null}
+                      size="sm"
+                      className="flex-1 gap-1.5 bg-success hover:bg-success/90"
+                    >
+                      {busy === "approved" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                      Approve
+                    </Button>
+                    <Button
+                      onClick={() => handleReview("revision_requested")}
+                      disabled={busy !== null}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 gap-1.5"
+                    >
+                      {busy === "revision_requested" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      )}
+                      Revision
                   </Button>
-                  <Button
-                    onClick={() => handleReview("revision_requested")}
-                    disabled={busy !== null}
-                    variant="outline"
-                    className="h-10 w-full gap-1.5"
-                  >
-                    {busy === "revision_requested" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-4 w-4" />
-                    )}
-                    Revision
-                  </Button>
-                  <Button
-                    onClick={() => handleReview("rejected")}
-                    disabled={busy !== null}
-                    variant="destructive"
-                    className="h-10 w-full gap-1.5"
-                  >
-                    {busy === "rejected" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <X className="h-4 w-4" />
-                    )}
-                    Reject
-                  </Button>
+                    <Button
+                      onClick={() => handleReview("rejected")}
+                      disabled={busy !== null}
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                    >
+                      {busy === "rejected" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <X className="h-3.5 w-3.5" />
+                      )}
+                      Reject
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1080,13 +1140,10 @@ export function ConceptDetailDrawer({
                 </div>
 
                 {/* Inline lifecycle actions — single decisive surface so
-                     the user always knows the next step. Each button is
-                     gated by both work_status AND ownership; admins and
-                     coordinators can drive the lifecycle on behalf of the
-                     designer (matches canDriveWork = isMine || isAdmin
-                     above), so a held concept never gets stuck just
-                     because the designer is offline. */}
-                {canDriveWork && (
+                     the user always knows the next step. Stage 3 actions
+                     are designer-only — only the concept owner can start,
+                     hold, resume, mark done, or start changes. */}
+                {isMine && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     {/* Start working — fallback for legacy not_started rows.
                          New approvals auto-start so this rarely shows in
@@ -1228,10 +1285,15 @@ export function ConceptDetailDrawer({
                       <Clock className="h-3.5 w-3.5" />
                       Waiting for designer to revise
                     </p>
-                    {concept.md_feedback && (
-                      <div className="mt-1">
-                        <FeedbackDisplay text={concept.md_feedback} />
-                      </div>
+                    {(concept.final_approval_notes || (isAdmin && concept.work_status === "changes_requested")) && (
+                      <EditableFeedbackBlock
+                        text={concept.final_approval_notes ?? ""}
+                        field="final_approval_notes"
+                        conceptId={concept.id}
+                        canEdit={isAdmin && concept.work_status === "changes_requested"}
+                        onSaved={invalidateAll}
+                        compact
+                      />
                     )}
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       The designer will upload revised files and re-submit. You'll be able to review again.
@@ -1265,66 +1327,94 @@ export function ConceptDetailDrawer({
                 )}
 
                 {canFinalApprove ? (
-                  <div className="space-y-3">
-                    {/* Outcome cue — kept compact so the two action cards
-                        below carry the visual weight. */}
-                    <div className="flex items-start gap-2 rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
-                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                      <p className="text-[12px] leading-snug text-foreground">
-                        Designer re-submitted — your review decides the outcome.
+                  <div className="rounded-lg border border-warning/20 bg-gradient-to-b from-warning/[0.04] to-transparent">
+                    <div className="flex items-center gap-2 border-b border-warning/10 px-4 py-2.5">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-warning/10">
+                        <Sparkles className="h-3 w-3 text-warning" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-foreground">Final Review</p>
                         {concept.designs_count != null && (
-                          <span className="text-muted-foreground"> · {concept.designs_count} designs submitted</span>
+                          <p className="text-[10px] text-muted-foreground">{concept.designs_count} designs submitted</p>
                         )}
-                      </p>
+                      </div>
+                      {(concept.revision_count ?? 0) > 0 && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-semibold tabular-nums text-primary">
+                          Round {(concept.revision_count ?? 0) + 1}
+                        </span>
+                      )}
                     </div>
 
-                    {/* ── Option A: Approve ──
-                         Icon-chip header + tinted gradient surface + refined
-                         input. Same pattern the ScoreCard uses so the drawer
-                         reads in one visual language. */}
-                    {onFinalApprove && (
-                      <div className="relative overflow-hidden rounded-xl border border-success/25 bg-gradient-to-br from-success/[0.09] via-success/[0.04] to-transparent">
-                        <div
-                          aria-hidden
-                          className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-success via-success/70 to-success/30"
-                        />
-                        <div className="space-y-3 p-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success ring-1 ring-inset ring-success/30">
-                              <Check className="h-4 w-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-semibold leading-tight text-success">
-                                Approve this concept
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">
-                                Final sign-off — concept ships
-                              </p>
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label
-                              htmlFor="fa-count"
-                              className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+                    <div className="space-y-3 px-4 py-3">
+                      {/* Approved designs count — shown for approve flow */}
+                      {onFinalApprove && !suggestOpen && (
+                        <div className="space-y-1">
+                          <Label htmlFor="fa-count" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Approved Designs #
+                          </Label>
+                          <input
+                            id="fa-count"
+                            type="number"
+                            min="0"
+                            value={approvedCount}
+                            onChange={(e) => setApprovedCount(e.target.value)}
+                            placeholder="e.g. 5"
+                            disabled={busy !== null}
+                            className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+                          />
+                        </div>
+                      )}
+
+                      {/* Revision feedback — shown only after clicking Request Revision */}
+                      {suggestOpen && onFinalRevise && (
+                        <div className="space-y-1.5 rounded-lg border border-warning/20 bg-warning/[0.03] p-3">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-warning">
+                            What needs to change?
+                          </Label>
+                          <textarea
+                            value={finalNotes}
+                            onChange={(e) => setFinalNotes(e.target.value)}
+                            placeholder="Describe what needs to change…"
+                            disabled={busy !== null}
+                            rows={3}
+                            autoFocus
+                            className="w-full rounded-lg border border-warning/20 bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/30 disabled:opacity-50"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={handleFinalRevise}
+                              disabled={busy !== null || !finalNotes.trim()}
+                              size="sm"
+                              className="flex-1 gap-1.5 bg-warning text-white hover:bg-warning/90"
                             >
-                              Approved Designs #
-                            </Label>
-                            <input
-                              id="fa-count"
-                              type="number"
-                              min="0"
-                              value={approvedCount}
-                              onChange={(e) => setApprovedCount(e.target.value)}
-                              placeholder="e.g. 5"
+                              {busy === "final_revise" ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              )}
+                              Send Feedback
+                            </Button>
+                            <Button
+                              onClick={() => { setSuggestOpen(false); setFinalNotes(""); }}
+                              variant="outline"
+                              size="sm"
                               disabled={busy !== null}
-                              className="w-full rounded-lg border border-success/20 bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:border-success/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success/30 disabled:opacity-50"
-                            />
+                            >
+                              Cancel
+                            </Button>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      {!suggestOpen && (
+                        <div className="flex items-center gap-2">
+                        {onFinalApprove && (
                           <Button
                             onClick={handleFinalApprove}
                             disabled={busy !== null}
                             size="sm"
-                            className="w-full gap-1.5 bg-success text-white shadow-sm shadow-success/20 hover:bg-success/90"
+                            className="flex-1 gap-1.5 bg-success hover:bg-success/90"
                           >
                             {busy === "final_approve" ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1333,80 +1423,22 @@ export function ConceptDetailDrawer({
                             )}
                             Approve
                           </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Refined OR divider — pill-shaped label on a
-                         softly faded hairline so it reads as a decision
-                         point, not a structural break. */}
-                    {onFinalApprove && onFinalRevise && (
-                      <div className="flex items-center gap-3 py-0.5">
-                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-border/60" />
-                        <span className="rounded-full border border-border bg-secondary/60 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                          or
-                        </span>
-                        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-border to-border/60" />
-                      </div>
-                    )}
-
-                    {/* ── Option B: Request Revision ── */}
-                    {onFinalRevise && (
-                      <div className="relative overflow-hidden rounded-xl border border-warning/25 bg-gradient-to-br from-warning/[0.09] via-warning/[0.04] to-transparent">
-                        <div
-                          aria-hidden
-                          className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-warning via-warning/70 to-warning/30"
-                        />
-                        <div className="space-y-3 p-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning ring-1 ring-inset ring-warning/30">
-                              <RotateCcw className="h-4 w-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-semibold leading-tight text-warning">
-                                Request revision
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">
-                                Round {(concept.revision_count ?? 1) + 1} feedback — designer reworks
-                              </p>
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                              What needs to change?
-                            </Label>
-                            <textarea
-                              value={finalNotes}
-                              onChange={(e) => setFinalNotes(e.target.value)}
-                              placeholder="Describe what needs to change…"
-                              disabled={busy !== null}
-                              rows={2}
-                              className="w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                            />
-                          </div>
+                        )}
+                        {onFinalRevise && (
                           <Button
-                            onClick={handleFinalRevise}
-                            disabled={busy !== null || !finalNotes.trim()}
+                            onClick={() => setSuggestOpen(true)}
+                            disabled={busy !== null}
+                            variant="outline"
                             size="sm"
-                            className={cn(
-                              "w-full gap-1.5",
-                              finalNotes.trim()
-                                ? "bg-warning text-white shadow-sm shadow-warning/20 hover:bg-warning/90"
-                                : "border border-border bg-card text-muted-foreground hover:bg-secondary/40"
-                            )}
+                            className="flex-1 gap-1.5"
                           >
-                            {busy === "final_revise" ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <RotateCcw className="h-3.5 w-3.5" />
-                            )}
-                            {finalNotes.trim()
-                              ? "Send Revision Feedback"
-                              : "Type feedback above to send"}
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Request Revision
                           </Button>
-                        </div>
+                        )}
                       </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 ) : (
                   /* Designer / non-admin view */
@@ -2057,9 +2089,19 @@ function buildConceptTimeline(
     synthetic: true,
   });
 
-  // 2) First MD review of the *concept* (distinct from `design_approved`,
-  //    which is MD signing off the *finished design* later in the lifecycle).
-  if (concept.md_reviewed_at) {
+  // 3) Everything actually written to history.
+  const history = Array.isArray(concept.completion_history)
+    ? (concept.completion_history as TimelineEntry[])
+    : [];
+
+  // 2) MD review events. If history already has persisted MD review entries
+  //    (md_concept_approved/revision/rejected), use those — they capture the
+  //    full sequence (revision → resubmit → approve). Only synthesize from
+  //    md_reviewed_at when there are no persisted entries (legacy data).
+  const hasMdHistoryEntries = history.some((h) =>
+    h.type === "md_concept_approved" || h.type === "md_concept_revision" || h.type === "md_concept_rejected"
+  );
+  if (!hasMdHistoryEntries && concept.md_reviewed_at) {
     const type: TimelineEntryType =
       concept.md_status === "approved"
         ? "md_concept_approved"
@@ -2076,11 +2118,6 @@ function buildConceptTimeline(
       synthetic: true,
     });
   }
-
-  // 3) Everything actually written to history.
-  const history = Array.isArray(concept.completion_history)
-    ? (concept.completion_history as TimelineEntry[])
-    : [];
 
   // 2b) Designer started working — synthesised from `work_started_at` so the
   //     Designer stage always appears, even for older records created before
@@ -2101,8 +2138,9 @@ function buildConceptTimeline(
 
   // 3b) Terminal "Completed" capstone — once FINAL approval has happened
   //     (an `approved` event exists), the concept is fully closed. Synthesise
-  //     a Completed row dated at the final approval so it sits at the very top
-  //     (newest-first) as the lifecycle's closing event.
+  //     a Completed row dated at the final approval. It's pushed LAST, so with
+  //     the oldest-first sort + seq tiebreaker it lands at the very bottom as
+  //     the lifecycle's closing event.
   const finalApproval = items.find((i) => i.type === "approved");
   if (finalApproval) {
     items.push({
@@ -2112,23 +2150,48 @@ function buildConceptTimeline(
     });
   }
 
-  // 4) Order by lifecycle stage, then by recorded order within a stage.
-  //    `items` is built in chronological insertion order (created → MD review →
-  //    started → history-as-appended), so the index reflects true sequence and
-  //    is the reliable within-stage key — far more dependable than timestamps,
-  //    which are imprecise (date-only) on older records.
+  // 4) Order so the timeline reads top→bottom as the real lifecycle flow:
+  //    Concept Submitted → MD Requested Revision → Re-submitted → MD Approved →
+  //    Started Working → Completed.
+  //      • PRIMARY: timestamp, oldest first — this is what makes Re-submitted
+  //        (11:03) sit above MD Approved (11:18). Phase must NOT be primary or
+  //        it would group all MD events and pull the approval above the
+  //        earlier re-submission.
+  //      • TIEBREAK 1: lifecycle phase (PHASE_RANK) for events that share a
+  //        timestamp — Concept Submitted (concept) before MD Requested Revision
+  //        (MD) at 10:53; MD Approved (MD) before Started Working (designer) at
+  //        11:18. Also keeps date-only legacy records (all at midnight) in flow
+  //        order.
+  //      • TIEBREAK 2: recorded insertion order, for repeated same-phase events
+  //        (hold / resume / changes cycles).
   const ordered = items
     .map((entry, seq) => ({ entry, seq }))
     .sort((a, b) => {
+      const ta = new Date(a.entry.date).getTime() || 0;
+      const tb = new Date(b.entry.date).getTime() || 0;
+      // PRIMARY: timestamp bucketed to the MINUTE. These events come from
+      // different sources (created_at, history logs, work_started_at) that are
+      // only ~simultaneous and whose sub-minute seconds can even be inverted vs
+      // the real flow (auto-start stamps ~the approval instant). Bucketing to
+      // the minute lets the lifecycle phase decide within a cluster while real
+      // chronology still separates distinct minutes (Re-submitted 11:03 stays
+      // above MD Approved 11:18).
+      const ma = Math.floor(ta / 60000);
+      const mb = Math.floor(tb / 60000);
+      if (ma !== mb) return ma - mb;
+      // TIEBREAK 1: lifecycle phase — Concept before MD before Designer, etc.
       const pa = PHASE_RANK[a.entry.type] ?? 2;
       const pb = PHASE_RANK[b.entry.type] ?? 2;
       if (pa !== pb) return pa - pb;
+      // TIEBREAK 2 / 3: exact time, then recorded order (same-phase cycles).
+      if (ta !== tb) return ta - tb;
       return a.seq - b.seq;
     });
-  // Ascending (Concept → Final) → reverse for newest-first: Final Approval on
-  // top, Concept Submitted at the bottom, designer events newest-first between.
-  ordered.reverse();
-  return ordered.map((x) => x.entry);
+  // The sort above establishes the correct lifecycle relationships in ascending
+  // order; reverse for the display the team wants — NEWEST activity on top
+  // (Started Working / the Completed capstone), the first activity (Concept
+  // Submitted) at the very bottom.
+  return ordered.map((x) => x.entry).reverse();
 }
 
 function HistoryEntry({
@@ -2364,6 +2427,312 @@ function DetailItem({
         {label}
       </div>
       <div className="text-sm font-medium text-foreground">{children}</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// ConceptFilesGallery — compact file list with image hero
+// ============================================================================
+
+function ConceptFilesGallery({ concept }: { concept: ConceptWithRelations }) {
+  const allPaths = concept.files?.length
+    ? concept.files
+    : concept.image_url
+      ? [concept.image_url]
+      : [];
+
+  if (allPaths.length === 0) return null;
+
+  const primaryPath = concept.image_url ?? allPaths[0] ?? "";
+  const isHeroImage = /\.(jpe?g|png|gif|webp|svg)$/i.test(primaryPath);
+
+  return (
+    <div className="mt-3 space-y-2">
+      {isHeroImage && (
+        <ConceptImage
+          src={primaryPath}
+          alt={concept.title}
+          className="h-48 w-full rounded-lg border border-border"
+          showDownload
+        />
+      )}
+
+      {allPaths.length > 0 && (
+        <div className="rounded-lg border border-border bg-card">
+          <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+            <Paperclip className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Files ({allPaths.length})
+            </span>
+          </div>
+          <div className="divide-y divide-border">
+            {allPaths.map((path, i) => (
+              <ConceptFileRow key={path + i} path={path} isPrimary={path === primaryPath} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConceptFileRow({ path, isPrimary, index }: { path: string; isPrimary: boolean; index: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (path.startsWith("http")) { setUrl(path); return; }
+    (async () => {
+      for (const bucket of ["sample-files", "design-files"] as const) {
+        const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+        if (!cancelled && data?.signedUrl) { setUrl(data.signedUrl); return; }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [path]);
+
+  const name = path.split("/").pop() ?? `File ${index + 1}`;
+  const ext = name.split(".").pop()?.toUpperCase() ?? "FILE";
+  const isImg = /\.(jpe?g|png|gif|webp|svg)$/i.test(path);
+
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-1.5">
+      {isImg && url ? (
+        <img src={url} alt={name} className="h-8 w-8 shrink-0 rounded border border-border object-cover" />
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border bg-secondary/50 text-[9px] font-bold text-muted-foreground">
+          {ext}
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium text-foreground">{name}</p>
+        {isPrimary && (
+          <span className="text-[9px] font-medium text-primary">Primary</span>
+        )}
+      </div>
+      {url && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          download={name}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          title="Download"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </a>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// EditableFeedbackBlock — inline-editable feedback notes
+// ============================================================================
+
+function EditableFeedbackBlock({
+  text,
+  field,
+  conceptId,
+  canEdit,
+  onSaved,
+  compact,
+}: {
+  text: string;
+  field: "md_notes" | "final_approval_notes";
+  conceptId: string;
+  canEdit: boolean;
+  onSaved: () => void;
+  compact?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setDraft(text); }, [text]);
+
+  async function handleSave() {
+    if (!draft.trim() || draft.trim() === text) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase
+      .from("concepts")
+      .update({ [field]: draft.trim() })
+      .eq("id", conceptId);
+    setSaving(false);
+    if (error) {
+      toast.error("Failed to update: " + error.message);
+      return;
+    }
+    toast.success("Feedback updated");
+    setEditing(false);
+    onSaved();
+  }
+
+  if (editing) {
+    return (
+      <div className={cn("mt-2 space-y-1.5", compact && "mt-1")}>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={compact ? 2 : 3}
+          autoFocus
+          disabled={saving}
+          className="w-full rounded-lg border border-primary/30 bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+        />
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={saving || !draft.trim()} className="gap-1.5">
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            Save
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft(text); }} disabled={saving}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!text && canEdit) {
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="flex w-full items-center gap-1.5 rounded-lg border border-dashed border-primary/30 px-3 py-2 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <PencilLine className="h-3 w-3" />
+          Add feedback notes
+        </button>
+      </div>
+    );
+  }
+
+  if (!text) return null;
+
+  return (
+    <div className={cn("group mt-2 rounded-lg border border-border bg-card p-3", compact && "mt-1 border-0 bg-transparent p-0")}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <FeedbackDisplay text={text} />
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-secondary hover:text-foreground"
+            title="Edit feedback"
+          >
+            <PencilLine className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// DesignerResubmitNote — editable note for what the designer changed
+// ============================================================================
+
+function DesignerResubmitNote({
+  concept,
+  onSaved,
+}: {
+  concept: ConceptWithRelations;
+  onSaved: () => void;
+}) {
+  const history: any[] = Array.isArray(concept.completion_history) ? concept.completion_history : [];
+  const lastResubmitIdx = (() => {
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i]?.type === "resubmit") return i;
+    }
+    return -1;
+  })();
+  const currentNote = lastResubmitIdx >= 0 ? (history[lastResubmitIdx].feedback ?? "") : "";
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentNote);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setDraft(currentNote); }, [currentNote]);
+
+  async function handleSave() {
+    if (lastResubmitIdx < 0) return;
+    setSaving(true);
+    const updated = [...history];
+    updated[lastResubmitIdx] = { ...updated[lastResubmitIdx], feedback: draft.trim() || undefined };
+    const { error } = await supabase
+      .from("concepts")
+      .update({ completion_history: updated as any })
+      .eq("id", concept.id);
+    setSaving(false);
+    if (error) {
+      toast.error("Failed to save: " + error.message);
+      return;
+    }
+    toast.success("Note updated");
+    setEditing(false);
+    onSaved();
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3 space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">What did you change?</p>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={2}
+          autoFocus
+          disabled={saving}
+          placeholder="Describe what you revised…"
+          className="w-full rounded-lg border border-primary/20 bg-card px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+        />
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5">
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            Save
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft(currentNote); }} disabled={saving}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group mt-3">
+      {currentNote ? (
+        <div className="rounded-lg border border-primary/15 bg-primary/[0.03] p-3">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">Your revision note</p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">{currentNote}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-secondary hover:text-foreground"
+              title="Edit note"
+            >
+              <PencilLine className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="flex w-full items-center gap-1.5 rounded-lg border border-dashed border-primary/30 px-3 py-2.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <PencilLine className="h-3 w-3" />
+          Add a note about what you changed
+        </button>
+      )}
     </div>
   );
 }

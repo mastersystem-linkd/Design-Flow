@@ -232,7 +232,7 @@ export function TeamView() {
   }
 
   const designerCount = profiles.filter((p) => p.role === "designer").length;
-  const adminCount = profiles.filter((p) => p.role === "admin").length;
+  const adminCount = profiles.filter((p) => p.role === "admin" || p.role === "super_admin").length;
   const isLoading = profilesLoading || codesLoading;
 
   return (

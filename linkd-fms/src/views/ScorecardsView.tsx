@@ -50,6 +50,7 @@ import { supabase } from "@/lib/supabase";
 import { isAdmin as isAdminCheck, isAdminOrCoordinator } from "@/lib/permissions";
 import { scorecardDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { KpiCard } from "@/components/analytics/KpiCard";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
 import { exportScorecardsExcel } from "@/lib/exportExcel";
@@ -226,6 +227,7 @@ export function ScorecardsView() {
   const canView = isAdminOrCoordinator(profile?.role);
 
   const [period, setPeriod] = useState<Period>("month");
+  const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | null>(null);
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -233,7 +235,7 @@ export function ScorecardsView() {
   const openScorecard = (id: string) => navigate(scorecardDetailPath(id));
 
   const conceptAnalytics = useAnalytics(period);
-  const taskAnalytics = useTaskAnalytics(period);
+  const taskAnalytics = useTaskAnalytics(period, customRange);
   const { profiles, isLoading: profilesLoading } = useProfiles({ roles: ["designer"] });
   const { codesByProfile } = useDesignerCodes();
 
@@ -413,40 +415,43 @@ export function ScorecardsView() {
             />
           </div>
 
-          {teamSummary.topPerformer && teamSummary.topPerformer.compositeScore > 0 && (
-            <button
-              type="button"
-              onClick={() => openScorecard(teamSummary.topPerformer!.id)}
-              className="group hidden h-9 items-center gap-2 rounded-xl border border-warning/20 bg-warning/[0.06] px-3 text-xs transition-all hover:bg-warning/[0.12] hover:shadow-sm sm:flex"
-              title={`${teamSummary.topPerformer.name} · ${teamSummary.topPerformer.compositeScore}/100`}
+          {rows.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) openScorecard(e.target.value); }}
+              className="h-9 rounded-xl border border-border bg-card px-2.5 pr-8 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
-              <Trophy className="h-3.5 w-3.5 shrink-0 text-warning" />
-              <span className="max-w-[140px] truncate font-medium text-foreground">
-                {teamSummary.topPerformer.name}
-              </span>
-              <span className="font-mono-data text-sm text-success">
-                {teamSummary.topPerformer.compositeScore}
-              </span>
-              <ArrowUpRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-            </button>
+              <option value="">View Designer…</option>
+              {rows.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} — {r.compositeScore}/100
+                </option>
+              ))}
+            </select>
           )}
 
           {rows.length > 0 && (
-            <Button variant="outline" size="sm" onClick={handleExportScorecards} className="h-9 gap-1.5 rounded-xl">
+            <Button variant="outline" size="icon" onClick={handleExportScorecards} className="h-9 w-9 rounded-xl" title="Export">
               <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Export</span>
             </Button>
           )}
 
+          <DateRangePicker
+            from={taskAnalytics.periodStart.toISOString().slice(0, 10)}
+            to={taskAnalytics.periodEnd.toISOString().slice(0, 10)}
+            onChange={(f, t) => {
+              setCustomRange({ from: new Date(f + "T00:00:00"), to: new Date(t + "T23:59:59") });
+            }}
+          />
           <div className="inline-flex rounded-xl bg-secondary p-1">
             {PERIODS.map((p) => (
               <button
                 key={p.value}
                 type="button"
-                onClick={() => setPeriod(p.value)}
+                onClick={() => { setPeriod(p.value); setCustomRange(null); }}
                 className={cn(
                   "rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all",
-                  period === p.value
+                  !customRange && period === p.value
                     ? "bg-primary text-white shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}

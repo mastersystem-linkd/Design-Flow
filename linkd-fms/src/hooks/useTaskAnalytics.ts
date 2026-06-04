@@ -263,14 +263,28 @@ function safeAvg(nums: number[]): number {
 // Hook
 // ============================================================================
 
-export function useTaskAnalytics(period: Period = "month"): TaskDashboardMetrics {
+export function useTaskAnalytics(
+  period: Period = "month",
+  customRange?: { from: Date; to: Date } | null
+): TaskDashboardMetrics {
   const { tasks, isLoading, error: tasksError } = useTasks();
   const { profiles } = useProfiles({ roles: ["designer"] });
   const { codesByProfile } = useDesignerCodes();
 
   const error = tasksError || null;
   const now = useMemo(() => new Date(), []);
-  const { start, end, prevStart, prevEnd } = useMemo(() => getPeriodRange(period, now), [period, now]);
+  const { start, end, prevStart, prevEnd } = useMemo(() => {
+    if (customRange) {
+      const span = customRange.to.getTime() - customRange.from.getTime();
+      return {
+        start: customRange.from,
+        end: customRange.to,
+        prevStart: new Date(customRange.from.getTime() - span),
+        prevEnd: new Date(customRange.to.getTime() - span),
+      };
+    }
+    return getPeriodRange(period, now);
+  }, [period, now, customRange]);
   const periodLabel = useMemo(() => `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`, [start, end]);
 
   // ── KPIs ──────────────────────────────────────────────────────────

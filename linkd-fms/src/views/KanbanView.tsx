@@ -411,6 +411,8 @@ export function KanbanView() {
 
   const taskExportColumns: CsvColumn<TaskWithRelations>[] = [
     { key: "task_code", label: "Task Code" },
+    { key: "created_at", label: "Briefed" },
+    { key: "started_at", label: "Claimed" },
     { key: "concept", label: "Concept" },
     { key: "client", label: "Client", transform: (v, row) => (v as any)?.party_name ?? (row.brief_type === "ld" ? "LD Silk Mills" : "") },
     { key: "fabric", label: "Fabric", transform: (v, row) => String(v || "").trim() || row.completion_fabric?.trim() || "" },
@@ -1842,7 +1844,10 @@ function TaskTableSection(props: SectionProps) {
                   </th>
                 )}
                 {showCol("date") && (
-                  <th className="px-3 py-2 text-left font-bold">Date/Time</th>
+                  <th className="px-3 py-2 text-left font-bold">Briefed</th>
+                )}
+                {showCol("claimed") && (
+                  <th className="px-3 py-2 text-left font-bold">Claimed</th>
                 )}
                 {showCol("designer") && (
                   <th className="px-3 py-2 text-left font-bold">Designer</th>
@@ -2723,10 +2728,16 @@ function TaskRow({
         </td>
       )}
 
-      {/* 1. Date/Time (created_at) */}
+      {/* 1a. Briefed (created_at — when task was assigned to pool) */}
       {showCol("date") && (
         <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
           {formatDateTime(task.created_at)}
+        </td>
+      )}
+      {/* 1b. Claimed (started_at — when designer claimed the task) */}
+      {showCol("claimed") && (
+        <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+          {task.started_at ? formatDateTime(task.started_at) : "—"}
         </td>
       )}
 

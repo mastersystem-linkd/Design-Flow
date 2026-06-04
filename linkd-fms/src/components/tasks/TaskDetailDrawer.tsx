@@ -26,6 +26,7 @@ import {
   Layers,
   History,
   ClipboardList,
+  ChevronRight,
   Workflow,
   FolderOpen,
 } from "lucide-react";
@@ -1096,6 +1097,7 @@ function BriefDetails({
 }) {
   const { profile } = useAuth();
   const isAdmin = isAdminRole(profile?.role);
+  const [expanded, setExpanded] = useState(false);
 
   const days = daysUntil(task.planned_deadline);
   const sev = daysSeverity(days);
@@ -1103,10 +1105,6 @@ function BriefDetails({
   const qtyPartial = task.qty_completed > 0 && task.qty_completed < task.qty;
   const qtyExtra = task.qty_completed > task.qty ? task.qty_completed - task.qty : 0;
 
-  // Scalar cards (Quantity, Deadline, Priority, Assigned + optional Fabric /
-  // WhatsApp) live in a 2-col grid. To avoid a lonely half-width card on an odd
-  // count, the trailing card spans both columns. Which card is "trailing"
-  // depends on which optionals are present.
   const hasFabric = !!task.fabric?.trim();
   const hasWa = !!task.whatsapp_group;
   const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0);
@@ -1115,146 +1113,188 @@ function BriefDetails({
   const wide = (key: string) => (oddTrailing && key === lastKey ? "col-span-2" : "");
 
   return (
-    <Section title="Brief details" icon={<ClipboardList className="h-3.5 w-3.5" />}>
-      <div className="grid grid-cols-2 gap-1.5">
-        <InfoCard
-          label="Quantity"
-          icon={<Package className="h-3 w-3" />}
-          tone="primary"
-        >
-          <span className="tabular-nums">
-            {qtyExtra > 0 ? (
-              <>
-                {task.qty_completed} / {task.qty} m
-                <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[10px] font-semibold text-primary">
-                  +{qtyExtra} extra
-                </span>
-              </>
-            ) : qtyPartial ? (
-              <>
-                {task.qty_completed} / {task.qty} m completed
-              </>
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-center gap-1.5 text-left"
+      >
+        <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Brief details
+        </span>
+        <ChevronRight
+          className={cn(
+            "h-3 w-3 text-muted-foreground transition-transform duration-200",
+            expanded && "rotate-90"
+          )}
+        />
+        {!expanded && (
+          <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="font-semibold tabular-nums text-foreground">{task.qty}m</span>
+            <span className="text-border">·</span>
+            <span className="truncate max-w-[100px]">{task.assignee?.full_name ?? "Pool"}</span>
+            <span className="text-border">·</span>
+            {task.planned_deadline ? (
+              <span className={cn("font-medium", DAYS_TEXT_CLASS[sev])}>
+                {formatDate(task.planned_deadline)}
+              </span>
             ) : (
+              <span>No deadline</span>
+            )}
+            {task.priority === "urgent" && (
               <>
-                <span className="font-semibold">{task.qty}</span> m
+                <span className="text-border">·</span>
+                <span className="font-semibold text-destructive">Urgent</span>
               </>
             )}
           </span>
-          {(qtyPartial || qtyExtra > 0) && (
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-[width] duration-300",
-                  qtyExtra > 0 ? "bg-primary" : "bg-success"
-                )}
-                style={{ width: `${qtyPct}%` }}
-              />
-            </div>
-          )}
-        </InfoCard>
+        )}
+      </button>
 
-        <InfoCard
-          label="Deadline"
-          icon={<CalendarDays className="h-3 w-3" />}
-          tone={
-            sev === "overdue" || sev === "critical"
-              ? "destructive"
-              : sev === "today" || sev === "warning"
-                ? "warning"
-                : "muted"
-          }
-        >
-          {task.planned_deadline ? (
-            <div className="flex flex-col gap-1">
-              <span className="text-foreground">
-                {formatDate(task.planned_deadline)}
-              </span>
-              <span
-                className={cn(
-                  "flex items-center gap-1 text-[10px]",
-                  DAYS_TEXT_CLASS[sev]
+      {expanded && (
+        <>
+          <div className="grid grid-cols-2 gap-1.5">
+            <InfoCard
+              label="Quantity"
+              icon={<Package className="h-3 w-3" />}
+              tone="primary"
+            >
+              <span className="tabular-nums">
+                {qtyExtra > 0 ? (
+                  <>
+                    {task.qty_completed} / {task.qty} m
+                    <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[10px] font-semibold text-primary">
+                      +{qtyExtra} extra
+                    </span>
+                  </>
+                ) : qtyPartial ? (
+                  <>
+                    {task.qty_completed} / {task.qty} m completed
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">{task.qty}</span> m
+                  </>
                 )}
+              </span>
+              {(qtyPartial || qtyExtra > 0) && (
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-[width] duration-300",
+                      qtyExtra > 0 ? "bg-primary" : "bg-success"
+                    )}
+                    style={{ width: `${qtyPct}%` }}
+                  />
+                </div>
+              )}
+            </InfoCard>
+
+            <InfoCard
+              label="Deadline"
+              icon={<CalendarDays className="h-3 w-3" />}
+              tone={
+                sev === "overdue" || sev === "critical"
+                  ? "destructive"
+                  : sev === "today" || sev === "warning"
+                    ? "warning"
+                    : "muted"
+              }
+            >
+              {task.planned_deadline ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-foreground">
+                    {formatDate(task.planned_deadline)}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex items-center gap-1 text-[10px]",
+                      DAYS_TEXT_CLASS[sev]
+                    )}
+                  >
+                    <span
+                      className={cn("h-1.5 w-1.5 rounded-full", DAYS_DOT_CLASS[sev])}
+                    />
+                    ({daysLabel(days)})
+                  </span>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </InfoCard>
+
+            <InfoCard
+              label="Priority"
+              icon={<Flag className="h-3 w-3" />}
+              tone={task.priority === "urgent" ? "destructive" : "muted"}
+            >
+              {task.priority === "urgent" ? (
+                <Badge className="bg-destructive px-1.5 py-0 text-[10px] uppercase tracking-wider text-destructive-foreground">
+                  Urgent
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">Normal</span>
+              )}
+            </InfoCard>
+
+            <InfoCard
+              label="Assigned to"
+              icon={<UserCircle2 className="h-3 w-3" />}
+              tone="primary"
+              className={wide("assigned")}
+            >
+              <AssigneeRow task={task} isAdmin={isAdmin} onAssigned={onChanged} />
+            </InfoCard>
+
+            {hasFabric && (
+              <InfoCard
+                label="Fabric"
+                icon={<Layers className="h-3 w-3" />}
+                className={wide("fabric")}
               >
-                <span
-                  className={cn("h-1.5 w-1.5 rounded-full", DAYS_DOT_CLASS[sev])}
-                />
-                ({daysLabel(days)})
-              </span>
-            </div>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </InfoCard>
+                {task.fabric}
+              </InfoCard>
+            )}
 
-        <InfoCard
-          label="Priority"
-          icon={<Flag className="h-3 w-3" />}
-          tone={task.priority === "urgent" ? "destructive" : "muted"}
-        >
-          {task.priority === "urgent" ? (
-            <Badge className="bg-destructive px-1.5 py-0 text-[10px] uppercase tracking-wider text-destructive-foreground">
-              Urgent
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground">Normal</span>
-          )}
-        </InfoCard>
+            {hasWa && (
+              <InfoCard
+                label="WhatsApp group"
+                icon={<MessageSquare className="h-3 w-3" />}
+                className={wide("wa")}
+              >
+                {task.whatsapp_group}
+              </InfoCard>
+            )}
+          </div>
 
-        <InfoCard
-          label="Assigned to"
-          icon={<UserCircle2 className="h-3 w-3" />}
-          tone="primary"
-          className={wide("assigned")}
-        >
-          <AssigneeRow task={task} isAdmin={isAdmin} onAssigned={onChanged} />
-        </InfoCard>
-
-        {hasFabric && (
-          <InfoCard
-            label="Fabric"
-            icon={<Layers className="h-3 w-3" />}
-            className={wide("fabric")}
-          >
-            {task.fabric}
-          </InfoCard>
-        )}
-
-        {hasWa && (
-          <InfoCard
-            label="WhatsApp group"
-            icon={<MessageSquare className="h-3 w-3" />}
-            className={wide("wa")}
-          >
-            {task.whatsapp_group}
-          </InfoCard>
-        )}
-      </div>
-
-      {(task.description || task.notes) && (
-        <div className="mt-1.5 space-y-1.5">
-          {task.description && (
-            <div className="rounded-lg border border-border bg-card px-2.5 py-2">
-              <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
-                Description
-              </p>
-              <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
-                {task.description}
-              </p>
+          {(task.description || task.notes) && (
+            <div className="mt-1.5 space-y-1.5">
+              {task.description && (
+                <div className="rounded-lg border border-border bg-card px-2.5 py-2">
+                  <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Description
+                  </p>
+                  <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
+                    {task.description}
+                  </p>
+                </div>
+              )}
+              {task.notes && (
+                <div className="rounded-lg border border-border bg-card px-2.5 py-2">
+                  <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Notes
+                  </p>
+                  <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
+                    {task.notes}
+                  </p>
+                </div>
+              )}
             </div>
           )}
-          {task.notes && (
-            <div className="rounded-lg border border-border bg-card px-2.5 py-2">
-              <p className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
-                Notes
-              </p>
-              <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-snug text-foreground">
-                {task.notes}
-              </p>
-            </div>
-          )}
-        </div>
+        </>
       )}
-    </Section>
+    </div>
   );
 }
 

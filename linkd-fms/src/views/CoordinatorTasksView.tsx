@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Plus, Search, CheckCircle2, Clock, RefreshCw,
-  Trash2, X, ClipboardList, Calendar, User,
+  Trash2, X, ClipboardList, Calendar, User, Download,
 } from "lucide-react";
 import { useCoordinatorTasks } from "@/hooks/useCoordinatorTasks";
 import { useAuth } from "@/hooks/useAuth";
@@ -15,8 +15,12 @@ import {
 } from "@/components/ui/dialog";
 import { cn, formatDate } from "@/lib/utils";
 import { isCoordinator } from "@/lib/permissions";
+import { exportToCSV, type CsvColumn } from "@/lib/exportCSV";
 import { TABLE_HEAD, TABLE_TH, TABLE_ROW, TABLE_TD } from "@/lib/tableStyles";
 import type { CoordinatorTask } from "@/types/database";
+
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function monthStartISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; }
 
 export function CoordinatorTasksView() {
   const { profile } = useAuth();
@@ -27,9 +31,13 @@ export function CoordinatorTasksView() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
   const [deleteTarget, setDeleteTarget] = useState<CoordinatorTask | null>(null);
+  const [dateFrom, setDateFrom] = useState(monthStartISO());
+  const [dateTo, setDateTo] = useState(todayISO());
 
   const filtered = useMemo(() => {
     let list = tasks;
+    if (dateFrom) list = list.filter((t) => t.requested_at >= dateFrom);
+    if (dateTo) list = list.filter((t) => t.requested_at <= dateTo + "T23:59:59");
     if (statusFilter === "pending") list = list.filter((t) => !t.is_completed);
     if (statusFilter === "completed") list = list.filter((t) => t.is_completed);
     if (search.trim()) {
@@ -42,14 +50,33 @@ export function CoordinatorTasksView() {
       );
     }
     return list;
-  }, [tasks, search, statusFilter]);
+  }, [tasks, search, statusFilter, dateFrom, dateTo]);
+
+  const dateFiltered = useMemo(() => {
+    let list = tasks;
+    if (dateFrom) list = list.filter((t) => t.requested_at >= dateFrom);
+    if (dateTo) list = list.filter((t) => t.requested_at <= dateTo + "T23:59:59");
+    return list;
+  }, [tasks, dateFrom, dateTo]);
 
   const stats = useMemo(() => {
-    const total = tasks.length;
-    const completed = tasks.filter((t) => t.is_completed).length;
+    const total = dateFiltered.length;
+    const completed = dateFiltered.filter((t) => t.is_completed).length;
     const pending = total - completed;
     return { total, completed, pending };
-  }, [tasks]);
+  }, [dateFiltered]);
+
+  function handleExport() {
+    const cols: CsvColumn<CoordinatorTask>[] = [
+      { key: "requester_name", label: "Requester" },
+      { key: "description", label: "Description" },
+      { key: "requested_at", label: "Requested" },
+      { key: "is_completed", label: "Status", transform: (v) => v ? "Completed" : "Pending" },
+      { key: "completed_at", label: "Completed At" },
+      { key: "notes", label: "Notes" },
+    ];
+    exportToCSV(filtered as Record<string, unknown>[], `coordinator-tasks-${dateFrom}-to-${dateTo}`, cols as CsvColumn<Record<string, unknown>>[]);
+  }
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -67,55 +94,41 @@ export function CoordinatorTasksView() {
 
   return (
     <div className="space-y-3">
-      {/* ── Banner header — matches Salvedge / Sampling banner style ── */}
-      <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-r from-primary/5 via-card to-card">
-        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-success to-warning" />
-        <div className="relative flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-              <ClipboardList className="h-[18px] w-[18px] text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Coordinator Tasks</p>
-              <p className="text-[11px] text-muted-foreground">
-                Design & photo search requests
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {stats.pending > 0 && (
-              <Badge className="border border-warning/20 bg-warning/10 text-warning">
-                {stats.pending} pending
-              </Badge>
-            )}
-            <Button variant="outline" size="sm" onClick={() => void refetch()} className="gap-1.5">
-              <RefreshCw className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Refresh</span>
-            </Button>
-            {canLog && (
-              <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}>
-                <Plus className="h-3.5 w-3.5" /> Log Task
-              </Button>
-            )}
-          </div>
+      {/* ── Compact header: KPIs + date + actions — one row ── */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <KpiChip label="All" value={stats.total} tone="primary" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+          <KpiChip label="Pending" value={stats.pending} tone="warning" active={statusFilter === "pending"} onClick={() => setStatusFilter("pending")} />
+          <KpiChip label="Completed" value={stats.completed} tone="success" active={statusFilter === "completed"} onClick={() => setStatusFilter("completed")} />
         </div>
-      </div>
-
-      {/* ── Toolbar — stepper pills + search ── */}
-      <div className="flex items-center gap-1.5 overflow-x-auto rounded-xl border border-border bg-card px-3 py-2">
-        <StatusPill label="All" count={stats.total} active={statusFilter === "all"} tone="primary" onClick={() => setStatusFilter("all")} />
-        <StatusPill label="Pending" count={stats.pending} active={statusFilter === "pending"} tone="warning" onClick={() => setStatusFilter("pending")} />
-        <StatusPill label="Completed" count={stats.completed} active={statusFilter === "completed"} tone="success" onClick={() => setStatusFilter("completed")} />
-
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search…"
-              className="h-7 w-[140px] rounded-md border border-border bg-card pl-7 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[180px]"
+              className="h-7 w-[120px] rounded-md border border-border bg-card pl-7 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[150px]"
             />
           </div>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+            className="h-7 w-full rounded-md border border-border bg-card px-1.5 text-[11px] focus:outline-none focus:ring-2 focus:ring-ring sm:w-auto" />
+          <span className="text-[10px] text-muted-foreground">–</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+            className="h-7 w-full rounded-md border border-border bg-card px-1.5 text-[11px] focus:outline-none focus:ring-2 focus:ring-ring sm:w-auto" />
+          {filtered.length > 0 && (
+            <Button variant="outline" size="icon" onClick={handleExport} className="h-7 w-7" title="Export CSV">
+              <Download className="h-3 w-3" />
+            </Button>
+          )}
+          <Button variant="outline" size="icon" onClick={() => void refetch()} className="h-7 w-7" title="Refresh">
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+          {canLog && (
+            <Button size="sm" className="h-7 gap-1 px-2.5 text-[11px]" onClick={() => setFormOpen(true)}>
+              <Plus className="h-3 w-3" /> Log Task
+            </Button>
+          )}
         </div>
       </div>
 
@@ -131,59 +144,33 @@ export function CoordinatorTasksView() {
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-sm">
-              <colgroup>
-                <col className="w-10" />
-                <col className="w-[140px]" />
-                <col />
-                <col className="w-[120px]" />
-                <col className="w-[90px]" />
-                <col className="w-[120px]" />
-                {canLog && <col className="w-[70px]" />}
-              </colgroup>
+            <table className="w-full text-sm">
               <thead className={TABLE_HEAD}>
                 <tr>
-                  <th className={TABLE_TH}>#</th>
-                  <th className={TABLE_TH}>Requester</th>
+                  <th className={cn(TABLE_TH, "w-[130px]")}>Requester</th>
                   <th className={TABLE_TH}>Description</th>
-                  <th className={TABLE_TH}>Requested</th>
-                  <th className={TABLE_TH}>Status</th>
-                  <th className={TABLE_TH}>Completed</th>
-                  {canLog && <th className={cn(TABLE_TH, "text-right")}>Actions</th>}
+                  <th className={cn(TABLE_TH, "w-[100px]")}>Requested</th>
+                  <th className={cn(TABLE_TH, "w-[80px]")}>Status</th>
+                  {canLog && <th className={cn(TABLE_TH, "w-10 text-right")} />}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((t, i) => (
+                {filtered.map((t) => (
                   <tr key={t.id} className={cn(TABLE_ROW, "hover:bg-secondary/30")}>
-                    <td className={cn(TABLE_TD, "tabular-nums text-muted-foreground")}>{i + 1}</td>
                     <td className={cn(TABLE_TD, "font-medium text-foreground")}>
-                      <span className="flex items-center gap-1.5 truncate">
-                        <User className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{t.requester_name}</span>
-                      </span>
+                      <span className="truncate block">{t.requester_name}</span>
                     </td>
                     <td className={TABLE_TD}>
-                      <p className="truncate text-foreground" title={t.description}>{t.description}</p>
-                      {t.notes && <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={t.notes}>{t.notes}</p>}
+                      <p className="text-foreground truncate" title={t.description}>{t.description}</p>
+                      {t.notes && <p className="truncate text-[10px] text-muted-foreground" title={t.notes}>{t.notes}</p>}
                     </td>
-                    <td className={cn(TABLE_TD, "text-muted-foreground")}>
-                      <span className="flex items-center gap-1 whitespace-nowrap">
-                        <Calendar className="h-3 w-3 shrink-0" />
-                        {formatDate(t.requested_at)}
-                      </span>
-                    </td>
+                    <td className={cn(TABLE_TD, "whitespace-nowrap text-[11px] text-muted-foreground")}>{formatDate(t.requested_at)}</td>
                     <td className={TABLE_TD}>
                       {canLog ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleToggle(t)}
-                          className={cn(
-                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors",
-                            t.is_completed
-                              ? "bg-success/15 text-success hover:bg-success/25"
-                              : "bg-warning/15 text-warning hover:bg-warning/25"
-                          )}
-                        >
+                        <button type="button" onClick={() => void handleToggle(t)}
+                          className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                            t.is_completed ? "bg-success/15 text-success hover:bg-success/25" : "bg-warning/15 text-warning hover:bg-warning/25"
+                          )}>
                           {t.is_completed ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                           {t.is_completed ? "Done" : "Pending"}
                         </button>
@@ -193,18 +180,10 @@ export function CoordinatorTasksView() {
                         </Badge>
                       )}
                     </td>
-                    <td className={cn(TABLE_TD, "whitespace-nowrap text-muted-foreground")}>
-                      {t.completed_at ? formatDate(t.completed_at) : "—"}
-                    </td>
                     {canLog && (
                       <td className={cn(TABLE_TD, "text-right")}>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(t)}
-                          className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
+                        <button type="button" onClick={() => setDeleteTarget(t)} className="rounded p-1 text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive" title="Delete">
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </td>
                     )}
@@ -337,12 +316,7 @@ function AddTaskDialog({
                     Time
                   </span>
                 </Label>
-                <Input
-                  type="time"
-                  value={requestTime}
-                  onChange={(e) => setRequestTime(e.target.value)}
-                  disabled={saving}
-                />
+                <TimeInput12h value={requestTime} onChange={setRequestTime} disabled={saving} />
               </div>
             </div>
           </section>
@@ -412,29 +386,96 @@ const PILL_COUNT: Record<string, string> = {
   success: "text-success",
 };
 
-function StatusPill({ label, count, active, tone, onClick }: {
+function KpiChip({ label, value, tone, active, onClick }: {
   label: string;
-  count: number;
-  active: boolean;
+  value: number;
   tone: "primary" | "warning" | "success";
+  active: boolean;
   onClick: () => void;
 }) {
+  const TONE_BG: Record<string, string> = { primary: "bg-primary/10 border-primary/20", warning: "bg-warning/10 border-warning/20", success: "bg-success/10 border-success/20" };
+  const TONE_NUM: Record<string, string> = { primary: "text-primary", warning: "text-warning", success: "text-success" };
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-all duration-200",
-        active
-          ? PILL_ACTIVE[tone]
-          : "border-border/60 bg-card/50 text-muted-foreground hover:border-border hover:bg-secondary/50"
+        "flex items-center gap-2 rounded-lg border px-3 py-1.5 transition-all",
+        active ? TONE_BG[tone] : "border-border bg-card hover:bg-secondary/50"
       )}
     >
-      <span className={cn("h-2 w-2 rounded-full", active ? PILL_DOT[tone] : "bg-muted-foreground/50")} />
-      {label}
-      <span className={cn("text-[13px] font-bold leading-none tabular-nums", active ? PILL_COUNT[tone] : "text-foreground")}>
-        {count}
-      </span>
+      <span className={cn("text-lg font-bold tabular-nums leading-none", active ? TONE_NUM[tone] : "text-foreground")}>{value}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
     </button>
+  );
+}
+
+function TimeInput12h({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  // Parse 24h "HH:MM" → 12h parts
+  const parsed = /^(\d{1,2}):(\d{2})$/.exec(value ?? "");
+  const initH = parsed ? ((parseInt(parsed[1]) % 12) || 12) : 12;
+  const initM = parsed ? parsed[2] : "00";
+  const initP = parsed ? (parseInt(parsed[1]) >= 12 ? "PM" : "AM") : "AM";
+
+  const [h12, setH12] = useState(String(initH).padStart(2, "0"));
+  const [min, setMin] = useState(initM);
+  const [period, setPeriod] = useState<"AM" | "PM">(initP as "AM" | "PM");
+  const minRef = useRef<HTMLInputElement>(null);
+  const autoAdv = useRef(false);
+  const latestH = useRef(h12);
+  const latestM = useRef(min);
+  latestH.current = h12;
+  latestM.current = min;
+
+  function emit(h: string, m: string, p: "AM" | "PM") {
+    if (!h || !m) return;
+    let h24 = parseInt(h) % 12;
+    if (p === "PM") h24 += 12;
+    onChange(`${String(h24).padStart(2, "0")}:${m.padStart(2, "0")}`);
+  }
+
+  function onHourInput(raw: string) {
+    const d = raw.replace(/\D/g, "").slice(0, 2);
+    const n = parseInt(d, 10);
+    const next = d === "" ? "" : String(Math.min(12, n || 0));
+    setH12(next); latestH.current = next;
+    emit(next, latestM.current, period);
+    if (next && (next.length === 2 || n > 1)) {
+      autoAdv.current = true;
+      minRef.current?.focus();
+      minRef.current?.select();
+    }
+  }
+
+  function onMinInput(raw: string) {
+    const d = raw.replace(/\D/g, "").slice(0, 2);
+    const next = d === "" ? "" : d.length === 2 ? String(Math.min(59, parseInt(d, 10))).padStart(2, "0") : d;
+    setMin(next); latestM.current = next;
+    emit(latestH.current, next, period);
+  }
+
+  const cls = "h-8 w-8 rounded bg-transparent text-center text-sm font-semibold tabular-nums text-foreground placeholder:text-muted-foreground focus:bg-secondary/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/40 disabled:opacity-50";
+
+  return (
+    <div className={cn("flex h-10 items-center gap-0.5 rounded-lg border border-input bg-card pl-2.5 pr-1 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30", disabled && "opacity-50")}>
+      <Clock className="mr-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <input type="text" inputMode="numeric" placeholder="HH" maxLength={2} className={cls} value={h12}
+        onChange={(e) => onHourInput(e.target.value)} onFocus={(e) => e.target.select()}
+        onBlur={() => { if (autoAdv.current) { autoAdv.current = false; return; } const v = latestH.current; if (v) { setH12(v.padStart(2, "0")); emit(v.padStart(2, "0"), latestM.current, period); } }}
+        disabled={disabled} />
+      <span className="text-sm font-bold text-muted-foreground">:</span>
+      <input ref={minRef} type="text" inputMode="numeric" placeholder="MM" maxLength={2} className={cls} value={min}
+        onChange={(e) => onMinInput(e.target.value)} onFocus={(e) => e.target.select()}
+        onBlur={() => { const v = latestM.current; if (v) { setMin(v.padStart(2, "0")); emit(latestH.current, v.padStart(2, "0"), period); } }}
+        disabled={disabled} />
+      <div className="ml-auto inline-flex shrink-0 items-center rounded-md bg-secondary p-0.5">
+        {(["AM", "PM"] as const).map((p) => (
+          <button key={p} type="button" disabled={disabled}
+            onClick={() => { setPeriod(p); emit(latestH.current, latestM.current, p); }}
+            className={cn("rounded px-2 py-1 text-[10px] font-semibold transition-all", period === p ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >{p}</button>
+        ))}
+      </div>
+    </div>
   );
 }

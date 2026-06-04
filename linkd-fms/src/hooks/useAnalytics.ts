@@ -289,7 +289,10 @@ function approvalHours(c: ConceptWithRelations): number | null {
 // Hook
 // ============================================================================
 
-export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics {
+export function useAnalytics(
+  period: Period = "month",
+  customRange?: { from: Date; to: Date } | null
+): ConceptDashboardMetrics {
   const { concepts, isLoading: conceptsLoading, error: conceptsError } = useConcepts();
   const { profiles } = useProfiles({ roles: ["designer"] });
   const { codesByProfile } = useDesignerCodes();
@@ -298,10 +301,18 @@ export function useAnalytics(period: Period = "month"): ConceptDashboardMetrics 
   const error = conceptsError || null;
 
   const now = useMemo(() => new Date(), []);
-  const { start, end, prevStart, prevEnd } = useMemo(
-    () => getPeriodRange(period, now),
-    [period, now]
-  );
+  const { start, end, prevStart, prevEnd } = useMemo(() => {
+    if (customRange) {
+      const span = customRange.to.getTime() - customRange.from.getTime();
+      return {
+        start: customRange.from,
+        end: customRange.to,
+        prevStart: new Date(customRange.from.getTime() - span),
+        prevEnd: new Date(customRange.to.getTime() - span),
+      };
+    }
+    return getPeriodRange(period, now);
+  }, [period, now, customRange]);
 
   const periodLabel = useMemo(
     () => `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`,
