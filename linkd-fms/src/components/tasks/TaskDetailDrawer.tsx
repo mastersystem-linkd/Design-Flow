@@ -2849,21 +2849,21 @@ function ActionFooter({
               <span>{submitWarning}</span>
             </div>
           )}
-          {!progressMet && (
+          {progressMet ? (
+            <LoadingButton
+              loading={isPending("updateStatus", task.id)}
+              onClick={attemptSubmit}
+              className="w-full bg-primary text-foreground hover:bg-primary/90"
+              size="lg"
+            >
+              <Send className="mr-1.5 h-4 w-4" />
+              Mark Completed
+            </LoadingButton>
+          ) : (
             <p className="text-center text-[11px] text-muted-foreground">
               {task.qty === 0 ? "Quantity not set — ask admin to add it." : `Complete progress (${task.qty_completed}/${task.qty}) to mark done.`}
             </p>
           )}
-          <LoadingButton
-            loading={isPending("updateStatus", task.id)}
-            onClick={attemptSubmit}
-            disabled={!progressMet}
-            className={cn("w-full", progressMet ? "bg-primary text-foreground hover:bg-primary/90" : "bg-muted text-muted-foreground cursor-not-allowed")}
-            size="lg"
-          >
-            <Send className="mr-1.5 h-4 w-4" />
-            Mark Completed
-          </LoadingButton>
         </div>
       </FooterShell>
     );
