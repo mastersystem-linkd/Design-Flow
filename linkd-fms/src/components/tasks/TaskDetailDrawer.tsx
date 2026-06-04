@@ -1095,8 +1095,10 @@ function BriefDetails({
   task: TaskWithRelations;
   onChanged: () => void;
 }) {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const isAdmin = isAdminRole(profile?.role);
+  const isOwner = !!(task.assigned_to === user?.id || task.created_by === user?.id);
+  const canEdit = isAdmin || isOwner;
   const [expanded, setExpanded] = useState(false);
 
   const days = daysUntil(task.planned_deadline);
@@ -1107,7 +1109,10 @@ function BriefDetails({
 
   const hasFabric = !!task.fabric?.trim();
   const hasWa = !!task.whatsapp_group;
-  const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0);
+  const hasMsgDate = !!task.whatsapp_received_date;
+  const hasMsgTime = !!task.whatsapp_received_time;
+  const hasAssignedBy = !!task.assigned_by;
+  const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0) + (hasMsgDate ? 1 : 0) + (hasAssignedBy ? 1 : 0);
   const oddTrailing = scalarCount % 2 === 1;
   const lastKey = hasWa ? "wa" : hasFabric ? "fabric" : "assigned";
   const wide = (key: string) => (oddTrailing && key === lastKey ? "col-span-2" : "");
@@ -1219,8 +1224,10 @@ function BriefDetails({
                     ({daysLabel(days)})
                   </span>
                 </div>
+              ) : canEdit ? (
+                <InlineDeadlineFabricSetter taskId={task.id} field="planned_deadline" onSaved={onChanged} />
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <span className="text-muted-foreground">Not set</span>
               )}
             </InfoCard>
 
@@ -1247,15 +1254,18 @@ function BriefDetails({
               <AssigneeRow task={task} isAdmin={isAdmin} onAssigned={onChanged} />
             </InfoCard>
 
-            {hasFabric && (
-              <InfoCard
-                label="Fabric"
-                icon={<Layers className="h-3 w-3" />}
-                className={wide("fabric")}
-              >
-                {task.fabric}
-              </InfoCard>
-            )}
+            <InfoCard
+              label="Fabric"
+              icon={<Layers className="h-3 w-3" />}
+            >
+              {hasFabric ? (
+                task.fabric
+              ) : canEdit ? (
+                <InlineDeadlineFabricSetter taskId={task.id} field="fabric" onSaved={onChanged} />
+              ) : (
+                <span className="text-muted-foreground">Not set</span>
+              )}
+            </InfoCard>
 
             {hasWa && (
               <InfoCard
@@ -1264,6 +1274,19 @@ function BriefDetails({
                 className={wide("wa")}
               >
                 {task.whatsapp_group}
+              </InfoCard>
+            )}
+
+            {hasMsgDate && (
+              <InfoCard label="Message Date" icon={<CalendarDays className="h-3 w-3" />}>
+                {task.whatsapp_received_date}
+                {hasMsgTime && <span className="ml-1 text-muted-foreground">{task.whatsapp_received_time}</span>}
+              </InfoCard>
+            )}
+
+            {hasAssignedBy && (
+              <InfoCard label="Assigned By" icon={<UserCircle2 className="h-3 w-3" />}>
+                {task.assigned_by}
               </InfoCard>
             )}
           </div>
@@ -1305,6 +1328,78 @@ const INFO_TONE: Record<string, string> = {
   success: "bg-success/10 text-success",
   destructive: "bg-destructive/10 text-destructive",
 };
+
+function InlineDeadlineFabricSetter({
+  taskId,
+  field,
+  onSaved,
+}: {
+  taskId: string;
+  field: "planned_deadline" | "fabric";
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!val.trim()) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from("tasks")
+      .update({ [field]: val.trim() })
+      .eq("id", taskId);
+    setSaving(false);
+    if (error) {
+      toast.error("Failed to save: " + error.message);
+      return;
+    }
+    toast.success(field === "planned_deadline" ? "Deadline set" : "Fabric set");
+    setEditing(false);
+    onSaved();
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-[11px] font-medium text-primary hover:underline"
+      >
+        + Set {field === "planned_deadline" ? "deadline" : "fabric"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type={field === "planned_deadline" ? "date" : "text"}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        placeholder={field === "fabric" ? "e.g. Cotton" : ""}
+        autoFocus
+        disabled={saving}
+        className="h-7 w-full rounded border border-input bg-card px-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+      />
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving || !val.trim()}
+        className="shrink-0 rounded bg-primary px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50"
+      >
+        {saving ? "…" : "Save"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        className="shrink-0 text-[10px] text-muted-foreground hover:text-foreground"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
 
 function InfoCard({
   label,
