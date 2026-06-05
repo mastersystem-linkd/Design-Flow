@@ -220,14 +220,14 @@ export function TaskDashboardView() {
           label="Concept Dashboard"
         />
       </div>
-      <div className="flex items-center gap-1.5 pb-2">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 no-scrollbar">
         {tab === "tasks" ? (
           <>
             {taskPeriodPills}
             {isAdmin && (
-              <Button variant="outline" size="icon" onClick={handleExportTasks} className="h-7 w-7 shrink-0" title="Export">
+              <button type="button" onClick={handleExportTasks} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground" title="Export CSV">
                 <Download className="h-3.5 w-3.5" />
-              </Button>
+              </button>
             )}
           </>
         ) : (

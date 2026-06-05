@@ -777,11 +777,13 @@ export function FkColumnMenu({
 
   useEffect(() => {
     if (!open) return;
-    function handler(e: MouseEvent) {
+    // `pointerdown` covers mouse + touch; the panel stops propagation so taps
+    // inside it never reach this handler and close the menu.
+    function handler(e: Event) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, [open]);
 
   const cols = FK_ALL_COLUMNS.filter(
@@ -803,7 +805,13 @@ export function FkColumnMenu({
         </span>
       </Button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-lg" role="menu">
+        <div
+          className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Visible Columns</span>
           </div>

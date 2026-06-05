@@ -1267,9 +1267,11 @@ function ConceptColumnMenu({
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    // `pointerdown` covers mouse + touch; the panel stops propagation so taps
+    // inside it (checkboxes, Show All / Reset / Set as default) never close it.
+    function handler(e: Event) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, [open]);
 
   // Clear the "Saved" confirmation when the selection changes or menu reopens.
@@ -1289,7 +1291,13 @@ function ConceptColumnMenu({
         <span className="rounded-full bg-secondary px-1.5 text-[9px] font-semibold tabular-nums text-muted-foreground">{visible.length}</span>
       </Button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-card shadow-lg" role="menu">
+        <div
+          className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="border-b border-border px-3 py-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Visible Columns</span>
           </div>

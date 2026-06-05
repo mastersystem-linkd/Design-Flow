@@ -634,6 +634,12 @@ export function useTaskMutations(): UseTaskMutations {
           .select("*")
           .single();
         if (error) return { data: null, error: error.message };
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_to: data?.status ?? currentStatus,
+          changed_by: profile.id,
+          note: `Progress updated: ${newQty} of ${current.qty}`,
+        });
         return { data, error: null };
       } finally {
         setOpPending(key, false);

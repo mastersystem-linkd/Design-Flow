@@ -49,13 +49,15 @@ export function ColumnVisibilityMenu({
 
   useEffect(() => {
     if (!open) return;
-    function handler(e: MouseEvent) {
+    function handler(e: Event) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
       }
     }
-    setTimeout(() => document.addEventListener("mousedown", handler), 0);
-    return () => document.removeEventListener("mousedown", handler);
+    // `pointerdown` covers both mouse and touch; registering synchronously
+    // (no setTimeout) avoids a listener leak when `open` toggles quickly.
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, [open]);
 
   // Clear the "Saved" confirmation as soon as the selection changes again, or
@@ -113,6 +115,7 @@ export function ColumnVisibilityMenu({
         <div
           className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
           role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >

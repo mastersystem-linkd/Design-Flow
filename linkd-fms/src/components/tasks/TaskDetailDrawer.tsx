@@ -1269,12 +1269,10 @@ function BriefDetails({
               label="Fabric"
               icon={<Layers className="h-3 w-3" />}
             >
-              {hasFabric ? (
-                task.fabric
-              ) : canEdit ? (
-                <InlineDeadlineFabricSetter taskId={task.id} field="fabric" onSaved={onChanged} />
+              {canEdit ? (
+                <EditableFieldCell taskId={task.id} field="fabric" currentValue={task.fabric ?? ""} onSaved={onChanged} />
               ) : (
-                <span className="text-muted-foreground">Not set</span>
+                <span className={hasFabric ? "text-foreground" : "text-muted-foreground"}>{task.fabric || "Not set"}</span>
               )}
             </InfoCard>
 
@@ -1282,12 +1280,10 @@ function BriefDetails({
               label="Design Type"
               icon={<Sparkles className="h-3 w-3" />}
             >
-              {task.concept?.trim() ? (
-                task.concept
-              ) : canEdit ? (
-                <InlineDeadlineFabricSetter taskId={task.id} field="concept" onSaved={onChanged} />
+              {canEdit ? (
+                <EditableFieldCell taskId={task.id} field="concept" currentValue={task.concept ?? ""} onSaved={onChanged} />
               ) : (
-                <span className="text-muted-foreground">Not set</span>
+                <span className={task.concept?.trim() ? "text-foreground" : "text-muted-foreground"}>{task.concept || "Not set"}</span>
               )}
             </InfoCard>
 
@@ -1352,6 +1348,76 @@ const INFO_TONE: Record<string, string> = {
   success: "bg-success/10 text-success",
   destructive: "bg-destructive/10 text-destructive",
 };
+
+function EditableFieldCell({
+  taskId,
+  field,
+  currentValue,
+  onSaved,
+}: {
+  taskId: string;
+  field: "fabric" | "concept";
+  currentValue: string;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(currentValue);
+  const [saving, setSaving] = useState(false);
+  const { fabrics } = useFabrics();
+  const { categories } = useConceptCategories();
+  const { user } = useAuth();
+
+  useEffect(() => { setVal(currentValue); }, [currentValue]);
+
+  async function handleSave() {
+    if (val.trim() === currentValue.trim()) { setEditing(false); return; }
+    setSaving(true);
+    const { error } = await supabase.from("tasks").update({ [field]: val.trim() }).eq("id", taskId);
+    if (!error) {
+      void supabase.from("task_logs").insert({
+        task_id: taskId,
+        status_to: "in_progress",
+        changed_by: user?.id ?? "",
+        note: `${field === "concept" ? "Design type" : "Fabric"} changed: "${currentValue || "—"}" → "${val.trim()}"`,
+      });
+      toast.success(`${field === "concept" ? "Design type" : "Fabric"} updated`);
+      setEditing(false);
+      onSaved();
+    } else {
+      toast.error(error.message);
+    }
+    setSaving(false);
+  }
+
+  if (!editing) {
+    return (
+      <div className="group flex items-center gap-1">
+        <span className={currentValue ? "text-foreground" : "text-muted-foreground"}>
+          {currentValue || "Not set"}
+        </span>
+        <button type="button" onClick={() => setEditing(true)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary" title="Edit">
+          <Pencil className="h-2.5 w-2.5" />
+        </button>
+      </div>
+    );
+  }
+
+  const options = field === "fabric" ? fabrics.map((f) => ({ id: f.id, name: f.name })) : categories.map((c) => ({ id: c.id, name: c.name }));
+
+  return (
+    <div className="flex items-center gap-1">
+      <select value={val} onChange={(e) => setVal(e.target.value)} autoFocus disabled={saving}
+        className="h-6 w-full rounded border border-input bg-card px-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/30">
+        <option value="">--</option>
+        {options.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+      </select>
+      <button type="button" onClick={handleSave} disabled={saving} className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[9px] font-medium text-white disabled:opacity-50">
+        {saving ? "…" : "OK"}
+      </button>
+      <button type="button" onClick={() => { setEditing(false); setVal(currentValue); }} className="shrink-0 text-[9px] text-muted-foreground hover:text-foreground">✕</button>
+    </div>
+  );
+}
 
 function InlineDeadlineFabricSetter({
   taskId,
@@ -2104,8 +2170,8 @@ function QtyTracker({
   const pct = task.qty > 0 ? Math.min(100, (draft / task.qty) * 100) : 0;
   const pending = isPending("updateQty", task.id);
   const dirty = draft !== task.qty_completed;
-  const min = task.qty_completed; // cannot reduce
-  const valid = Number.isFinite(draft) && draft >= min;
+  const min = 0;
+  const valid = Number.isFinite(draft) && draft >= 0;
   const willComplete = draft >= task.qty && task.qty > 0 && task.qty_completed < task.qty;
   const extraCount = draft > task.qty ? draft - task.qty : 0;
 

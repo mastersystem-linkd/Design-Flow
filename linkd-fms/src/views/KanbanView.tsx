@@ -2062,6 +2062,7 @@ function MobileTaskCard({
   return (
     <li
       onClick={() => onSelectTask(task.id)}
+      title={task.task_code}
       className={cn(
         "rounded-lg border border-border border-l-[3px] bg-card p-2.5 shadow-sm transition-colors active:scale-[0.99]",
         "hover:bg-card/80 active:bg-card/60 cursor-pointer",
@@ -2074,7 +2075,9 @@ function MobileTaskCard({
         isUrgent && !selected && "border-destructive/30"
       )}
     >
-      {/* Row 1 — concept name + priority chip */}
+      {/* Row 1 — brief title (design type / description) + priority. The
+          task_code is intentionally NOT the visible label — it's meaningless
+          to users — and lives only in the card's title tooltip (§8.9). */}
       <div className="flex items-start gap-2">
         {canBulk && (
           <input
@@ -2092,9 +2095,17 @@ function MobileTaskCard({
             className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-primary"
           />
         )}
-        <p className="line-clamp-1 flex-1 text-sm font-medium text-foreground">
-          {task.concept || task.task_code}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-1 text-sm font-medium text-foreground">
+            {task.concept?.trim() || task.description?.trim() || "Untitled brief"}
+          </p>
+          {/* Show the brief description as a sub-line when it isn't already the title. */}
+          {task.concept?.trim() && task.description?.trim() && (
+            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+              {task.description}
+            </p>
+          )}
+        </div>
         <Badge
           className={cn(
             "shrink-0 text-[10px]",
@@ -2105,11 +2116,26 @@ function MobileTaskCard({
         </Badge>
       </div>
 
-      {/* Row 2 — client · fabric */}
-      <p className="mt-1 truncate text-xs text-muted-foreground">
-        {task.client?.party_name ?? (task.brief_type === "ld" ? "LD Silk Mills" : "—")}
-        {(task.fabric || task.completion_fabric) && <> · {task.fabric || task.completion_fabric}</>}
-      </p>
+      {/* Row 2 — brief meta: party · fabric · qty · group */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+        <span className="min-w-0 max-w-full truncate font-medium text-foreground/80">
+          {task.client?.party_name ?? (task.brief_type === "ld" ? "LD Silk Mills" : "—")}
+        </span>
+        {(task.fabric || task.completion_fabric) && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="truncate">{task.fabric || task.completion_fabric}</span>
+          </>
+        )}
+        <span className="text-muted-foreground/40">·</span>
+        <span className="whitespace-nowrap">Qty {task.qty}</span>
+        {task.whatsapp_group && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="truncate">{task.whatsapp_group}</span>
+          </>
+        )}
+      </div>
 
       {/* Row 3 — assignee + deadline */}
       <div className="mt-2 flex items-center justify-between gap-2">

@@ -89,8 +89,10 @@ import { ConfirmDialog } from "@/components/ui";
 import {
   TABLE_HEAD,
   TABLE_TH,
+  TABLE_TH_STICKY_RIGHT,
   TABLE_ROW_CLICKABLE,
   TABLE_TD,
+  TABLE_TD_STICKY_RIGHT,
 } from "@/lib/tableStyles";
 import type {
   Sample,
@@ -469,7 +471,7 @@ export function ProductionView() {
                     <th className={TABLE_TH}>Video</th>
                     <th className={TABLE_TH}>Signature</th>
                     <th className={TABLE_TH}>Comments</th>
-                    <th className={TABLE_TH}>Actions</th>
+                    <th className={TABLE_TH_STICKY_RIGHT}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -850,8 +852,9 @@ function SampleRow({
         {s.additional_comments || "—"}
       </td>
 
-      {/* Actions */}
-      <td className={TABLE_TD}>
+      {/* Actions — sticky right so the ⋮ menu (View / Edit / Delete) is always
+          reachable without scrolling the full ~2800px-wide table. */}
+      <td className={TABLE_TD_STICKY_RIGHT}>
         <SampleActionsMenu sample={s} canDelete={canDelete} onView={onView} onEdit={onEdit} onDelete={onDelete} />
       </td>
     </tr>
