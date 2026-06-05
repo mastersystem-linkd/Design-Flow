@@ -578,14 +578,23 @@ export function AnalyticsView({
             <PipelineHealth data={a.statusDistribution} />
           </div>
 
-          {/* MD Review + Monthly Target — side by side */}
-          <div className="grid gap-2.5 lg:grid-cols-2">
-            {isAdminCheck(role) && <MdReviewPanel stats={a.mdReview} />}
-            <TeamTargetHero
-              data={a.targetRace}
-              periodStart={a.periodStart}
-              periodEnd={a.periodEnd}
-            />
+          {/* MD Review + Monthly Concept Target — side by side, split 40/60
+              (2:3 of a 5-col grid). MD Review stretches to match the taller
+              Target card. When MD Review is hidden (designers), Target spans
+              the full row. */}
+          <div className="grid items-stretch gap-2.5 lg:grid-cols-5">
+            {isAdminCheck(role) && (
+              <div className="h-full lg:col-span-2">
+                <MdReviewPanel stats={a.mdReview} />
+              </div>
+            )}
+            <div className={isAdminCheck(role) ? "lg:col-span-3" : "lg:col-span-5"}>
+              <TeamTargetHero
+                data={a.targetRace}
+                periodStart={a.periodStart}
+                periodEnd={a.periodEnd}
+              />
+            </div>
           </div>
 
           {/* Designer Leaderboard — single source of per-designer performance */}

@@ -66,7 +66,7 @@ export function OnboardingView() {
           <CardTitle>Setting up your account</CardTitle>
           <CardDescription>
             Your sign-in worked, but your workspace profile hasn't been set up
-            yet. An admin needs to add you to LinkD FMS before you can continue.
+            yet. An admin needs to add you to Design Flow before you can continue.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">

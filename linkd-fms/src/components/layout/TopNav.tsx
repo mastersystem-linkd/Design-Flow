@@ -132,7 +132,7 @@ export function TopNav({ profile, onMobileMenuClick, collapsed = false }: TopNav
       <ConfirmDialog
         open={confirmSignOut}
         title="Sign out?"
-        description="You'll need to sign in again to continue using LinkD FMS."
+        description="You'll need to sign in again to continue using Design Flow."
         confirmLabel="Sign out"
         variant="default"
         onCancel={() => setConfirmSignOut(false)}

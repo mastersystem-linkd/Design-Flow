@@ -25,6 +25,7 @@ import {
   FilterX,
   ExternalLink,
   Loader2,
+  LayoutGrid,
 } from "lucide-react";
 import {
   BarChart,
@@ -44,6 +45,7 @@ import {
 } from "@/hooks/useSamples";
 import { useProfiles } from "@/hooks/useProfiles";
 import { SamplingFormDialog } from "@/components/sampling/SamplingFormDialog";
+import { BatchSampleEntry } from "@/components/sampling/BatchSampleEntry";
 import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
 import { KpiCard } from "@/components/analytics/KpiCard";
@@ -155,6 +157,7 @@ export function ProductionView() {
   // ── State ──
   const navigate = useNavigate();
   const [formOpen, setFormOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [editSample, setEditSample] = useState<SampleWithTask | Sample | null>(null);
   const [deleteSampleTarget, setDeleteSampleTarget] = useState<SampleWithTask | Sample | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -318,6 +321,17 @@ export function ProductionView() {
               Add Sample
             </Button>
           )}
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setBatchOpen(true)}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Batch Entry
+            </Button>
+          )}
         </div>
       </div>
 
@@ -441,16 +455,13 @@ export function ProductionView() {
                     <th className={TABLE_TH}>Timestamp</th>
                     <th className={TABLE_TH}>Party Name</th>
                     <th className={TABLE_TH}>Quality</th>
-                    <th className={cn(TABLE_TH, "text-right")}>Received</th>
                     <th className={TABLE_TH}>Requirement</th>
                     <th className={TABLE_TH}>Assigned By</th>
                     <th className={TABLE_TH}>Sampling Done By</th>
                     <th className={TABLE_TH}>Sample Entry By</th>
                     <th className={cn(TABLE_TH, "text-right")}>Printed Mtr</th>
-                    <th className={TABLE_TH}>SR NO-</th>
                     <th className={TABLE_TH}>Order / Sample</th>
                     <th className={TABLE_TH}>Completion</th>
-                    <th className={cn(TABLE_TH, "text-right")}>Pending</th>
                     <th className={TABLE_TH}>Status</th>
                     <th className={TABLE_TH}>Fusing Operator</th>
                     <th className={TABLE_TH}>Neatly Prepared</th>
@@ -518,6 +529,12 @@ export function ProductionView() {
         onCreate={createSample}
         onUpdate={updateSample}
         onDelete={isAdmin ? deleteSample : undefined}
+      />
+
+      <BatchSampleEntry
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        onSubmitted={() => void refetchSamples()}
       />
 
       <ExportDialog
@@ -747,11 +764,6 @@ function SampleRow({
         {s.quality || "—"}
       </td>
 
-      {/* Received */}
-      <td className={cn(TABLE_TD, "text-right tabular-nums")}>
-        {s.total_fabrics_received ?? "—"}
-      </td>
-
       {/* Requirement */}
       <td className={cn(TABLE_TD, "max-w-[180px] truncate text-muted-foreground")} title={s.requirement ?? ""}>
         {s.requirement || "—"}
@@ -775,9 +787,6 @@ function SampleRow({
       {/* Printed Mtr */}
       <td className={cn(TABLE_TD, "text-right tabular-nums")}>{s.printed_mtr}</td>
 
-      {/* SR NO- */}
-      <td className={cn(TABLE_TD, "font-mono text-[11px] text-primary")}>{s.sr_no ?? "—"}</td>
-
       {/* Order / Sample */}
       <td className={cn(TABLE_TD, "capitalize text-muted-foreground")}>
         {s.order_or_sample ? (
@@ -799,15 +808,6 @@ function SampleRow({
       {/* Completion Timestamp */}
       <td className={cn(TABLE_TD, "whitespace-nowrap text-[12px] text-muted-foreground")}>
         {s.completion_timestamp ? formatDate(s.completion_timestamp) : "—"}
-      </td>
-
-      {/* Pending */}
-      <td className={cn(TABLE_TD, "text-right tabular-nums")}>
-        {pending > 0 ? (
-          <span className="font-medium text-warning">{pending}</span>
-        ) : (
-          <span className="text-success">0</span>
-        )}
       </td>
 
       {/* Status — read-only. Toggle lives in the dialog. */}

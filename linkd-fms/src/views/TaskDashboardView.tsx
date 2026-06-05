@@ -220,36 +220,30 @@ export function TaskDashboardView() {
           label="Concept Dashboard"
         />
       </div>
-      <div className="flex flex-wrap items-center gap-2 pb-2">
+      <div className="flex items-center gap-1.5 pb-2">
         {tab === "tasks" ? (
           <>
-            {isAdmin && a.designerStats.length > 0 && (
-              <Button variant="outline" size="icon" onClick={handleExportTasks} className="h-8 w-8" title="Export">
+            {taskPeriodPills}
+            {isAdmin && (
+              <Button variant="outline" size="icon" onClick={handleExportTasks} className="h-7 w-7 shrink-0" title="Export">
                 <Download className="h-3.5 w-3.5" />
               </Button>
             )}
-            {taskPeriodPills}
           </>
         ) : (
           <>
-            {conceptControls?.periodLabel && (
-              <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-                <Calendar className="h-3.5 w-3.5" />
-                {conceptControls.periodLabel}
-              </span>
-            )}
+            {conceptPeriodPills}
             {conceptControls?.onExport && (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={conceptControls.onExport}
-                className="h-8 w-8"
-                title="Export"
-              >
+              <Button variant="outline" size="icon" onClick={conceptControls.onExport} className="h-7 w-7 shrink-0" title="Export">
                 <Download className="h-3.5 w-3.5" />
               </Button>
             )}
-            {conceptPeriodPills}
+            {conceptControls?.periodLabel && (
+              <span className="hidden items-center gap-1.5 text-[10px] text-muted-foreground sm:flex">
+                <Calendar className="h-3 w-3" />
+                {conceptControls.periodLabel}
+              </span>
+            )}
           </>
         )}
       </div>
@@ -899,36 +893,32 @@ export function MetricCard({
   const hasSparkline = sparklineData && sparklineData.length >= 3;
 
   const body = (
-    <div className="flex h-full flex-col items-center text-center">
-      <span className={cn("flex h-6 w-6 items-center justify-center rounded-lg sm:h-7 sm:w-7", TONE_ICON[tone])}>
-        <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-      </span>
-      <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground sm:mt-1.5 sm:text-[10px]">
-        {label}
-      </span>
-      <span className="mt-0.5 text-xl font-bold leading-none tracking-tight tabular-nums text-foreground sm:mt-1 sm:text-2xl">
-        {displayValue}
-      </span>
-      <div className="mt-0.5 sm:mt-1">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between">
+        <span className={cn("flex h-5 w-5 items-center justify-center rounded-md sm:h-6 sm:w-6", TONE_ICON[tone])}>
+          <Icon className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+        </span>
         <DeltaBadge metric={trend} invertTrend={invertTrend} />
       </div>
+      <span className="mt-1.5 text-lg font-bold leading-none tracking-tight tabular-nums text-foreground sm:text-2xl">
+        {displayValue}
+      </span>
+      <span className="mt-0.5 text-[9px] font-medium text-muted-foreground sm:text-[10px]">
+        {label}
+      </span>
       {!isEmpty && sub && (
-        <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{sub}</p>
+        <p className="hidden text-[9px] text-muted-foreground/70 sm:block">{sub}</p>
       )}
       {hasSparkline && (
-        <div
-          className="mt-auto hidden w-full pt-1.5 sm:block"
-          role="img"
-          aria-label={`${label} trend over time`}
-        >
-          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={18} />
+        <div className="mt-auto hidden w-full pt-1 sm:block" role="img" aria-label={`${label} trend`}>
+          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={16} />
         </div>
       )}
     </div>
   );
 
   const base =
-    "group relative flex h-full flex-col rounded-xl border border-border bg-card px-2.5 py-2.5 shadow-card transition-all duration-200 sm:px-3.5 sm:py-3";
+    "group relative flex h-full flex-col rounded-lg border border-border bg-card px-2 py-2 shadow-sm transition-all duration-200 sm:rounded-xl sm:px-3 sm:py-2.5";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button

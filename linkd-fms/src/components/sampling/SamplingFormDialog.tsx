@@ -375,75 +375,44 @@ export function SamplingFormDialog({
             </div>
           </section>
 
-          {/* Quantity & Tracking */}
+          {/* Team — Printed Mtr moved here (its own section removed); the
+              Order / Sample toggle was removed per spec. */}
           <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
-            <SectionHeader icon={Package} title="Quantity & Tracking" />
+            <SectionHeader icon={ClipboardList} title="Team" />
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Field label="Received">
-                <Input type="number" min={0} value={totalFabrics} onChange={(e) => setTotalFabrics(e.target.value)} disabled={saving} />
-              </Field>
               <Field label="Printed Mtr">
                 <Input type="number" min={0} step={0.5} value={printedMtr} onChange={(e) => setPrintedMtr(e.target.value)} disabled={saving} />
               </Field>
-              <Field label="Pending">
-                <Input value={pending} disabled readOnly className="bg-secondary/40 text-muted-foreground" />
+              <Field label="Assigned By">
+                <Combobox
+                  value={assignedBy}
+                  onChange={setAssignedBy}
+                  options={assignedByNames.map((n) => ({ value: n, label: n }))}
+                  placeholder="Select"
+                  disabled={saving}
+                  clearable
+                />
               </Field>
-              <Field label="SR No">
-                <Input type="number" value={srNo} onChange={(e) => setSrNo(e.target.value)} placeholder="e.g. 101" disabled={saving} />
+              <Field label="Sampling Done By">
+                <Combobox
+                  value={samplingDoneBy}
+                  onChange={setSamplingDoneBy}
+                  options={samplingNames.sampling_done_by.map((n) => ({ value: n, label: n }))}
+                  placeholder="Select"
+                  disabled={saving}
+                  clearable
+                />
               </Field>
-            </div>
-          </section>
-
-          {/* Team */}
-          <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
-            <SectionHeader icon={ClipboardList} title="Team" />
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Assigned By">
-                  <Combobox
-                    value={assignedBy}
-                    onChange={setAssignedBy}
-                    options={assignedByNames.map((n) => ({ value: n, label: n }))}
-                    placeholder="Select"
-                    disabled={saving}
-                    clearable
-                  />
-                </Field>
-                <Field label="Sampling Done By">
-                  <Combobox
-                    value={samplingDoneBy}
-                    onChange={setSamplingDoneBy}
-                    options={samplingNames.sampling_done_by.map((n) => ({ value: n, label: n }))}
-                    placeholder="Select"
-                    disabled={saving}
-                    clearable
-                  />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Fusing Operator">
-                  <Combobox
-                    value={fusingOperator}
-                    onChange={setFusingOperator}
-                    options={samplingNames.fusing_operator.map((n) => ({ value: n, label: n }))}
-                    placeholder="Select"
-                    disabled={saving}
-                    clearable
-                  />
-                </Field>
-                <Field label="Order / Sample">
-                  <div className="flex w-full rounded-md border border-border bg-card p-0.5">
-                    {(["sample", "order"] as const).map((opt) => (
-                      <button key={opt} type="button" onClick={() => setOrderOrSample(opt)} disabled={saving}
-                        className={cn("flex-1 rounded-[5px] px-2 py-1.5 text-xs font-medium capitalize transition-colors disabled:opacity-50",
-                          orderOrSample === opt ? "bg-primary text-white" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                        )} aria-pressed={orderOrSample === opt}>
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </Field>
-              </div>
+              <Field label="Fusing Operator">
+                <Combobox
+                  value={fusingOperator}
+                  onChange={setFusingOperator}
+                  options={samplingNames.fusing_operator.map((n) => ({ value: n, label: n }))}
+                  placeholder="Select"
+                  disabled={saving}
+                  clearable
+                />
+              </Field>
             </div>
           </section>
 
