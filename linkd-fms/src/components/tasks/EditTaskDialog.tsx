@@ -410,7 +410,7 @@ export function EditTaskDialog({
               )}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label htmlFor="edit-wa-date">Message date</Label>
+                  <Label htmlFor="edit-wa-date">Received Date</Label>
                   <Input
                     id="edit-wa-date"
                     type="date"
@@ -420,7 +420,7 @@ export function EditTaskDialog({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="edit-wa-time">Message time</Label>
+                  <Label htmlFor="edit-wa-time">Received Time</Label>
                   <Input
                     id="edit-wa-time"
                     type="time"

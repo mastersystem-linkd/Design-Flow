@@ -291,7 +291,7 @@ export function ProductionView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => { void refetchSamples(); }}
@@ -304,7 +304,7 @@ export function ProductionView() {
             <button
               type="button"
               onClick={() => setExportOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="hidden sm:flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               title="Export CSV"
             >
               <Download className="h-3.5 w-3.5" />
@@ -320,7 +320,7 @@ export function ProductionView() {
               }}
             >
               <Plus className="h-3.5 w-3.5" />
-              Add Sample
+              <span className="hidden sm:inline">Add Sample</span>
             </Button>
           )}
           {isAdmin && (
@@ -331,7 +331,7 @@ export function ProductionView() {
               onClick={() => setBatchOpen(true)}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
-              Batch Entry
+              <span className="hidden sm:inline">Batch Entry</span>
             </Button>
           )}
         </div>

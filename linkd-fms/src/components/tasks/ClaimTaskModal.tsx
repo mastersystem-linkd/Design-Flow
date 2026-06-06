@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
-  Clock,
   CheckCircle2,
   ArrowDownToLine,
   AlertTriangle,
@@ -25,14 +23,14 @@ import { SkeletonText } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toaster";
 import { Combobox } from "@/components/ui/Combobox";
 import { supabase } from "@/lib/supabase";
-import { ROUTES, kittingDetailPath } from "@/lib/routes";
-import { cn } from "@/lib/utils";
+import { kittingDetailPath } from "@/lib/routes";
 import { useFabrics } from "@/hooks/useFabrics";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
 import {
   useTaskMutations,
   type PoolTaskPreview,
 } from "@/hooks/useTaskMutations";
+import { useTaskAssignments } from "@/hooks/useTaskAssignments";
 
 const REF_FILE_BUCKET = "design-files";
 
@@ -53,6 +51,9 @@ interface ClaimTaskModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onClaimed: () => void;
+  /** When set, load this specific task instead of the FIFO top-1.
+   *  Used when the designer picks a row from the visible pool table. */
+  preselectedTaskId?: string;
 }
 
 function todayISO(): string {
@@ -66,24 +67,48 @@ export function ClaimTaskModal({
   open,
   onOpenChange,
   onClaimed,
+  preselectedTaskId,
 }: ClaimTaskModalProps) {
-  const navigate = useNavigate();
   const { getNextPoolTasks, claimPoolTask } = useTaskMutations();
   const { fabrics } = useFabrics();
   const { categories: conceptCategories } = useConceptCategories();
 
   const [loading, setLoading] = useState(true);
-  const [isBusy, setIsBusy] = useState(false);
   const [poolCount, setPoolCount] = useState(0);
   const [task, setTask] = useState<PoolTaskPreview | null>(null);
   const [deadline, setDeadline] = useState("");
   const [fabric, setFabric] = useState("");
   const [designType, setDesignType] = useState("");
   const [claiming, setClaiming] = useState(false);
+  const [portionQty, setPortionQty] = useState<number | null>(null);
 
   const [files, setFiles] = useState<RefFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [kitting, setKitting] = useState<KittingPreview | null>(null);
+
+  // Load existing assignments for the task (split tasks show who's already working)
+  const { assignments, totalAssigned, claimPortion, isLoading: assignmentsLoading } = useTaskAssignments(
+    open && task ? task.id : null
+  );
+
+  // Determine if this task requires portion claiming.
+  // Prefer live assignment data over potentially-stale task.qty_remaining.
+  const qtyRemaining = task
+    ? !assignmentsLoading && (assignments.length > 0 || totalAssigned > 0)
+      ? Math.max(0, task.qty - totalAssigned)
+      : (task.qty_remaining ?? task.qty)
+    : 0;
+  const isPartiallyAssigned = task != null && (task.qty_remaining != null || totalAssigned > 0);
+  const showPortionInput = task != null && (isPartiallyAssigned || task.qty > 1);
+
+  // Reset portionQty when task or remaining changes
+  useEffect(() => {
+    if (showPortionInput && qtyRemaining > 0) {
+      setPortionQty(qtyRemaining);
+    } else {
+      setPortionQty(null);
+    }
+  }, [showPortionInput, qtyRemaining]);
 
   useEffect(() => {
     if (!open) return;
@@ -93,15 +118,44 @@ export function ClaimTaskModal({
     setFabric("");
     setDesignType("");
     setKitting(null);
-    void getNextPoolTasks(1).then((res) => {
-      if (cancelled) return;
-      setIsBusy(res.isBusy);
-      setPoolCount(res.poolCount);
-      setTask(res.tasks[0] ?? null);
-      setLoading(false);
-    });
+    setPortionQty(null);
+
+    if (preselectedTaskId) {
+      // Load a specific task chosen by the designer from the pool table.
+      void supabase
+        .from("tasks")
+        .select("*, client:clients(party_name)")
+        .eq("id", preselectedTaskId)
+        .maybeSingle()
+        .then(({ data, error: qErr }) => {
+          if (cancelled) return;
+          const isClaimable =
+            data &&
+            (data.status === "pool" ||
+              (data.qty_remaining != null && data.qty_remaining > 0)) &&
+            data.qty_remaining !== 0;
+          if (isClaimable) {
+            setTask(data as unknown as PoolTaskPreview);
+            setPoolCount(1);
+          } else {
+            setTask(null);
+            setPoolCount(0);
+          }
+          setLoading(false);
+        });
+    } else {
+      // Default FIFO flow — load the single next task.
+      console.log("[ClaimModal] FIFO flow (no preselectedTaskId)");
+      void getNextPoolTasks(1).then((res) => {
+        if (cancelled) return;
+        console.log("[ClaimModal] FIFO result:", { poolCount: res.poolCount, taskCount: res.tasks.length, firstTask: res.tasks[0]?.id });
+        setPoolCount(res.poolCount);
+        setTask(res.tasks[0] ?? null);
+        setLoading(false);
+      });
+    }
     return () => { cancelled = true; };
-  }, [open, getNextPoolTasks]);
+  }, [open, getNextPoolTasks, preselectedTaskId]);
 
   useEffect(() => {
     const taskId = task?.id;
@@ -137,7 +191,6 @@ export function ClaimTaskModal({
 
   async function refresh() {
     const res = await getNextPoolTasks(1);
-    setIsBusy(res.isBusy);
     setPoolCount(res.poolCount);
     setTask(res.tasks[0] ?? null);
   }
@@ -145,6 +198,30 @@ export function ClaimTaskModal({
   async function handleClaim() {
     if (!deadline || !task) return;
     setClaiming(true);
+
+    // Split/partial tasks always use portion claiming (parent is already
+    // in_progress, so claimPoolTask's `.eq("status","pool")` lock would fail).
+    const isSplitTask = task.qty_remaining != null || isPartiallyAssigned;
+
+    if (isSplitTask || (showPortionInput && portionQty != null && portionQty < qtyRemaining)) {
+      const qty = portionQty ?? qtyRemaining;
+      const { error } = await claimPortion(task.id, { qty, deadline, designType, fabric });
+      setClaiming(false);
+      if (error) {
+        toast.error(error);
+        await refresh();
+        return;
+      }
+      toast.success(`Claimed ${qty} of ${task.qty} designs!`);
+      try {
+        void confetti({ particleCount: 70, spread: 65, origin: { y: 0.7 } });
+      } catch { /* decorative */ }
+      onOpenChange(false);
+      onClaimed();
+      return;
+    }
+
+    // Full task claim (standard flow — task is in pool status)
     const { error } = await claimPoolTask(task.id, deadline, fabric, designType);
     setClaiming(false);
     if (error) {
@@ -162,7 +239,7 @@ export function ClaimTaskModal({
 
   const isUrgent = task?.priority === "urgent";
   const receivedRef = task?.requirement_received_at || task?.created_at;
-  const hasTask = !loading && !isBusy && poolCount > 0 && !!task;
+  const hasTask = !loading && poolCount > 0 && !!task;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -178,7 +255,7 @@ export function ClaimTaskModal({
             </span>
             <div className="min-w-0 flex-1">
               <h1 className="font-sans text-sm font-semibold tracking-tight text-foreground">
-                {loading ? "Loading…" : isBusy ? "You're Busy" : poolCount === 0 || !task ? "Pool Empty" : "Next Available Task"}
+                {loading ? "Loading…" : poolCount === 0 || !task ? "Pool Empty" : "Claim Task"}
               </h1>
               {hasTask && receivedRef && (
                 <p className="text-[10px] text-muted-foreground">
@@ -201,12 +278,6 @@ export function ClaimTaskModal({
         <div className="px-5 py-5 sm:px-6">
           {loading ? (
             <SkeletonText lines={4} />
-          ) : isBusy ? (
-            <div className="flex flex-col items-center py-8 text-center">
-              <Clock className="h-10 w-10 text-warning" strokeWidth={1.5} />
-              <p className="mt-3 text-sm font-medium text-foreground">Complete your current tasks before claiming new ones.</p>
-              <Button className="mt-4" onClick={() => { onOpenChange(false); navigate(ROUTES.dashboard); }}>View My Tasks</Button>
-            </div>
           ) : !hasTask ? (
             <div className="flex flex-col items-center py-8 text-center">
               <CheckCircle2 className="h-10 w-10 text-success" strokeWidth={1.5} />
@@ -218,11 +289,40 @@ export function ClaimTaskModal({
               {/* Task details card */}
               <TaskDetails task={task} files={files} filesLoading={filesLoading} kitting={kitting} />
 
-              {/* Fabric + Deadline + Claim button */}
+              {/* Already working — show existing assignments */}
+              {assignments.length > 0 && (
+                <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    Already working ({totalAssigned}/{task.qty} assigned)
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {assignments.map((a) => (
+                      <span
+                        key={a.id}
+                        className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-foreground"
+                      >
+                        {a.designer?.full_name ?? "Unknown"}
+                        <span className="tabular-nums text-muted-foreground">({a.qty_assigned})</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Available-to-claim hint — shown whenever portion claiming is
+                  offered so the designer knows they can take a slice. */}
+              {showPortionInput && qtyRemaining > 0 && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-foreground">
+                  <span className="font-semibold tabular-nums text-primary">{qtyRemaining}</span>
+                  {" "}of {task.qty} design{task.qty === 1 ? "" : "s"} available — take the lot, or claim a portion and leave the rest for other designers.
+                </div>
+              )}
+
+              {/* Fabric + Deadline + Portion + Claim button */}
               <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 sm:gap-4">
                 <div>
                   <Label htmlFor="claim-design-type" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Design Type <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
+                    Design Type <span className="text-destructive">*</span>
                   </Label>
                   <Combobox
                     id="claim-design-type"
@@ -237,7 +337,7 @@ export function ClaimTaskModal({
                 </div>
                 <div>
                   <Label htmlFor="claim-fabric" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Fabric <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
+                    Fabric <span className="text-destructive">*</span>
                   </Label>
                   <Combobox
                     id="claim-fabric"
@@ -260,20 +360,52 @@ export function ClaimTaskModal({
                     min={todayISO()}
                     value={deadline}
                     onChange={(e) => setDeadline(e.target.value)}
+                    onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                     disabled={claiming}
+                    className="cursor-pointer"
                     required
                   />
                 </div>
+                {showPortionInput && qtyRemaining > 0 && (
+                  <div>
+                    <Label htmlFor="claim-portion" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      How many designs? <span className="normal-case font-normal text-muted-foreground/70">(max {qtyRemaining})</span>
+                    </Label>
+                    <Input
+                      id="claim-portion"
+                      type="number"
+                      min={1}
+                      max={qtyRemaining}
+                      value={portionQty ?? qtyRemaining}
+                      onChange={(e) => setPortionQty(Math.max(1, Math.min(qtyRemaining, Number(e.target.value) || 1)))}
+                      disabled={claiming}
+                    />
+                    {portionQty != null && portionQty > 0 && (
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        You'll claim <span className="font-semibold tabular-nums text-foreground">{portionQty}</span>
+                        {" · "}
+                        <span className="tabular-nums font-medium text-primary">{Math.max(0, qtyRemaining - portionQty)}</span> still in pool
+                      </p>
+                    )}
+                  </div>
+                )}
+                {showPortionInput && qtyRemaining === 0 && (
+                  <div className="col-span-full rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs font-medium text-success">
+                    Fully assigned — no designs available to claim.
+                  </div>
+                )}
                 <LoadingButton
                   type="button"
                   onClick={handleClaim}
                   loading={claiming}
                   loadingText="Claiming…"
-                  disabled={!deadline}
+                  disabled={!deadline || !designType || !fabric || (showPortionInput && ((portionQty ?? 0) < 1 || qtyRemaining === 0))}
                   className="gap-1.5 px-5 shadow-sm shadow-primary/20"
                 >
                   <ArrowDownToLine className="h-4 w-4" />
-                  Claim
+                  {showPortionInput && portionQty != null && portionQty < qtyRemaining
+                    ? `Claim ${portionQty}`
+                    : "Claim"}
                 </LoadingButton>
               </div>
             </div>

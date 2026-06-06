@@ -566,6 +566,12 @@ export type Database = {
           carry_forward_note: string | null;
           carry_forward_from: string | null;
           carry_forward_at: string | null;
+          // Pool ordering (migration 0059)
+          pool_sequence: number | null;
+          pool_week_start: string | null;
+          // Task split (migration 0060)
+          is_split: boolean;
+          qty_remaining: number | null;
           created_by: string;
           created_at: string;
           updated_at: string;
@@ -613,6 +619,10 @@ export type Database = {
           carry_forward_note?: string | null;
           carry_forward_from?: string | null;
           carry_forward_at?: string | null;
+          pool_sequence?: number | null;
+          pool_week_start?: string | null;
+          is_split?: boolean;
+          qty_remaining?: number | null;
           created_by: string;
           created_at?: string;
           updated_at?: string;
@@ -660,6 +670,10 @@ export type Database = {
           carry_forward_note?: string | null;
           carry_forward_from?: string | null;
           carry_forward_at?: string | null;
+          pool_sequence?: number | null;
+          pool_week_start?: string | null;
+          is_split?: boolean;
+          qty_remaining?: number | null;
           created_by?: string;
           created_at?: string;
           updated_at?: string;
@@ -697,6 +711,88 @@ export type Database = {
           {
             foreignKeyName: "tasks_created_by_fkey";
             columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      task_assignments: {
+        Row: {
+          id: string;
+          task_id: string;
+          designer_id: string;
+          assigned_by: string | null;
+          qty_assigned: number;
+          qty_completed: number;
+          planned_deadline: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          delay_days: number | null;
+          status: "assigned" | "in_progress" | "done" | "completed";
+          design_type: string | null;
+          completion_fabric: string | null;
+          completion_filled_at: string | null;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          task_id: string;
+          designer_id: string;
+          assigned_by?: string | null;
+          qty_assigned: number;
+          qty_completed?: number;
+          planned_deadline?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          delay_days?: number | null;
+          status?: "assigned" | "in_progress" | "done" | "completed";
+          design_type?: string | null;
+          completion_fabric?: string | null;
+          completion_filled_at?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          task_id?: string;
+          designer_id?: string;
+          assigned_by?: string | null;
+          qty_assigned?: number;
+          qty_completed?: number;
+          planned_deadline?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          delay_days?: number | null;
+          status?: "assigned" | "in_progress" | "done" | "completed";
+          design_type?: string | null;
+          completion_fabric?: string | null;
+          completion_filled_at?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "task_assignments_task_id_fkey";
+            columns: ["task_id"];
+            isOneToOne: false;
+            referencedRelation: "tasks";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "task_assignments_designer_id_fkey";
+            columns: ["designer_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "task_assignments_assigned_by_fkey";
+            columns: ["assigned_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
             referencedColumns: ["id"];
@@ -1346,6 +1442,19 @@ export type Database = {
         };
         Returns: undefined;
       };
+      update_assignment_claim: {
+        Args: {
+          p_id: string;
+          p_new_qty: number;
+        };
+        Returns: { new_qty: number; deleted: boolean }[];
+      };
+      finalize_parent_task: {
+        Args: {
+          p_task_id: string;
+        };
+        Returns: undefined;
+      };
     };
     Enums: {
       user_role: UserRole;
@@ -1420,6 +1529,17 @@ export type SalvedgeInsert = TablesInsert<"salvedge_records">;
 
 export type SampleUpdate = TablesUpdate<"samples">;
 export type SalvedgeUpdate = TablesUpdate<"salvedge_records">;
+
+/** Task assignment row — one designer's portion of a split task. Migration 0060. */
+export type TaskAssignment = Tables<"task_assignments">;
+export type TaskAssignmentInsert = TablesInsert<"task_assignments">;
+export type TaskAssignmentUpdate = TablesUpdate<"task_assignments">;
+
+/** Task assignment joined with designer + assigner profiles. */
+export interface TaskAssignmentWithDesigner extends TaskAssignment {
+  designer: { id: string; full_name: string; avatar_url: string | null; role: string } | null;
+  assigner: { full_name: string } | null;
+}
 
 // Joined shapes for common .select() expansions
 type ProfileLite = Pick<Profile, "id" | "full_name" | "role" | "avatar_url">;

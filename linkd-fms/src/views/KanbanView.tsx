@@ -26,6 +26,8 @@ import {
   FilterX,
   ArrowDownToLine,
   Rows3,
+  Scissors,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -49,7 +51,9 @@ import {
 import { supabase } from "@/lib/supabase";
 import { EditTaskDialog } from "@/components/tasks/EditTaskDialog";
 import { ClaimTaskModal } from "@/components/tasks/ClaimTaskModal";
+import { PoolQueueTable } from "@/components/tasks/PoolQueueTable";
 import { PostDoneModal } from "@/components/tasks/PostDoneModal";
+import { SplitTaskDialog } from "@/components/tasks/SplitTaskDialog";
 import { ColumnVisibilityMenu } from "@/components/tasks/ColumnVisibilityMenu";
 import { TaskPipelineStepper } from "@/components/tasks/TaskPipelineStepper";
 import {
@@ -227,16 +231,37 @@ function useIsMobile(): boolean {
 }
 
 // ============================================================================
+// Types
+// ============================================================================
+
+interface TeamInfo {
+  designTypes: string[];
+  designers: { name: string; avatarUrl: string | null }[];
+}
+
+// ============================================================================
 // Top-level view
 // ============================================================================
 
 export function KanbanView() {
   const { profile, user } = useAuth();
   const { tasks, isLoading, error, refetch } = useTasks();
+
+  // IDs of tasks where the current user has a split assignment
+  const [myAssignmentTaskIds, setMyAssignmentTaskIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user?.id) return;
+    void supabase
+      .from("task_assignments")
+      .select("task_id")
+      .eq("designer_id", user.id)
+      .then(({ data }) => {
+        setMyAssignmentTaskIds(new Set((data ?? []).map((r) => r.task_id)));
+      });
+  }, [user?.id, tasks]);
   const {
     assignTask,
     updateTaskStatus,
-    selfAssignTask,
     markTaskDone,
     completeTask,
     updateTask,
@@ -295,14 +320,57 @@ export function KanbanView() {
     // that didn't change the task list but did change a kitting row).
   }, [tasks]);
 
+  // ── Team assignment info per task ─────────────────────────────────────
+  // Batch-fetches assignment data (design types + designer names) per task.
+  // A task_id present in this map = "team task" (has assignment rows).
+  const [teamInfoByTask, setTeamInfoByTask] = useState<
+    Map<string, TeamInfo>
+  >(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("task_assignments")
+        .select("task_id, design_type, designer:profiles!designer_id(full_name, avatar_url)");
+      if (cancelled || !data) return;
+      const grouped = new Map<string, { types: Set<string>; designers: Map<string, { name: string; avatarUrl: string | null }> }>();
+      for (const row of data as any[]) {
+        if (!row.task_id) continue;
+        if (!grouped.has(row.task_id)) {
+          grouped.set(row.task_id, { types: new Set(), designers: new Map() });
+        }
+        const g = grouped.get(row.task_id)!;
+        if (row.design_type) g.types.add(row.design_type);
+        if (row.designer?.full_name) {
+          g.designers.set(row.designer.full_name, {
+            name: row.designer.full_name,
+            avatarUrl: row.designer.avatar_url ?? null,
+          });
+        }
+      }
+      const next = new Map<string, TeamInfo>();
+      for (const [taskId, g] of grouped) {
+        next.set(taskId, {
+          designTypes: Array.from(g.types).sort(),
+          designers: Array.from(g.designers.values()),
+        });
+      }
+      setTeamInfoByTask(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tasks]);
+
   const role: UserRole = profile?.role ?? "designer";
   const isAdmin = isAdminRole(role);
-  // Designers get the FIFO claim flow on the Pool tab; admins/coordinators
-  // keep the full browsable pool table.
-  const isDesignerRole = !isAdminOrCoordinator(role);
-
-  // ── Pool claim state (designer FIFO flow) ─────────────────────────────
+  // ── Pool claim state ─────────────────────────────────────────────────
   const [claimModalOpen, setClaimModalOpen] = useState(false);
+  /** When a designer picks a specific row from the pool table, we store its
+   *  ID here so ClaimTaskModal loads that task instead of the FIFO top-1. */
+  const [claimPreselectedId, setClaimPreselectedId] = useState<string | undefined>();
+
   // Live pool stats for the designer summary card + busy gating.
   const poolStats = useMemo(() => {
     const poolTasks = tasks.filter((t) => t.status === "pool");
@@ -313,13 +381,6 @@ export function KanbanView() {
       normalCount: poolTasks.length - urgentCount,
     };
   }, [tasks]);
-  const isBusy = useMemo(
-    () =>
-      tasks.some(
-        (t) => t.assigned_to === profile?.id && t.status === "in_progress"
-      ),
-    [tasks, profile?.id]
-  );
 
   // URL params support deep-linking from dashboard KPI cards. We read once on
   // mount (or whenever the search-string changes) and seed the filter/state.
@@ -371,6 +432,7 @@ export function KanbanView() {
   const [editTask, setEditTask] = useState<TaskWithRelations | null>(null);
   const [deleteTask, setDeleteTask] = useState<TaskWithRelations | null>(null);
   const [fkDrawerTask, setFkDrawerTask] = useState<TaskWithRelations | null>(null);
+  const [splitTask, setSplitTask] = useState<TaskWithRelations | null>(null);
   const [newBriefOpen, setNewBriefOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -433,7 +495,7 @@ export function KanbanView() {
 
   // One sort config per status section.
   const [sorts, setSorts] = useState<Record<TaskStatus, SortConfig>>(() => ({
-    pool: DEFAULT_SORT,
+    pool: { key: "code", dir: "asc" },
     todo: DEFAULT_SORT,
     in_progress: DEFAULT_SORT,
     full_kitting: DEFAULT_SORT,
@@ -466,6 +528,7 @@ export function KanbanView() {
       list = list.filter(
         (t) =>
           t.assigned_to === user.id ||
+          myAssignmentTaskIds.has(t.id) ||
           (role === "designer" && (t.status === "pool" || t.status === "todo"))
       );
     }
@@ -503,7 +566,7 @@ export function KanbanView() {
     }
 
     return list;
-  }, [tasks, filter, user?.id, role, isAdmin, designerFilter, overdueOnly, dateRange]);
+  }, [tasks, filter, user?.id, role, isAdmin, designerFilter, overdueOnly, dateRange, myAssignmentTaskIds]);
 
   /** Search MATCHES — used for opacity dimming, not filtering. */
   const matchesSearch = useMemo(() => {
@@ -616,16 +679,11 @@ export function KanbanView() {
     toast.success(`${task.task_code} accepted ✓`);
   }
 
-  /** Designer self-assigns from the Pool. */
-  async function handleSelfAssign(task: TaskWithRelations) {
-    const { error } = await selfAssignTask(task.id);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    await refetch();
-    markEntering(task.id);
-    toast.success("Task claimed! It's on your board now.");
+  /** Designer picks a pool task to claim — opens the ClaimTaskModal with
+   *  that task pre-selected so the designer can set deadline + fabric. */
+  function handleSelfAssign(task: TaskWithRelations) {
+    setClaimPreselectedId(task.id);
+    setClaimModalOpen(true);
   }
 
   async function handleAdvance(task: TaskWithRelations, next: TaskStatus) {
@@ -778,6 +836,42 @@ export function KanbanView() {
         handler: () => setShortcutsHelpOpen(true),
       },
     ];
+
+    // Actions — keyboard access to the toolbar buttons.
+    if (isAdmin) {
+      list.push({
+        key: "n",
+        category: "Actions",
+        description: "New brief",
+        handler: () => setNewBriefOpen(true),
+      });
+    }
+    list.push(
+      {
+        key: "r",
+        category: "Actions",
+        description: "Refresh tasks",
+        handler: () => {
+          void handleRefresh();
+        },
+      },
+      {
+        key: "c",
+        category: "Actions",
+        description: "Toggle row density",
+        handler: () =>
+          setTableDensity(tableDensity === "compact" ? "comfortable" : "compact"),
+      }
+    );
+    if (isAdmin) {
+      list.push({
+        key: "e",
+        category: "Actions",
+        description: "Export CSV",
+        handler: () => setExportOpen(true),
+      });
+    }
+
     // Tab shortcuts: 1 → first status, 2 → second, etc.
     DASHBOARD_STATUSES.forEach((status, idx) => {
       list.push({
@@ -787,8 +881,15 @@ export function KanbanView() {
         handler: () => setStatusTab(status),
       });
     });
+    // Full Kitting is the side tab after the pipeline stages (key 4).
+    list.push({
+      key: String(DASHBOARD_STATUSES.length + 1),
+      category: "Tabs",
+      description: "Switch to Full Kitting",
+      handler: () => handleStageClick("full_kitting"),
+    });
     return list;
-  }, [visibleTasks, activeRowIndex, selectedTaskId]);
+  }, [visibleTasks, activeRowIndex, selectedTaskId, isAdmin, tableDensity]);
 
   useKeyboardShortcuts(shortcuts);
 
@@ -964,6 +1065,7 @@ export function KanbanView() {
         onEdit={setEditTask}
         onDelete={setDeleteTask}
         onFullKitting={setFkDrawerTask}
+        onSplit={setSplitTask}
         onCellUpdate={async (taskId, fields) => {
           const { error } = await updateTask(taskId, fields);
           if (error) {
@@ -974,6 +1076,7 @@ export function KanbanView() {
         }}
         designers={designers}
         kittingByTask={kittingByTask}
+        teamInfoByTask={teamInfoByTask}
         currentUserId={user?.id ?? null}
         role={role}
         isPending={isPending}
@@ -1148,20 +1251,19 @@ export function KanbanView() {
                 visibleColumns={fkCols}
               />
             </div>
-          ) : statusTab === "pool" && isDesignerRole ? (
-            // Designers don't browse the pool — stepper header + claim card.
-            <div className="space-y-3">
-              <div className="overflow-hidden rounded-lg border border-border bg-card">
-                {pipelineStepper}
-              </div>
-              <PoolSummaryCard
-                poolCount={poolStats.poolCount}
-                urgentCount={poolStats.urgentCount}
-                normalCount={poolStats.normalCount}
-                isBusy={isBusy}
-                onClaim={() => setClaimModalOpen(true)}
-              />
-            </div>
+          ) : statusTab === "pool" ? (
+            <PoolQueueTable
+              onClaimTask={(taskId) => {
+                setClaimPreselectedId(taskId);
+                setClaimModalOpen(true);
+              }}
+              onViewTask={(task) => setSelectedTaskId(task.id)}
+              onEditTask={isAdmin ? setEditTask : undefined}
+              onDeleteTask={isAdmin ? setDeleteTask : undefined}
+              onSplitTask={isAdmin ? setSplitTask : undefined}
+              headerSlot={pipelineStepper}
+              tableDensity={tableDensity}
+            />
           ) : (
             renderStageSection(statusTab, activeRowIndex, pipelineStepper)
           )}
@@ -1259,11 +1361,16 @@ export function KanbanView() {
 
       <ClaimTaskModal
         open={claimModalOpen}
-        onOpenChange={setClaimModalOpen}
+        onOpenChange={(o) => {
+          setClaimModalOpen(o);
+          if (!o) setClaimPreselectedId(undefined);
+        }}
         onClaimed={() => {
           setClaimModalOpen(false);
+          setClaimPreselectedId(undefined);
           void refetch();
         }}
+        preselectedTaskId={claimPreselectedId}
       />
 
       <PostDoneModal
@@ -1275,57 +1382,18 @@ export function KanbanView() {
           void refetch();
         }}
       />
-    </div>
-  );
-}
 
-// ============================================================================
-// PoolSummaryCard — designer-only Pool view (count + claim CTA, no browsing)
-// ============================================================================
-function PoolSummaryCard({
-  poolCount,
-  urgentCount,
-  normalCount,
-  isBusy,
-  onClaim,
-}: {
-  poolCount: number;
-  urgentCount: number;
-  normalCount: number;
-  isBusy: boolean;
-  onClaim: () => void;
-}) {
-  return (
-    <div className="py-16 text-center">
-      <div className="mx-auto max-w-md">
-        <div className="mb-2 text-6xl font-bold text-foreground tabular-nums">
-          {poolCount}
-        </div>
-        <p className="mb-1 text-lg text-muted-foreground">Tasks in Pool</p>
-        <p className="mb-8 text-sm text-muted-foreground">
-          {urgentCount} Urgent · {normalCount} Normal
-        </p>
-
-        <Button
-          size="lg"
-          className="gap-2 px-8"
-          onClick={onClaim}
-          disabled={isBusy || poolCount === 0}
-        >
-          <ArrowDownToLine className="h-5 w-5" />
-          Claim Next Task
-        </Button>
-
-        {isBusy ? (
-          <p className="mt-3 text-sm text-warning">
-            Complete your in-progress tasks before claiming.
-          </p>
-        ) : poolCount === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Pool is empty right now.
-          </p>
-        ) : null}
-      </div>
+      {splitTask && (
+        <SplitTaskDialog
+          task={splitTask}
+          open={!!splitTask}
+          onOpenChange={(o) => !o && setSplitTask(null)}
+          onSplit={() => {
+            setSplitTask(null);
+            void refetch();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1405,7 +1473,7 @@ function TopBar({
           <select
             value={designerFilter}
             onChange={(e) => setDesignerFilter(e.target.value)}
-            className="h-7 shrink-0 rounded-md border border-border bg-card px-2 text-[11px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[140px]"
+            className="h-7 w-[110px] shrink-0 rounded-md border border-border bg-card px-2 text-[11px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-[140px]"
             aria-label="Filter by designer"
           >
             <option value="">All designers</option>
@@ -1630,7 +1698,7 @@ function StatCluster({
   stats: { active: number; completed: number; total: number };
 }) {
   return (
-    <div className="flex gap-4 rounded-md border border-border bg-card px-4 py-2">
+    <div className="flex gap-2 rounded-md border border-border bg-card px-2 py-2 sm:gap-4 sm:px-4">
       <Stat label="Active" value={stats.active} />
       <VDivider />
       <Stat label="Completed" value={stats.completed} />
@@ -1744,6 +1812,7 @@ interface SectionProps {
   onEdit: (t: TaskWithRelations) => void;
   onDelete: (t: TaskWithRelations) => void;
   onFullKitting: (t: TaskWithRelations) => void;
+  onSplit: (t: TaskWithRelations) => void;
   /** Inline cell-edit handler (Google Sheets style). */
   onCellUpdate: (
     taskId: string,
@@ -1753,6 +1822,8 @@ interface SectionProps {
    *  badge open the kitting file. Tasks flagged but missing a kitting row
    *  default to "pending". */
   kittingByTask: Map<string, KittingInfo>;
+  /** task_id → team info (design types + designer names) from task_assignments. */
+  teamInfoByTask: Map<string, TeamInfo>;
   /** Designer roster for the inline assignee picker. */
   designers: { id: string; full_name: string }[];
   currentUserId: string | null;
@@ -1948,6 +2019,7 @@ function TaskTableSection(props: SectionProps) {
                   onSubmitReview={() => props.onSubmitReview(task)}
                   onComplete={() => props.onComplete(task)}
                   onFullKitting={() => props.onFullKitting(task)}
+                  onSplit={() => props.onSplit(task)}
                   onEdit={() => props.onEdit(task)}
                   onDelete={() => props.onDelete(task)}
                   onCellUpdate={(fields) =>
@@ -1962,6 +2034,9 @@ function TaskTableSection(props: SectionProps) {
                   }
                   kittingRecordId={
                     props.kittingByTask.get(task.id)?.id ?? null
+                  }
+                  teamInfo={
+                    props.teamInfoByTask.get(task.id) ?? null
                   }
                   currentUserId={props.currentUserId}
                   role={props.role}
@@ -2098,6 +2173,27 @@ function MobileTaskCard({
         <div className="min-w-0 flex-1">
           <p className="line-clamp-1 text-sm font-medium text-foreground">
             {task.concept?.trim() || task.description?.trim() || "Untitled brief"}
+            {(() => {
+              const ti = sectionProps.teamInfoByTask.get(task.id);
+              if (!ti && !task.is_split) return null;
+              const dt = ti?.designTypes ?? [];
+              const names = ti?.designers.map(d => d.name) ?? [];
+              return (
+                <>
+                  {dt.length > 0 && (
+                    <span className="ml-1 text-[10px] text-muted-foreground">
+                      {dt.join(", ")}
+                    </span>
+                  )}
+                  {names.length > 0 && (
+                    <Badge className="ml-1 inline-flex items-center gap-0.5 align-middle text-[8px] bg-primary/10 text-primary border-primary/20 px-1 py-0">
+                      <Users className="h-2.5 w-2.5" />
+                      {names.join(", ")}
+                    </Badge>
+                  )}
+                </>
+              );
+            })()}
           </p>
           {/* Show the brief description as a sub-line when it isn't already the title. */}
           {task.concept?.trim() && task.description?.trim() && (
@@ -2332,6 +2428,7 @@ interface RowProps {
   onSubmitReview: () => void;
   onComplete: () => void;
   onFullKitting: () => void;
+  onSplit: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onCellUpdate: (
@@ -2345,6 +2442,8 @@ interface RowProps {
   kittingImageUrl: string | null;
   /** Kitting record ID — used to link to the form view. */
   kittingRecordId: string | null;
+  /** Team info (design types + designer names) from assignment rows, or null. */
+  teamInfo: TeamInfo | null;
   currentUserId: string | null;
   role: UserRole;
   isPending: ReturnType<typeof useTaskMutations>["isPending"];
@@ -2657,6 +2756,7 @@ function TaskRow({
   onSubmitReview,
   onComplete,
   onFullKitting,
+  onSplit,
   onEdit,
   onDelete,
   onCellUpdate,
@@ -2664,6 +2764,7 @@ function TaskRow({
   kittingStatus,
   kittingImageUrl,
   kittingRecordId,
+  teamInfo,
   currentUserId,
   role,
   isPending,
@@ -2756,13 +2857,13 @@ function TaskRow({
 
       {/* 1a. Briefed (created_at — when task was assigned to pool) */}
       {showCol("date") && (
-        <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+        <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
           {formatDateTime(task.created_at)}
         </td>
       )}
       {/* 1b. Claimed (started_at — when designer claimed the task) */}
       {showCol("claimed") && (
-        <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+        <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
           {task.started_at ? formatDateTime(task.started_at) : "—"}
         </td>
       )}
@@ -2795,54 +2896,35 @@ function TaskRow({
               </span>
             )}
           </div>
+        ) : teamInfo && teamInfo.designers.length > 0 ? (
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <Users className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="max-w-[160px] truncate text-xs text-foreground">
+              {teamInfo.designers.map((d) => d.name).join(", ")}
+            </span>
+          </span>
         ) : (
           <span className="text-xs italic text-muted-foreground">Open</span>
         )}
       </td>
       )}
 
-      {/* 3. Concept */}
+      {/* 3. Concept — shows concept name + design types from assignments.
+            FK lives in its own FULL KITTING column, not here. */}
       {showCol("concept") && (
       <td className="px-3 py-1.5 text-left align-middle">
         <div className="flex items-center gap-2 whitespace-nowrap">
           <span className="font-medium text-foreground">{task.concept}</span>
-          {/* FK badge — shows when a brief needs Full Knitting (flag set, or a
-              kitting image was uploaded). Color tracks the DEO workflow:
-                • Red  — DEO hasn't digitized the form yet
-                • Blue — DEO has submitted (data_entry_status = completed) */}
-          {(task.requires_full_kitting ||
-            !!task.full_kitting_image_url ||
-            kittingStatus != null) && (() => {
-            const isCompleted = kittingStatus === "completed";
-            const fkPath = kittingImageUrl ?? task.full_kitting_image_url;
-            return (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void openFullKittingFile(fkPath);
-                }}
-                className={cn(
-                  "inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors",
-                  isCompleted
-                    ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-                    : "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
-                )}
-                title={
-                  fkPath
-                    ? "Open full knitting form"
-                    : isCompleted
-                      ? "Full knitting digitized — see task details"
-                      : "Full knitting required — form not uploaded yet"
-                }
-              >
-                <Layers className="h-2.5 w-2.5" />
-                FK
-              </button>
-            );
-          })()}
-          {/* "Done" badge — design finished, awaiting fabric. The task stays in
-              the In Progress tab until completion details are added. */}
+          {teamInfo && teamInfo.designTypes.length > 0 && (
+            <span
+              className="text-[11px] text-muted-foreground"
+              title={teamInfo.designTypes.length > 3 ? teamInfo.designTypes.join(", ") : undefined}
+            >
+              {teamInfo.designTypes.length <= 3
+                ? teamInfo.designTypes.join(", ")
+                : `${teamInfo.designTypes.slice(0, 3).join(", ")} +${teamInfo.designTypes.length - 3}`}
+            </span>
+          )}
           {task.status === "done" && (
             <span
               className="inline-flex items-center gap-0.5 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-success"
@@ -2860,7 +2942,7 @@ function TaskRow({
           other column hugs its content. max-w-0 + w-full lets the inner span
           truncate to whatever width is left. */}
       {showCol("description") && (
-      <td className="w-full max-w-0 px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+      <td className="w-full max-w-0 px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
         <span className="block truncate" title={task.description ?? ""}>
           {task.description || "—"}
         </span>
@@ -2879,7 +2961,7 @@ function TaskRow({
 
       {/* 5. Party Name */}
       {showCol("party_name") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle font-medium text-foreground">
         {task.client?.party_name ?? (task.brief_type === "ld" ? "LD Silk Mills" : "—")}
       </td>
       )}
@@ -2903,28 +2985,28 @@ function TaskRow({
 
       {/* 8. WhatsApp Group */}
       {showCol("whatsapp_group") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
         {task.whatsapp_group || "—"}
       </td>
       )}
 
       {/* 8b. Message Date (whatsapp_received_date) */}
       {showCol("message_date") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
         {formatDateOnly(task.whatsapp_received_date)}
       </td>
       )}
 
       {/* 8c. Message Time (whatsapp_received_time) */}
       {showCol("message_time") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] tabular-nums text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] tabular-nums font-medium text-foreground">
         {formatTimeOnly(task.whatsapp_received_time)}
       </td>
       )}
 
       {/* 11. Assigned By */}
       {showCol("assigned_by") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
         {task.assigned_by || "—"}
       </td>
       )}
@@ -2967,7 +3049,7 @@ function TaskRow({
 
       {/* 13. Completion Timestamp */}
       {showCol("completion_timestamp") && (
-      <td className="w-[150px] whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] text-muted-foreground">
+      <td className="w-[150px] whitespace-nowrap px-3 py-1.5 text-left align-middle text-[12px] font-medium text-foreground">
         {task.status === "done" || task.status === "completed"
           ? formatDateTime(task.completion_filled_at ?? task.updated_at)
           : "—"}
@@ -2983,7 +3065,7 @@ function TaskRow({
 
       {/* 15. Pending (derived) */}
       {showCol("pending") && (
-      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle tabular-nums text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle tabular-nums text-[12px] font-medium text-foreground">
         {Math.max(0, (task.qty ?? 0) - (task.qty_completed ?? 0))}
       </td>
       )}
@@ -3004,7 +3086,7 @@ function TaskRow({
       </td>
       )}
 
-      {/* 18. Full Kitting — Yes (clickable → opens image + form) / No */}
+      {/* 18. Full Kitting — FK status badge (DEO workflow color) / No */}
       {showCol("full_kitting") && (() => {
         const hasFK = task.requires_full_kitting ||
           !!task.full_kitting_image_url ||
@@ -3028,17 +3110,18 @@ function TaskRow({
                   "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold transition-colors",
                   isCompleted
                     ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-                    : "border-success/30 bg-success/10 text-success hover:bg-success/20"
+                    : "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
                 )}
                 title={
                   isCompleted
-                    ? "Full kitting — click to open image & form"
+                    ? "DEO digitized — click to open form"
                     : fkPath
-                      ? "Full kitting — click to open image"
-                      : "Full kitting required"
+                      ? "Pending DEO — click to open image"
+                      : "Full kitting required — form not uploaded yet"
                 }
               >
-                Yes
+                <Layers className="h-3 w-3" />
+                FK
               </button>
             ) : (
               <span className="text-[11px] text-muted-foreground">No</span>
@@ -3082,14 +3165,16 @@ function TaskRow({
             );
           })}
 
-          {/* ⋮ Dropdown — View / Edit / Full Kitting / Delete */}
+          {/* ⋮ Dropdown — View / Edit / Split / Full Kitting / Delete */}
           <RowActionMenu
             role={role}
+            task={task}
             isMine={isMine}
             onView={onClick}
             onEdit={onEdit}
             onDelete={onDelete}
             onFullKitting={onFullKitting}
+            onSplit={onSplit}
           />
         </div>
       </td>
@@ -3149,7 +3234,8 @@ function getCtasForRow(args: {
         return [
           {
             label: "Claim",
-            variant: "gold",
+            // `ink` = bg-primary + white text (was `gold` = dark text on purple).
+            variant: "ink",
             icon: HandPlatter,
             onClick: onSelfAssign,
             pendingOp: "selfAssign",
@@ -3197,18 +3283,22 @@ function getCtasForRow(args: {
 
 function RowActionMenu({
   role,
+  task,
   isMine,
   onView,
   onEdit,
   onDelete,
   onFullKitting,
+  onSplit,
 }: {
   role: UserRole;
+  task: TaskWithRelations;
   isMine: boolean;
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onFullKitting: () => void;
+  onSplit: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -3310,6 +3400,25 @@ function RowActionMenu({
             >
               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
               Edit Task
+            </button>
+          )}
+          {/* Split Task / Manage Split — admin/coordinator only, qty > 1. */}
+          {isAdmin && task.qty > 1 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (task.is_split) {
+                  onView();
+                } else {
+                  onSplit();
+                }
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <Scissors className="h-3.5 w-3.5 text-muted-foreground" />
+              {task.is_split ? "Manage Split" : "Split Task"}
             </button>
           )}
           {/* Full Kitting — admin/coordinator only. Opens the Stage A dialog

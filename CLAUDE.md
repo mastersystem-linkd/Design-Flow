@@ -497,3 +497,54 @@ The designer's Concept Dashboard (`ConceptDashboard` section in `AnalyticsView`)
 - **Monthly trend chart:** recharts `BarChart`, period-aware (responds to the same period pills as the admin dashboard).
 - **Recent activity feed:** last N timeline events across the designer's concepts.
 - **Scales at any count** — the view never renders an unbounded list; all sections are capped or aggregated.
+
+## 30. Task Split System — one task, multiple designers
+
+A single task (e.g. 100 designs) can be worked on by several designers at once. The task stays **ONE `tasks` record**; each designer gets a *portion* via a row in the **`task_assignments`** table. **This is in active development — treat the files as the source of truth.**
+
+### 30.1 Data model (migration `0060_task_assignments.sql`)
+- **`task_assignments`** — one row per designer's portion: `task_id`, `designer_id`, `assigned_by`, `qty_assigned` (CHECK > 0), `qty_completed` (default 0), `planned_deadline`, `started_at`, `completed_at`, `delay_days`, `status`, `completion_fabric`, `completion_filled_at`, `notes`.
+- **Per-portion status:** `assigned → in_progress → done → completed` (CHECK-constrained). *Caveat:* nothing currently transitions a portion to `in_progress` — rows are created `assigned` and go straight to `done` via Mark Done. The enum value exists but is unused.
+- **`tasks` gains** `is_split BOOLEAN DEFAULT false` and `qty_remaining INTEGER` (qty not yet handed out; NULL when not split).
+- **Unique index** `(task_id, designer_id)` — a designer can't be assigned twice to the same task.
+- `task_assignments` is in the `supabase_realtime` publication for live updates.
+- **`database.ts`:** `TaskAssignment` / `TaskAssignmentWithDesigner` types; `is_split` + `qty_remaining` on tasks Row/Insert/Update.
+
+### 30.2 The recalc trigger is the source of truth (do NOT duplicate in the frontend)
+`recalc_task_from_assignments()` fires `AFTER INSERT/UPDATE/DELETE` on `task_assignments` and rolls each portion up to the parent task:
+- `tasks.qty_completed` = Σ portions' `qty_completed`
+- `tasks.qty_remaining` = `GREATEST(task.qty − Σ qty_assigned, 0)`
+- `tasks.is_split` = `COUNT(*) > 1`
+- `tasks.status` = **completed** if ALL portions completed · **done** if ALL done/completed · **in_progress** if ANY in_progress · else unchanged
+
+Never compute parent task status from assignments in React — the DB owns it. The frontend only reads the recalculated `tasks` row + the assignment rows.
+
+### 30.3 RLS
+read = any authed (`auth.uid() IS NOT NULL`); insert = `is_admin_or_coordinator()` **OR** `auth.uid() = designer_id` (self-claim); update = own portion or admin; delete = admin.
+
+### 30.4 Hook — `useTaskAssignments(taskId)`
+Returns `{ assignments, totalAssigned, totalCompleted, isLoading, error, splitTask, removeAssignment, updateAssignmentQty, claimPortion, markPortionDone, completePortionWithFabric, refetch }`. Cache key `queryKeys.taskAssignments.detail(taskId)`. All mutations return `{ error }` (string|null), never throw, and invalidate `taskAssignments` + `tasks.all`.
+- **`splitTask(taskId, splits[])`** — admin: inserts N assignment rows, sets parent `is_split=true`, `status='in_progress'`, `qty_remaining`; notifies each designer.
+- **`claimPortion(taskId, qty, deadline, fabric?)`** — designer: inserts *their own* assignment row (`status='assigned'`), sets parent `is_split=true`, `status='in_progress'`.
+- **`updateAssignmentQty(id, qtyCompleted)`** — progress only, no status change.
+- **`markPortionDone(id)`** — `→ done`, stamps `completed_at`, notifies admins/coordinators.
+- **`completePortionWithFabric(id, fabric)`** — `done → completed`, stores `completion_fabric`.
+- **`removeAssignment(id)`** — admin delete.
+
+### 30.5 Two entry points
+- **Admin pre-split:** `<SplitTaskDialog>` (`components/tasks/SplitTaskDialog.tsx`) — dynamic designer/qty/deadline rows + live "Assigned X / total" counter. Deadline input opens the native calendar on click (`showPicker()`). Validation is **UI-side** (`isValid`: ≥2 rows, each has designer + qty≥1, Σ ≤ total, no dupes).
+- **Designer self-claim portion:** `<ClaimTaskModal>` shows a **"How many designs?"** input when `isPartiallyAssigned || task.qty > 1` (default = remaining). Claiming **less than full** → `claimPortion()`; claiming **full** → normal `claimPoolTask()` (no split). An "Available: X of Y" hint + "Already working (avatars)" list render for split/partially-assigned tasks.
+
+### 30.6 Per-portion lifecycle UI — `<AssignmentsPanel>` (in `TaskDetailDrawer`)
+Renders only when the task has assignments. Each row: designer avatar/name, `qty_completed/qty_assigned` + progress bar, status badge, deadline. On **their own** row a designer gets an **`InlineQtyStepper`** (click to edit progress → `updateAssignmentQty`), **Mark Done** (assigned/in_progress → `markPortionDone`), and **Complete** (done → fabric select → `completePortionWithFabric`). Admins get a per-row **remove (X)** with `ConfirmDialog`. Footer shows overall `totalCompleted/task.qty`.
+
+### 30.7 Where splits surface elsewhere
+- **Pool table** (`PoolQueueTable.tsx`): split rows show `remaining/total`; a "Fully Assigned" ghost row when `qty_remaining = 0`.
+- **My Tasks** (`KanbanView`): fetches `task_assignments` where `designer_id = me` into `myAssignmentTaskIds` and merges those into the visible filter, so a designer's portion-tasks appear even though `tasks.assigned_to` isn't them.
+
+### 30.8 Known gaps (as of this writing)
+- **No DB-level qty guard** — Σ`qty_assigned` ≤ `task.qty` is enforced only in the UI; a direct/racy insert can over-assign. Consider a constraint/trigger if this bites.
+- Per-portion **`in_progress`** transition is never set (see §30.1).
+- **Notifications** cover split + mark-done only — not claim-joined / all-done / other §STEP-8 points.
+- **Dashboard crediting** — the designer leaderboard does **not** yet credit a designer's `qty_completed` on split tasks (no `task_assignments` usage in `useTaskAnalytics`).
+- The migration must be applied in Supabase or every split/claim-portion call errors with `relation "task_assignments" does not exist`.

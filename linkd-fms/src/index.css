@@ -42,7 +42,7 @@
     --accent: 67 56 202;
     --accent-foreground: 255 255 255;
     --muted: 148 163 184;             /* slate-400 */
-    --muted-foreground: 71 85 105;    /* slate-600 — body copy */
+    --muted-foreground: 100 100 100;
     --destructive: 220 38 38;         /* red-600 */
     --destructive-foreground: 255 255 255;
     --border: 226 230 240;            /* cool slate border */
@@ -173,7 +173,7 @@
     --accent: 129 140 248;
     --accent-foreground: 255 255 255;
     --muted: 55 57 64;                /* chip backgrounds */
-    --muted-foreground: 148 152 160;  /* neutral body copy */
+    --muted-foreground: 175 175 175;
     --destructive: 248 113 113;       /* red-400 */
     --destructive-foreground: 255 255 255;
     --border: 39 41 47;               /* quiet neutral hairline */
@@ -205,7 +205,7 @@
     --brand-primary-muted: rgba(129, 140, 248, 0.18);
 
     --text-primary: #EDEEF0;
-    --text-secondary: #94989F;    /* matches --muted-foreground (148 152 160) */
+    --text-secondary: #AFAFAF;    /* matches --muted-foreground (175 175 175) */
     --text-tertiary: #6B6E76;     /* neutral, one step dimmer */
     --text-link: #A5B4FC;
 
@@ -945,3 +945,4 @@
   25%      { transform: rotate(-15deg); }
   75%      { transform: rotate(15deg); }
 }
+

@@ -600,7 +600,7 @@ export function ConceptsView() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
             {isAdmin && (needsApprovalCount > 0 || inboxMode) && (
               <button
                 type="button"
@@ -849,7 +849,7 @@ export function ConceptsView() {
         />
       ) : (
         <>
-        <div className="hidden md:block overflow-x-auto overflow-hidden rounded-xl border border-border bg-card">
+        <div className="hidden lg:block overflow-x-auto overflow-hidden rounded-xl border border-border bg-card">
           <table className="w-full min-w-[2600px] text-sm">
             <caption className="sr-only">Design concepts with approval workflow</caption>
             <thead>
@@ -976,7 +976,7 @@ export function ConceptsView() {
         </div>
 
         {/* Mobile card list — shown below md (replaces the 22-col wide table). */}
-        <ul className="flex flex-col gap-2 md:hidden">
+        <ul className="flex flex-col gap-2 lg:hidden">
           {visible.map((c) => (
             <li
               key={c.id}
@@ -1292,7 +1292,7 @@ function ConceptColumnMenu({
       </Button>
       {open && (
         <div
-          className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+          className="absolute right-0 z-50 mt-2 w-[calc(100vw-2rem)] max-w-[14rem] sm:w-56 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
           role="menu"
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}

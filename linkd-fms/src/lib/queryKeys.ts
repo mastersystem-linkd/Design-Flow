@@ -61,4 +61,8 @@ export const queryKeys = {
     all: ["userPreferences"] as const,
     detail: (userId: string) => ["userPreferences", userId] as const,
   },
+  taskAssignments: {
+    all: ["taskAssignments"] as const,
+    detail: (taskId: string) => ["taskAssignments", taskId] as const,
+  },
 } as const;

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -78,7 +78,17 @@ async function fetchTasks(
   }
 
   if (filters?.myTasksOnly && userId) {
-    q = q.eq("assigned_to", userId);
+    // Include tasks directly assigned AND tasks where this user has a split assignment
+    const { data: assignmentTaskIds } = await supabase
+      .from("task_assignments")
+      .select("task_id")
+      .eq("designer_id", userId);
+    const splitIds = (assignmentTaskIds ?? []).map((a) => a.task_id);
+    if (splitIds.length > 0) {
+      q = q.or(`assigned_to.eq.${userId},id.in.(${splitIds.join(",")})`);
+    } else {
+      q = q.eq("assigned_to", userId);
+    }
   } else if (filters?.assignedTo) {
     q = q.eq("assigned_to", filters.assignedTo);
   }
@@ -103,7 +113,7 @@ async function fetchTasks(
   q = q
     .order("priority", { ascending: false })
     .order("planned_deadline", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   const { data, error } = await q;
   if (error) {
@@ -168,4 +178,117 @@ export function useTasks(filters?: TaskFilters): UseTasksResult {
     error: error instanceof Error ? error.message : null,
     refetch,
   };
+}
+
+// ============================================================================
+// Pool with ghost rows
+// ============================================================================
+
+/** Return the Monday (00:00 local) of the ISO week containing `date`. */
+export function getMonday(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun … 6=Sat
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export interface PoolWithGhostsResult {
+  /** Active pool tasks + ghost (recently-claimed) tasks, sorted by pool_sequence. */
+  tasks: TaskWithRelations[];
+  /** IDs of ghost rows (claimed, no longer in pool). */
+  ghostIds: Set<string>;
+  isLoading: boolean;
+  error: string | null;
+  refetch: () => unknown;
+}
+
+/**
+ * Fetches both active pool tasks and "ghost" rows — tasks that were recently
+ * claimed from the pool but should still be visible (greyed-out) to show the
+ * queue's progression. Ghost = task where `pool_sequence IS NOT NULL`,
+ * `status != 'pool'`, and `pool_week_start >= previous Monday`.
+ */
+export function usePoolWithGhosts(): PoolWithGhostsResult {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["pool-with-ghosts"],
+    queryFn: async () => {
+      const monday = getMonday(new Date());
+      const prevMonday = new Date(monday);
+      prevMonday.setDate(prevMonday.getDate() - 7);
+      const prevMondayStr = prevMonday.toISOString().split("T")[0];
+
+      // Active pool tasks + partially-assigned tasks with remaining qty
+      const { data: active, error: activeErr } = await supabase
+        .from("tasks")
+        .select(SELECT_FRAGMENT)
+        .or("status.eq.pool,qty_remaining.gt.0")
+        .order("pool_sequence", { ascending: true });
+
+      if (activeErr) throw activeErr;
+
+      // Ghost rows — claimed this week or last week
+      const { data: ghosts, error: ghostErr } = await supabase
+        .from("tasks")
+        .select(SELECT_FRAGMENT)
+        .neq("status", "pool")
+        .not("pool_sequence", "is", null)
+        .gte("pool_week_start", prevMondayStr!)
+        .order("pool_sequence", { ascending: true });
+
+      if (ghostErr) throw ghostErr;
+
+      // Deduplicate: a task with qty_remaining > 0 appears in both queries.
+      const activeIds = new Set((active ?? []).map((t: { id: string }) => t.id));
+      const uniqueGhosts = (ghosts ?? []).filter(
+        (t: { id: string }) => !activeIds.has(t.id)
+      );
+
+      const all = [...(active ?? []), ...uniqueGhosts]
+        .sort(
+          (a, b) => (a.pool_sequence ?? 999) - (b.pool_sequence ?? 999)
+        ) as unknown as TaskWithRelations[];
+
+      // Ghost = not in the active set (already excluded above)
+      const ghostIdSet = new Set(
+        uniqueGhosts.map((t: { id: string }) => t.id)
+      );
+
+      return { tasks: all, ghostIds: ghostIdSet };
+    },
+    staleTime: 30_000,
+  });
+
+  // Realtime: invalidate when task rows change so the pool stays fresh.
+  useEffect(() => {
+    const channel = supabase
+      .channel("pool-ghosts-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tasks" },
+        () => {
+          void queryClient.invalidateQueries({
+            queryKey: ["pool-with-ghosts"],
+          });
+        }
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
+  return useMemo(
+    () => ({
+      tasks: data?.tasks ?? [],
+      ghostIds: data?.ghostIds ?? new Set<string>(),
+      isLoading,
+      error: error instanceof Error ? error.message : null,
+      refetch,
+    }),
+    [data, isLoading, error, refetch]
+  );
 }

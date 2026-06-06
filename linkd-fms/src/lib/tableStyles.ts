@@ -43,7 +43,7 @@ export const TABLE_ROW_CLICKABLE =
   "cursor-pointer border-b border-border/30 last:border-0 transition-[colors,box-shadow,background-color] duration-normal ease-spring row-selvedge hover:bg-secondary/40";
 
 /** `<td>` cell — tight padding matching the All Tasks table. */
-export const TABLE_TD = "px-3 py-1.5 text-sm";
+export const TABLE_TD = "px-3 py-1.5 text-sm text-foreground font-medium";
 
 /** Sticky right `<td>` companion to TABLE_TH_STICKY_RIGHT. */
 export const TABLE_TD_STICKY_RIGHT =

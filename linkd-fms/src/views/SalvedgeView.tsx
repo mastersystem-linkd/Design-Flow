@@ -373,39 +373,57 @@ export function SalvedgeView() {
               />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-sm">
-                <thead className={TABLE_HEAD}>
-                  <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
-                    <th className={TABLE_TH}>Date/Time</th>
-                    <th className={TABLE_TH}>Designer</th>
-                    <th className={TABLE_TH}>Challan No.</th>
-                    <th className={TABLE_TH}>Party Name</th>
-                    <th className={TABLE_TH}>QTY</th>
-                    <th className={TABLE_TH}>Completed</th>
-                    <th className={TABLE_TH}>Pending</th>
-                    <th className={TABLE_TH}>Done?</th>
-                    <th className={TABLE_TH}>Completion</th>
-                    <th className={TABLE_TH}>Attachment</th>
-                    <th className={TABLE_TH}>Comments</th>
-                    <th className={cn(TABLE_TH, "text-right")}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r) => (
-                    <SalvedgeRow
-                      key={r.id}
-                      record={r}
-                      designerName={designers.find((d) => d.id === r.designer_id)?.full_name ?? "—"}
-                      isAdmin={isAdmin}
-                      onEdit={() => { setEditRecord(r); setFormOpen(true); }}
-                      onDelete={() => setDeleteTarget(r)}
-                      onUpdate={updateRecord}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {/* Mobile card list — below md only */}
+              <div className="space-y-2 p-3 md:hidden">
+                {records.map((r) => (
+                  <SalvedgeMobileCard
+                    key={r.id}
+                    record={r}
+                    designerName={designers.find((d) => d.id === r.designer_id)?.full_name ?? "—"}
+                    isAdmin={isAdmin}
+                    onEdit={() => { setEditRecord(r); setFormOpen(true); }}
+                    onDelete={() => setDeleteTarget(r)}
+                    onUpdate={updateRecord}
+                  />
+                ))}
+              </div>
+
+              {/* Wide table — md and up */}
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full min-w-[900px] text-sm">
+                  <thead className={TABLE_HEAD}>
+                    <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
+                      <th className={TABLE_TH}>Date/Time</th>
+                      <th className={TABLE_TH}>Designer</th>
+                      <th className={TABLE_TH}>Challan No.</th>
+                      <th className={TABLE_TH}>Party Name</th>
+                      <th className={TABLE_TH}>QTY</th>
+                      <th className={TABLE_TH}>Completed</th>
+                      <th className={TABLE_TH}>Pending</th>
+                      <th className={TABLE_TH}>Done?</th>
+                      <th className={TABLE_TH}>Completion</th>
+                      <th className={TABLE_TH}>Attachment</th>
+                      <th className={TABLE_TH}>Comments</th>
+                      <th className={cn(TABLE_TH, "text-right")}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records.map((r) => (
+                      <SalvedgeRow
+                        key={r.id}
+                        record={r}
+                        designerName={designers.find((d) => d.id === r.designer_id)?.full_name ?? "—"}
+                        isAdmin={isAdmin}
+                        onEdit={() => { setEditRecord(r); setFormOpen(true); }}
+                        onDelete={() => setDeleteTarget(r)}
+                        onUpdate={updateRecord}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </section>
       )}
@@ -814,6 +832,151 @@ function SalvedgeRow({
         )}
       </td>
     </tr>
+  );
+}
+
+function SalvedgeMobileCard({
+  record: r,
+  designerName,
+  isAdmin,
+  onEdit,
+  onDelete,
+  onUpdate,
+}: {
+  record: SalvedgeRecord;
+  designerName: string;
+  isAdmin: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onUpdate: (id: string, data: any) => Promise<{ error: string | null }>;
+}) {
+  const [completedInput, setCompletedInput] = useState(String(r.completed_qty));
+  const [saving, setSaving] = useState(false);
+
+  const completedNum = Number(completedInput) || 0;
+  const pendingCalc = Math.max(0, r.qty - completedNum);
+  const canMarkDone = pendingCalc === 0 && !r.is_completed;
+
+  async function handleUpdateQty() {
+    if (completedNum === r.completed_qty) return;
+    if (completedNum < 0 || completedNum > r.qty) {
+      toast.error(`Completed qty must be between 0 and ${r.qty}`);
+      return;
+    }
+    setSaving(true);
+    const { error } = await onUpdate(r.id, { completed_qty: completedNum });
+    setSaving(false);
+    if (error) toast.error(error);
+    else toast.success("Qty updated");
+  }
+
+  async function handleMarkDone() {
+    setSaving(true);
+    const { error } = await onUpdate(r.id, {
+      is_completed: true,
+      completed_qty: r.qty,
+      completion_timestamp: new Date().toISOString(),
+    });
+    setSaving(false);
+    if (error) toast.error(error);
+    else toast.success("Marked as done ✓");
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+      {/* Top row — challan + party + admin actions */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">{r.challan_no}</p>
+          <p className="truncate text-[12px] text-muted-foreground">{r.party_name}</p>
+        </div>
+        {isAdmin && (
+          <div className="flex shrink-0 items-center gap-1">
+            <button type="button" onClick={onEdit}
+              className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Edit">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={onDelete}
+              className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Delete">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Mini grid — date / designer / qty / pending */}
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Date</p>
+          <p className="text-foreground">{formatDate(r.created_at)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Designer</p>
+          <p className="truncate text-foreground">{designerName}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">QTY</p>
+          <p className="tabular-nums text-foreground">{r.qty}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Pending</p>
+          {r.is_completed ? (
+            <p className="tabular-nums text-success">0</p>
+          ) : pendingCalc > 0 ? (
+            <p className="font-medium tabular-nums text-warning">{pendingCalc}</p>
+          ) : (
+            <p className="tabular-nums text-success">0</p>
+          )}
+        </div>
+      </div>
+
+      {/* Completed inline editor + Done */}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Completed</span>
+          {r.is_completed ? (
+            <span className="tabular-nums text-success">{r.completed_qty}</span>
+          ) : (
+            <input
+              type="number"
+              min={0}
+              max={r.qty}
+              value={completedInput}
+              onChange={(e) => setCompletedInput(e.target.value)}
+              onBlur={() => void handleUpdateQty()}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleUpdateQty(); }}
+              disabled={saving}
+              className="h-8 w-16 rounded-md border border-input bg-card px-2 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            />
+          )}
+        </div>
+        {r.is_completed ? (
+          <CheckCircle2 className="h-4 w-4 text-success" />
+        ) : canMarkDone ? (
+          <button
+            type="button"
+            onClick={() => void handleMarkDone()}
+            disabled={saving}
+            className="inline-flex items-center gap-1 rounded-md bg-success px-2 py-1 text-[11px] font-medium text-white hover:bg-success/90 disabled:opacity-50"
+          >
+            Done
+          </button>
+        ) : (
+          <span className="inline-block h-4 w-4 rounded border border-border" title={`Complete ${pendingCalc} more to enable`} />
+        )}
+      </div>
+
+      {/* Attachment + comments */}
+      {(r.attachment_url || r.additional_comments) && (
+        <div className="mt-2 flex flex-col gap-1.5 border-t border-border pt-2">
+          {r.attachment_url && <AttachmentCell path={r.attachment_url} />}
+          {r.additional_comments && (
+            <p className="text-[12px] text-muted-foreground">{r.additional_comments}</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

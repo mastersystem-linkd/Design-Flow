@@ -214,20 +214,23 @@ export function useNotifications(): UseNotifications {
     []
   );
 
-  // Internal: play the chime *without* the visibility / debounce gates.
-  // Used both by realtime INSERT (with gates applied first) and the public
-  // `testNotificationSound` (which bypasses gates so the user can verify).
   const ringChime = useCallback(() => {
     const ctx = ensureAudioCtx();
-    if (!ctx) return;
-    // If we missed the unlock somehow, try one more resume before playing.
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => { /* still locked */ });
+    if (!ctx) {
+      console.warn("[Notifications] No AudioContext available");
+      return;
     }
-    // Two-tone ding-dong: A5 → E6. A noticeable, friendly notification
-    // sound rather than the old single beep.
-    playTone(ctx, 880, 0, 0.15, 0.4);   // A5
-    playTone(ctx, 1318.5, 0.12, 0.2, 0.35); // E6
+    if (ctx.state === "suspended") {
+      ctx.resume().then(() => {
+        playTone(ctx, 880, 0, 0.15, 0.4);
+        playTone(ctx, 1318.5, 0.12, 0.2, 0.35);
+      }).catch(() => {
+        console.warn("[Notifications] AudioContext still suspended — user gesture needed");
+      });
+      return;
+    }
+    playTone(ctx, 880, 0, 0.15, 0.4);
+    playTone(ctx, 1318.5, 0.12, 0.2, 0.35);
   }, [ensureAudioCtx, playTone]);
 
   const playNotificationSound = useCallback(() => {

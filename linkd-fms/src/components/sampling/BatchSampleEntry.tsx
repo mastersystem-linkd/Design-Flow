@@ -379,7 +379,7 @@ export function BatchSampleEntry({
                 {rows.length} row{rows.length !== 1 ? "s" : ""}
               </span>
             </DialogTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={addRow} className="h-7 gap-1 text-[11px]">
                 <Plus className="h-3 w-3" /> Add Row
               </Button>

@@ -557,7 +557,7 @@ export function SubmitConceptDialog({ open, onOpenChange, onSubmit, editConcept:
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Building2 className="h-3 w-3" /></span>
               <h3 className="text-[13px] font-semibold tracking-tight text-foreground">Party & Assignment</h3>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4">
               <div className="space-y-1">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Start Date</Label>
                 <Input type="date" value={startDate} onChange={(e) => setField("startDate", e.target.value)} disabled={uploading} />

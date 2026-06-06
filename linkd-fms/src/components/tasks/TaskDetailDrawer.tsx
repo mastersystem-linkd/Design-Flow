@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Workflow,
   FolderOpen,
+  Users,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast, LazyImage } from "@/components/ui";
@@ -43,6 +44,8 @@ import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PostDoneModal } from "@/components/tasks/PostDoneModal";
+import { AssignmentsPanel } from "@/components/tasks/AssignmentsPanel";
+import { useTaskAssignments } from "@/hooks/useTaskAssignments";
 import {
   Avatar,
   AvatarFallback,
@@ -146,6 +149,10 @@ export function TaskDetailDrawer({
   // straight away; otherwise open PostDoneModal to capture missing fields.
   async function handleComplete() {
     if (!task) return;
+    if (task.qty > 0 && task.qty_completed < task.qty) {
+      toast.error(`Complete progress first (${task.qty_completed}/${task.qty}).`);
+      return;
+    }
     if (task.fabric?.trim() && task.concept?.trim()) {
       const { error: compErr } = await completeTask(task.id, task.fabric, null);
       if (compErr) {
@@ -162,7 +169,7 @@ export function TaskDetailDrawer({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[90vh] w-[95vw] max-w-[640px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl"
+        className="flex max-h-[95vh] w-[95vw] max-w-[640px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl !top-[1vh] !translate-y-0"
         srTitle={task?.task_code ? `Task ${task.task_code}` : "Task details"}
       >
         {isLoading || !task ? (
@@ -224,6 +231,27 @@ export function TaskDetailDrawer({
                 <BriefDetails task={task} onChanged={handleChanged} />
               )}
 
+              {/* Team Assignments — visible when a task has been split among multiple designers */}
+              {!editMode && <AssignmentsPanel task={task} />}
+
+              {/* Progress Tracker — visible for in_progress + done until completed.
+                 Hidden when task is split — AssignmentsPanel's OVERALL section is the source of truth. */}
+              {!editMode && !task.is_split && task.status !== "completed" && task.status !== "pool" && (
+                task.qty > 0 ? (
+                  <QtyTracker
+                    task={task}
+                    hasFiles={files.length > 0}
+                    onUpdated={handleChanged}
+                    readOnly={!canEdit}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Progress Tracker</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Locked — quantity not set yet. Admin/coordinator will add it.</p>
+                  </div>
+                )
+              )}
+
               {!editMode && (
                 <CompletionSection
                   task={task}
@@ -243,22 +271,6 @@ export function TaskDetailDrawer({
                   the designer's uploads, so designers have what they need to
                   work. (Previously this section was never mounted.) */}
               <FilesSection task={task} files={files} onUploaded={handleChanged} />
-
-              {task.status === "in_progress" && (
-                task.qty > 0 ? (
-                  <QtyTracker
-                    task={task}
-                    hasFiles={files.length > 0}
-                    onUpdated={handleChanged}
-                    readOnly={!isOwner}
-                  />
-                ) : (
-                  <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Progress Tracker</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Locked — quantity not set yet. Admin/coordinator will add it.</p>
-                  </div>
-                )
-              )}
 
               <ActivityLog logs={logs} />
 
@@ -315,7 +327,12 @@ function CompletionSection({
   if (task.status === "done") {
     const hasFabric = !!task.fabric?.trim();
     const hasDesignType = !!task.concept?.trim();
-    const isReady = hasFabric && hasDesignType;
+    const qtyMet = task.qty > 0 && task.qty_completed >= task.qty;
+    const isReady = hasFabric && hasDesignType && qtyMet;
+    const missing: string[] = [];
+    if (!qtyMet) missing.push(`progress (${task.qty_completed}/${task.qty})`);
+    if (!hasDesignType) missing.push("design type");
+    if (!hasFabric) missing.push("fabric");
     return (
       <div
         className={cn(
@@ -338,7 +355,7 @@ function CompletionSection({
             <p className="mt-0.5 text-xs text-muted-foreground">
               {isReady
                 ? `${task.concept} · ${task.fabric}. Mark this task completed.`
-                : `Design work is done. Add ${!hasDesignType && !hasFabric ? "design type & fabric" : !hasDesignType ? "design type" : "fabric"} to complete.`}
+                : `Add ${missing.join(" & ")} to complete.`}
             </p>
             {canComplete && (
               <Button
@@ -1110,13 +1127,33 @@ function BriefDetails({
   const isAdmin = isAdminRole(profile?.role);
   const isOwner = !!(task.assigned_to === user?.id || task.created_by === user?.id);
   const canEdit = isAdmin || isOwner;
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   const days = daysUntil(task.planned_deadline);
   const sev = daysSeverity(days);
   const qtyPct = task.qty > 0 ? Math.min(100, (task.qty_completed / task.qty) * 100) : 0;
   const qtyPartial = task.qty_completed > 0 && task.qty_completed < task.qty;
   const qtyExtra = task.qty_completed > task.qty ? task.qty_completed - task.qty : 0;
+
+  // Read-mode display for the quantity value (shared by the editable +
+  // read-only branches of the Quantity card).
+  const qtyValueInner =
+    qtyExtra > 0 ? (
+      <>
+        {task.qty_completed} / {task.qty} m
+        <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[10px] font-semibold text-primary">
+          +{qtyExtra} extra
+        </span>
+      </>
+    ) : qtyPartial ? (
+      <>
+        {task.qty_completed} / {task.qty} m completed
+      </>
+    ) : (
+      <>
+        <span className="font-semibold">{task.qty}</span> m
+      </>
+    );
 
   const hasFabric = !!task.fabric?.trim();
   const hasWa = !!task.whatsapp_group;
@@ -1172,28 +1209,17 @@ function BriefDetails({
         <>
           <div className="grid grid-cols-2 gap-1.5">
             <InfoCard
-              label="Quantity"
+              label={`Quantity${task.qty_completed > 0 ? ` (${task.qty_completed}/${task.qty})` : ""}`}
               icon={<Package className="h-3 w-3" />}
               tone="primary"
             >
-              <span className="tabular-nums">
-                {qtyExtra > 0 ? (
-                  <>
-                    {task.qty_completed} / {task.qty} m
-                    <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[10px] font-semibold text-primary">
-                      +{qtyExtra} extra
-                    </span>
-                  </>
-                ) : qtyPartial ? (
-                  <>
-                    {task.qty_completed} / {task.qty} m completed
-                  </>
-                ) : (
-                  <>
-                    <span className="font-semibold">{task.qty}</span> m
-                  </>
-                )}
-              </span>
+              {canEdit ? (
+                <EditableQtyCell taskId={task.id} qty={task.qty} onSaved={onChanged}>
+                  <span className="tabular-nums">{qtyValueInner}</span>
+                </EditableQtyCell>
+              ) : (
+                <span className="tabular-nums">{qtyValueInner}</span>
+              )}
               {(qtyPartial || qtyExtra > 0) && (
                 <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-secondary">
                   <div
@@ -1265,27 +1291,33 @@ function BriefDetails({
               <AssigneeRow task={task} isAdmin={isAdmin} onAssigned={onChanged} />
             </InfoCard>
 
-            <InfoCard
-              label="Fabric"
-              icon={<Layers className="h-3 w-3" />}
-            >
-              {canEdit ? (
-                <EditableFieldCell taskId={task.id} field="fabric" currentValue={task.fabric ?? ""} onSaved={onChanged} />
-              ) : (
-                <span className={hasFabric ? "text-foreground" : "text-muted-foreground"}>{task.fabric || "Not set"}</span>
-              )}
-            </InfoCard>
+            {task.is_split ? (
+              <SplitTeamBreakdown task={task} />
+            ) : (
+              <>
+                <InfoCard
+                  label="Fabric"
+                  icon={<Layers className="h-3 w-3" />}
+                >
+                  {canEdit ? (
+                    <EditableFieldCell taskId={task.id} field="fabric" currentValue={task.fabric ?? ""} onSaved={onChanged} />
+                  ) : (
+                    <span className={hasFabric ? "text-foreground" : "text-muted-foreground"}>{task.fabric || "Not set"}</span>
+                  )}
+                </InfoCard>
 
-            <InfoCard
-              label="Design Type"
-              icon={<Sparkles className="h-3 w-3" />}
-            >
-              {canEdit ? (
-                <EditableFieldCell taskId={task.id} field="concept" currentValue={task.concept ?? ""} onSaved={onChanged} />
-              ) : (
-                <span className={task.concept?.trim() ? "text-foreground" : "text-muted-foreground"}>{task.concept || "Not set"}</span>
-              )}
-            </InfoCard>
+                <InfoCard
+                  label="Design Type"
+                  icon={<Sparkles className="h-3 w-3" />}
+                >
+                  {canEdit ? (
+                    <EditableFieldCell taskId={task.id} field="concept" currentValue={task.concept ?? ""} onSaved={onChanged} />
+                  ) : (
+                    <span className={task.concept?.trim() ? "text-foreground" : "text-muted-foreground"}>{task.concept || "Not set"}</span>
+                  )}
+                </InfoCard>
+              </>
+            )}
 
             {hasWa && (
               <InfoCard
@@ -1391,31 +1423,119 @@ function EditableFieldCell({
 
   if (!editing) {
     return (
-      <div className="group flex items-center gap-1">
-        <span className={currentValue ? "text-foreground" : "text-muted-foreground"}>
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="group flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-secondary/60"
+        title={`Change ${field === "concept" ? "design type" : "fabric"}`}
+      >
+        <span className={cn("flex-1 text-[13px]", currentValue ? "font-medium text-foreground" : "text-muted-foreground")}>
           {currentValue || "Not set"}
         </span>
-        <button type="button" onClick={() => setEditing(true)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary" title="Edit">
-          <Pencil className="h-2.5 w-2.5" />
-        </button>
-      </div>
+        <Pencil className="h-3 w-3 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary" />
+      </button>
     );
   }
 
   const options = field === "fabric" ? fabrics.map((f) => ({ id: f.id, name: f.name })) : categories.map((c) => ({ id: c.id, name: c.name }));
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1.5">
       <select value={val} onChange={(e) => setVal(e.target.value)} autoFocus disabled={saving}
-        className="h-6 w-full rounded border border-input bg-card px-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/30">
-        <option value="">--</option>
+        className="h-7 w-full rounded-md border border-primary/30 bg-card px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30">
+        <option value="">Select…</option>
         {options.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
       </select>
-      <button type="button" onClick={handleSave} disabled={saving} className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[9px] font-medium text-white disabled:opacity-50">
-        {saving ? "…" : "OK"}
+      <button type="button" onClick={handleSave} disabled={saving || !val.trim()}
+        className="shrink-0 rounded-md bg-primary px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50">
+        {saving ? "…" : "Save"}
       </button>
-      <button type="button" onClick={() => { setEditing(false); setVal(currentValue); }} className="shrink-0 text-[9px] text-muted-foreground hover:text-foreground">✕</button>
+      <button type="button" onClick={() => { setEditing(false); setVal(currentValue); }}
+        className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+        <X className="h-3 w-3" />
+      </button>
     </div>
+  );
+}
+
+// Inline numeric editor for the brief quantity (mirrors EditableFieldCell).
+// Read mode shows the value + a pencil; edit mode is a number input. Saves to
+// tasks.qty (CHECK requires > 0) and logs the change.
+function EditableQtyCell({
+  taskId,
+  qty,
+  onSaved,
+  children,
+}: {
+  taskId: string;
+  qty: number;
+  onSaved: () => void;
+  children: React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(String(qty));
+  const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
+
+  useEffect(() => { setVal(String(qty)); }, [qty]);
+
+  async function handleSave() {
+    const n = Number(val);
+    if (!Number.isFinite(n) || n < 1) { toast.error("Quantity must be at least 1."); return; }
+    if (n === qty) { setEditing(false); return; }
+    setSaving(true);
+    const { error } = await supabase.from("tasks").update({ qty: n }).eq("id", taskId);
+    if (!error) {
+      void supabase.from("task_logs").insert({
+        task_id: taskId,
+        status_to: "in_progress",
+        changed_by: user?.id ?? "",
+        note: `Quantity changed: ${qty}m → ${n}m`,
+      });
+      toast.success("Quantity updated");
+      setEditing(false);
+      onSaved();
+    } else {
+      toast.error(error.message);
+    }
+    setSaving(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min={1}
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          autoFocus
+          disabled={saving}
+          className="h-7 w-16 rounded-md border border-primary/30 bg-card px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        <span className="text-[11px] text-muted-foreground">m</span>
+        <button type="button" onClick={handleSave} disabled={saving}
+          className="shrink-0 rounded-md bg-primary px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50">
+          {saving ? "…" : "Save"}
+        </button>
+        <button type="button" onClick={() => { setEditing(false); setVal(String(qty)); }}
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="group flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-secondary/60"
+      title="Change quantity"
+    >
+      <span className="flex-1">{children}</span>
+      <Pencil className="h-3 w-3 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary" />
+    </button>
   );
 }
 
@@ -1557,6 +1677,78 @@ function InfoCard({
       </div>
       <div className="mt-1 text-[13px] font-medium text-foreground">{children}</div>
     </div>
+  );
+}
+
+function SplitTeamBreakdown({ task }: { task: TaskWithRelations }) {
+  const { assignments, isLoading } = useTaskAssignments(task.id);
+
+  if (isLoading || assignments.length === 0) {
+    return (
+      <InfoCard
+        label="Team Breakdown"
+        icon={<Users className="h-3 w-3" />}
+        className="col-span-2"
+      >
+        <span className="text-muted-foreground">Loading…</span>
+      </InfoCard>
+    );
+  }
+
+  const designTypes = [...new Set(assignments.map((a) => a.design_type).filter(Boolean))];
+  const fabrics = [...new Set(assignments.map((a) => a.completion_fabric).filter(Boolean))];
+
+  return (
+    <InfoCard
+      label="Team Breakdown"
+      icon={<Users className="h-3 w-3" />}
+      className="col-span-2"
+      tone="primary"
+    >
+      <div className="space-y-1.5">
+        <p className="text-[11px] text-muted-foreground">
+          <span className="font-semibold tabular-nums text-foreground">{assignments.length}</span>
+          {" designer"}{assignments.length !== 1 ? "s" : ""}
+          {designTypes.length > 0 && (
+            <>
+              {" · "}
+              <span className="font-medium text-foreground">{designTypes.join(", ")}</span>
+            </>
+          )}
+          {fabrics.length > 0 && (
+            <>
+              {" · "}
+              <span className="font-medium text-foreground">{fabrics.join(", ")}</span>
+            </>
+          )}
+        </p>
+        <div className="space-y-0.5">
+          {assignments.map((a) => (
+            <div key={a.id} className="flex items-center gap-2 text-[11px]">
+              <span className="min-w-0 truncate font-medium text-foreground" style={{ width: "80px", flexShrink: 0 }}>
+                {a.designer?.full_name ?? "Unknown"}
+              </span>
+              <span className="text-muted-foreground">—</span>
+              {a.design_type && (
+                <span className="inline-flex items-center gap-0.5 rounded border border-primary/20 bg-primary/5 px-1 py-0 text-[10px] text-primary">
+                  <Sparkles className="h-2 w-2" />
+                  {a.design_type}
+                </span>
+              )}
+              {a.completion_fabric && (
+                <span className="inline-flex items-center gap-0.5 rounded border border-border bg-secondary/40 px-1 py-0 text-[10px] text-foreground">
+                  <Layers className="h-2 w-2 text-muted-foreground" />
+                  {a.completion_fabric}
+                </span>
+              )}
+              <span className="ml-auto tabular-nums text-muted-foreground">
+                {a.qty_completed}/{a.qty_assigned}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </InfoCard>
   );
 }
 
@@ -2161,7 +2353,6 @@ function QtyTracker({
 }) {
   const { updateQtyCompleted, isPending } = useTaskMutations();
   const [draft, setDraft] = useState<number>(task.qty_completed);
-  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     setDraft(task.qty_completed);
@@ -2197,16 +2388,7 @@ function QtyTracker({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (willComplete) {
-      setConfirming(true);
-      return;
-    }
     void performUpdate();
-  }
-
-  async function handleConfirmCompletion() {
-    setConfirming(false);
-    await performUpdate();
   }
 
   return (
@@ -2272,24 +2454,6 @@ function QtyTracker({
         )}
       </form>
 
-      <ConfirmDialog
-        open={confirming}
-        variant="warning"
-        title="Mark as fully kitted?"
-        description={
-          extraCount > 0
-            ? `${draft} designs (${extraCount} extra) will be recorded and the task moves to Full Knitting for review.${
-                !hasFiles && isConceptTrackTask(task) ? " Make sure you've uploaded the design file before submitting." : ""
-              }`
-            : hasFiles || !isConceptTrackTask(task)
-              ? "All meters will be marked completed and the task moves to Full Knitting for review."
-              : "All meters will be marked completed. Make sure you've uploaded the design file before submitting for review."
-        }
-        itemRef={task.task_code}
-        confirmLabel="Yes, update"
-        onCancel={() => setConfirming(false)}
-        onConfirm={handleConfirmCompletion}
-      />
     </Section>
   );
 }
@@ -2657,6 +2821,7 @@ function cleanLogs(logs: TaskLogWithUser[]): TaskLogWithUser[] {
     if (
       log.status_from &&
       log.status_to &&
+      !log.note &&
       activityStatusLabel(log.status_from) === activityStatusLabel(log.status_to)
     ) {
       continue;
@@ -2750,36 +2915,50 @@ function LogEntry({
           )}
         </div>
 
-        {/* Action line — status transition shown as pills. */}
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          {isCreation ? (
-            <span>created this task</span>
-          ) : log.status_from ? (
+        {/* Action line — status transition shown as pills, or note-only. */}
+        {(() => {
+          const sameLabel = log.status_from && log.status_to &&
+            activityStatusLabel(log.status_from) === activityStatusLabel(log.status_to);
+          const isNoteOnly = sameLabel && !!log.note;
+          return (
             <>
-              <span>moved</span>
-              <span className="rounded-md bg-secondary px-1.5 py-0.5 font-medium text-foreground">
-                {activityStatusLabel(log.status_from)}
-              </span>
-              <ArrowRight className="h-3 w-3" />
-              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
-                {activityStatusLabel(log.status_to)}
-              </span>
+              {isNoteOnly ? (
+                <p className="mt-1 text-xs text-foreground">{log.note}</p>
+              ) : (
+                <>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    {isCreation ? (
+                      <span>created this task</span>
+                    ) : log.status_from ? (
+                      <>
+                        <span>moved</span>
+                        <span className="rounded-md bg-secondary px-1.5 py-0.5 font-medium text-foreground">
+                          {activityStatusLabel(log.status_from)}
+                        </span>
+                        <ArrowRight className="h-3 w-3" />
+                        <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                          {activityStatusLabel(log.status_to)}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>set to</span>
+                        <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                          {activityStatusLabel(log.status_to)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {log.note && (
+                    <p className="mt-1.5 rounded-lg bg-secondary/50 px-2.5 py-1.5 text-xs text-foreground">
+                      {log.note}
+                    </p>
+                  )}
+                </>
+              )}
             </>
-          ) : (
-            <>
-              <span>set to</span>
-              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
-                {activityStatusLabel(log.status_to)}
-              </span>
-            </>
-          )}
-        </div>
-
-        {log.note && (
-          <p className="mt-1.5 rounded-lg bg-secondary/50 px-2.5 py-1.5 text-xs text-foreground">
-            {log.note}
-          </p>
-        )}
+          );
+        })()}
       </div>
     </li>
   );
@@ -2876,7 +3055,7 @@ function ActionFooter({
         <LoadingButton
           loading={isPending("assign", task.id)}
           onClick={accept}
-          className="w-full bg-primary text-foreground hover:bg-primary/90"
+          className="w-full bg-primary text-white hover:bg-primary/90"
           size="lg"
         >
           <HandPlatter className="mr-1.5 h-4 w-4" />
@@ -2919,7 +3098,7 @@ function ActionFooter({
             <LoadingButton
               loading={isPending("updateStatus", task.id)}
               onClick={attemptSubmit}
-              className="w-full bg-primary text-foreground hover:bg-primary/90"
+              className="w-full bg-primary text-white hover:bg-primary/90"
               size="lg"
             >
               <Send className="mr-1.5 h-4 w-4" />

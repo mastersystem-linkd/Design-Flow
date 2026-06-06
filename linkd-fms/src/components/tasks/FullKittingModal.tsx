@@ -297,7 +297,7 @@ function StepDecision({
     <div className="space-y-5 px-6 pb-6">
       {/* Task summary */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Task Code

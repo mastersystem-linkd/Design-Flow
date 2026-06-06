@@ -972,33 +972,22 @@ export function useTaskMutations(): UseTaskMutations {
     async (limit = 3) => {
       if (!profile) return { tasks: [], isBusy: false, poolCount: 0 };
 
-      // Busy = the designer already has work in flight.
-      const { count: busyCount } = await supabase
-        .from("tasks")
-        .select("*", { count: "exact", head: true })
-        .eq("assigned_to", profile.id)
-        .eq("status", "in_progress");
-      const isBusy = (busyCount ?? 0) > 0;
-
-      // Live pool count (unclaimed).
+      // Live pool count: unclaimed pool tasks + partially-assigned tasks with remaining qty
       const { count: poolCount } = await supabase
         .from("tasks")
         .select("*", { count: "exact", head: true })
-        .eq("status", "pool")
-        .is("assigned_to", null);
+        .or("and(status.eq.pool,assigned_to.is.null),qty_remaining.gt.0");
       const total = poolCount ?? 0;
 
-      if (isBusy || total === 0) {
-        return { tasks: [], isBusy, poolCount: total };
+      if (total === 0) {
+        return { tasks: [], isBusy: false, poolCount: 0 };
       }
 
-      // Pull the pool (typically small) and FIFO-sort client-side. We only
-      // join party_name — the design type lives in tasks.concept (text).
+      // Pull claimable tasks: standard pool + tasks with remaining qty.
       const { data: poolTasks } = await supabase
         .from("tasks")
         .select("*, client:clients(party_name)")
-        .eq("status", "pool")
-        .is("assigned_to", null);
+        .or("and(status.eq.pool,assigned_to.is.null),qty_remaining.gt.0");
 
       if (!poolTasks || poolTasks.length === 0) {
         return { tasks: [], isBusy: false, poolCount: 0 };
@@ -1032,20 +1021,6 @@ export function useTaskMutations(): UseTaskMutations {
       const key = "claimNext";
       setOpPending(key, true);
       try {
-        // STEP A — busy check
-        const { count: busyCount } = await supabase
-          .from("tasks")
-          .select("*", { count: "exact", head: true })
-          .eq("assigned_to", profile.id)
-          .eq("status", "in_progress");
-        if ((busyCount ?? 0) > 0) {
-          return {
-            data: null,
-            error:
-              "Complete your current in-progress tasks before claiming new ones.",
-          };
-        }
-
         // STEP B — fetch the chosen task; it must still be unclaimed.
         const { data: target, error: targetError } = await supabase
           .from("tasks")

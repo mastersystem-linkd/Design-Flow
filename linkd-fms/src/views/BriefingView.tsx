@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
@@ -16,12 +16,16 @@ import {
   UserCheck,
   Layers,
   Clock,
+  Trash2,
+  Users,
+  AlertCircle,
 } from "lucide-react";
 import { toast, Combobox } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaskMutations } from "@/hooks/useTaskMutations";
+import { useTaskAssignments } from "@/hooks/useTaskAssignments";
 import { useClients } from "@/hooks/useClients";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
@@ -88,6 +92,17 @@ const ASSIGN_TO_POOL = "__pool__";
 
 type Priority = "normal" | "urgent";
 
+// ── Split rows builder ─────────────────────────────────────────────────────
+interface BriefSplitRow {
+  key: number;
+  designer_id: string;
+  qty_assigned: number;
+  planned_deadline: string;
+  design_type: string;
+  fabric: string;
+}
+let splitRowKey = 0;
+
 interface FormErrors {
   client_id?: string;
   concept?: string;
@@ -99,6 +114,7 @@ interface FormErrors {
   whatsapp_received_time?: string;
   assigned_to?: string;
   assigned_by?: string;
+  split_rows?: string;
 }
 
 // ============================================================================
@@ -198,6 +214,14 @@ function BriefingForm({
   // Defaults to Open Pool. ASSIGN_TO_POOL = Open Pool (→ null at submit), else
   // a designer id (→ assigned, 'in_progress').
   const [assignedTo, setAssignedTo] = useState<string>(ASSIGN_TO_POOL);
+
+  // ---------------- split assignment (opt-in) ----------------
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitRows, setSplitRows] = useState<BriefSplitRow[]>([]);
+  // useTaskAssignments needs a taskId; null until created. We only call
+  // splitTask after createTask returns the new id, so we instantiate the hook
+  // with null and grab `splitTask` from it (which accepts tId as first arg).
+  const { splitTask } = useTaskAssignments(null);
 
   // ---------------- reference files (optional) ----------------
   // Coordinator attaches any reference files (each ≤ 50 MB). Held as raw File
@@ -396,9 +420,9 @@ function BriefingForm({
     }
     if (!description.trim()) e.description = "Description is required.";
     if (!whatsappGroup.trim()) e.whatsapp_group = "Group is required.";
-    if (!whatsappReceivedDate) e.whatsapp_received_date = "Message date is required.";
-    if (!whatsappReceivedTime) e.whatsapp_received_time = "Message time is required.";
-    if (!assignedTo) e.assigned_to = "Choose a designer or Open Pool.";
+    if (!whatsappReceivedDate) e.whatsapp_received_date = "Received date is required.";
+    const selectedGroup = WHATSAPP_GROUPS.find((g) => g.name === whatsappGroup);
+    if (selectedGroup?.isWhatsApp && !whatsappReceivedTime) e.whatsapp_received_time = "Received time is required for WhatsApp groups.";
     if (!assignedBy.trim()) e.assigned_by = "Assigned By is required.";
     if (qty.trim()) {
       const qtyNum = Number(qty);
@@ -406,9 +430,32 @@ function BriefingForm({
         e.qty = "Quantity must be 0 or more.";
       }
     }
-    // If the coordinator toggled "Requires Full Knitting" on, they must
-    // upload the reference image — otherwise no DEO row gets created and
-    // the brief won't show up in the Full Knitting screen.
+
+    if (splitEnabled) {
+      // Split mode: validate rows, skip Assign To
+      const qtyNum = Number(qty) || 0;
+      if (splitRows.length < 2) {
+        e.split_rows = "Add at least 2 designers to split.";
+      } else {
+        const ids = splitRows.map((r) => r.designer_id).filter(Boolean);
+        const hasDupes = new Set(ids).size !== ids.length;
+        const allFilled = splitRows.every(
+          (r) => r.designer_id && r.qty_assigned >= 1
+        );
+        const totalAssigned = splitRows.reduce((s, r) => s + (r.qty_assigned || 0), 0);
+        if (!allFilled) {
+          e.split_rows = "Each designer needs a qty ≥ 1.";
+        } else if (hasDupes) {
+          e.split_rows = "A designer can only appear once.";
+        } else if (qtyNum > 0 && totalAssigned > qtyNum) {
+          e.split_rows = `Total assigned (${totalAssigned}) exceeds quantity (${qtyNum}).`;
+        }
+      }
+    } else {
+      // Single mode: validate Assign To
+      if (!assignedTo) e.assigned_to = "Choose a designer or Open Pool.";
+    }
+
     if (requiresFullKitting && !fullKittingPath) {
       e.full_kitting_image = "Upload the Full Knitting reference image.";
     }
@@ -428,6 +475,8 @@ function BriefingForm({
     setWhatsappReceivedTime("");
     setAssignedBy("");
     setAssignedTo(ASSIGN_TO_POOL);
+    setSplitEnabled(false);
+    setSplitRows([]);
     setRefFiles([]);
     if (refFileInputRef.current) refFileInputRef.current.value = "";
     setRequiresFullKitting(false);
@@ -599,6 +648,14 @@ function BriefingForm({
     const qtyParsed = Number(qty);
     const qtyValue = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
 
+    // When split is ON, create as pool task (assigned_to = null). The
+    // splitTask call below flips is_split + status via the DB trigger.
+    const effectiveAssignedTo = splitEnabled
+      ? null
+      : assignedTo === ASSIGN_TO_POOL
+      ? null
+      : assignedTo;
+
     const { data, error } = await createTask({
       brief_type: briefType,
       client_id: briefType === "job_work" ? clientId : null,
@@ -606,20 +663,16 @@ function BriefingForm({
       qty: qtyValue,
       fabric: fabric.trim() || "",
       priority,
-      assigned_to: assignedTo === ASSIGN_TO_POOL ? null : assignedTo,
+      assigned_to: effectiveAssignedTo,
       planned_deadline: plannedDeadline || null,
       due_time: null,
       whatsapp_group: whatsappGroup.trim() || null,
-      // Both nullable independently. If user only filled the date, time is
-      // null (and vice-versa); the DB happily stores either side alone.
       whatsapp_received_date: whatsappReceivedDate || null,
       whatsapp_received_time: whatsappReceivedTime || null,
       description: description.trim() || null,
       mtr: null,
       assigned_by: assignedBy.trim() || null,
       concept_start_date: conceptStartDate || null,
-      // Persist the FK flag + photo path onto the task itself so designers
-      // see the badge / drawer section even before the DEO digitizes.
       requires_full_kitting: requiresFullKitting,
       full_kitting_image_url: requiresFullKitting ? fullKittingPath : null,
       full_kitting_notes: requiresFullKitting
@@ -632,6 +685,22 @@ function BriefingForm({
       return;
     }
     if (data) {
+      // ── Split assignment (additive — only runs when toggle is ON) ───
+      if (splitEnabled && splitRows.length >= 2) {
+        const splits = splitRows.map((r) => ({
+          designerId: r.designer_id,
+          qty: r.qty_assigned,
+          deadline: r.planned_deadline || undefined,
+          designType: r.design_type.trim(),
+          fabric: r.fabric.trim(),
+        }));
+        const { error: splitErr } = await splitTask(data.id, splits);
+        if (splitErr) {
+          toast.warning(
+            `Brief created (${data.task_code}), but split failed: ${splitErr}. You can split it from the task drawer.`
+          );
+        }
+      }
       // Upload any reference files now that the task exists. Each lands as a
       // row in `files` so designers see them in the task detail drawer. A
       // failure on one file warns but doesn't fail the whole brief.
@@ -735,7 +804,11 @@ function BriefingForm({
 
       clearDraftOnSuccess();
       if (isDialog && onSuccess) {
-        toast.success(`Brief created: ${data.task_code}`);
+        toast.success(
+          splitEnabled && splitRows.length >= 2
+            ? `Brief created & split among ${splitRows.length} designers: ${data.task_code}`
+            : `Brief created: ${data.task_code}`
+        );
         onSuccess();
       } else {
         setSuccess(data);
@@ -952,7 +1025,7 @@ function BriefingForm({
               arrived, not when the brief was logged. Now both required. */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Field
-              label="Message date"
+              label="Received Date"
               htmlFor="wa_date"
               required
               error={show("whatsapp_received_date")}
@@ -966,9 +1039,9 @@ function BriefingForm({
               />
             </Field>
             <Field
-              label="Message time"
+              label="Received Time"
               htmlFor="wa_time"
-              required
+              required={!!WHATSAPP_GROUPS.find((g) => g.name === whatsappGroup)?.isWhatsApp}
               error={show("whatsapp_received_time")}
             >
               <MessageTimeInput
@@ -983,7 +1056,7 @@ function BriefingForm({
 
         {/* ============== DESIGN BRIEF — Design Type + Quantity + Description ============== */}
         <SectionCard icon={Sparkles} title="Design Brief">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_1fr]">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[140px_1fr]">
             <Field
               label="Quantity"
               htmlFor="qty"
@@ -1019,9 +1092,9 @@ function BriefingForm({
           </Field>
           </div>
 
-          {isDesigner && (
+          {(isDesigner || splitEnabled) && (
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Field label="Design Type" htmlFor="concept_type">
+              <Field label="Design Type" htmlFor="concept_type" hint={splitEnabled ? "Default for new rows" : undefined}>
                 <Picker
                   id="concept_type"
                   value={concept}
@@ -1031,7 +1104,7 @@ function BriefingForm({
                   disabled={submitting}
                 />
               </Field>
-              <Field label="Fabric" htmlFor="fabric_brief">
+              <Field label="Fabric" htmlFor="fabric_brief" hint={splitEnabled ? "Default for new rows" : undefined}>
                 <Picker
                   id="fabric_brief"
                   value={fabric}
@@ -1041,7 +1114,7 @@ function BriefingForm({
                   disabled={submitting}
                 />
               </Field>
-              <Field label="Planned Deadline" htmlFor="deadline_brief">
+              <Field label="Planned Deadline" htmlFor="deadline_brief" hint={splitEnabled ? "Default for new rows" : undefined}>
                 <Input
                   id="deadline_brief"
                   type="date"
@@ -1056,62 +1129,155 @@ function BriefingForm({
 
         {/* ============== ASSIGNMENT — Assign To + Assigned By + Priority ============== */}
         <SectionCard icon={UserCheck} title="Assignment">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label htmlFor="assigned_to">
-                Assign To<span className="ml-0.5 text-destructive">*</span>
-              </Label>
-              <select
-                id="assigned_to"
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                disabled={submitting}
-                className={cn(
-                  "block h-9 w-full rounded-md border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
-                  show("assigned_to") ? "border-destructive" : "border-input"
-                )}
-              >
-                <option value={ASSIGN_TO_POOL}>Open Pool</option>
-                {designers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.full_name}
-                  </option>
-                ))}
-              </select>
-              {show("assigned_to") && (
-                <p className="text-xs text-destructive">{show("assigned_to")}</p>
-              )}
+          {/* Split toggle */}
+          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
+            <div className="space-y-0.5">
+              <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <span className="rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wider text-white">
+                  New
+                </span>
+                Split across multiple designers?
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Each designer gets their own design type, fabric &amp; deadline.
+              </p>
             </div>
-
-            <AssignedByPicker
-              value={assignedBy}
-              onChange={setAssignedBy}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={splitEnabled}
               disabled={submitting}
-              required
-              error={show("assigned_by")}
-            />
+              onClick={() => {
+                const next = !splitEnabled;
+                setSplitEnabled(next);
+                if (next && splitRows.length === 0) {
+                  setSplitRows([
+                    { key: ++splitRowKey, designer_id: "", qty_assigned: 1, planned_deadline: plannedDeadline, design_type: "", fabric: "" },
+                    { key: ++splitRowKey, designer_id: "", qty_assigned: 1, planned_deadline: plannedDeadline, design_type: "", fabric: "" },
+                  ]);
+                }
+              }}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+                splitEnabled ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-5 w-5 transform rounded-full bg-card shadow transition-transform duration-200 ease-in-out",
+                  splitEnabled ? "translate-x-[22px]" : "translate-x-0.5"
+                )}
+              />
+            </button>
+          </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="priority-normal">Priority</Label>
-              <div className="inline-flex w-full rounded-md border border-border bg-card p-0.5">
-                <PriorityChoice
-                  active={priority === "normal"}
-                  onClick={() => setPriority("normal")}
+          {/* Single assignment (default) */}
+          {!splitEnabled && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label htmlFor="assigned_to">
+                  Assign To<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                <select
+                  id="assigned_to"
+                  value={assignedTo}
+                  onChange={(e) => setAssignedTo(e.target.value)}
                   disabled={submitting}
+                  className={cn(
+                    "block h-9 w-full rounded-md border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
+                    show("assigned_to") ? "border-destructive" : "border-input"
+                  )}
                 >
-                  Normal
-                </PriorityChoice>
-                <PriorityChoice
-                  active={priority === "urgent"}
-                  onClick={() => setPriority("urgent")}
-                  disabled={submitting}
-                  urgent
-                >
-                  Urgent
-                </PriorityChoice>
+                  <option value={ASSIGN_TO_POOL}>Open Pool</option>
+                  {designers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.full_name}
+                    </option>
+                  ))}
+                </select>
+                {show("assigned_to") && (
+                  <p className="text-xs text-destructive">{show("assigned_to")}</p>
+                )}
+              </div>
+
+              <AssignedByPicker
+                value={assignedBy}
+                onChange={setAssignedBy}
+                disabled={submitting}
+                required
+                error={show("assigned_by")}
+              />
+
+              <div className="space-y-1">
+                <Label htmlFor="priority-normal">Priority</Label>
+                <div className="inline-flex w-full rounded-md border border-border bg-card p-0.5">
+                  <PriorityChoice
+                    active={priority === "normal"}
+                    onClick={() => setPriority("normal")}
+                    disabled={submitting}
+                  >
+                    Normal
+                  </PriorityChoice>
+                  <PriorityChoice
+                    active={priority === "urgent"}
+                    onClick={() => setPriority("urgent")}
+                    disabled={submitting}
+                    urgent
+                  >
+                    Urgent
+                  </PriorityChoice>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Split rows builder */}
+          {splitEnabled && (
+            <SplitRowsBuilder
+              rows={splitRows}
+              onChange={setSplitRows}
+              totalQty={Number(qty) || 0}
+              defaultDesignType={concept}
+              defaultFabric={fabric}
+              defaultDeadline={plannedDeadline}
+              designers={designers}
+              disabled={submitting}
+              error={show("split_rows")}
+            />
+          )}
+
+          {/* Assigned By + Priority stay visible in split mode too */}
+          {splitEnabled && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <AssignedByPicker
+                value={assignedBy}
+                onChange={setAssignedBy}
+                disabled={submitting}
+                required
+                error={show("assigned_by")}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="priority-normal">Priority</Label>
+                <div className="inline-flex w-full rounded-md border border-border bg-card p-0.5">
+                  <PriorityChoice
+                    active={priority === "normal"}
+                    onClick={() => setPriority("normal")}
+                    disabled={submitting}
+                  >
+                    Normal
+                  </PriorityChoice>
+                  <PriorityChoice
+                    active={priority === "urgent"}
+                    onClick={() => setPriority("urgent")}
+                    disabled={submitting}
+                    urgent
+                  >
+                    Urgent
+                  </PriorityChoice>
+                </div>
+              </div>
+            </div>
+          )}
         </SectionCard>
 
         {/* ============== FULL KITTING ============== */}
@@ -1173,17 +1339,15 @@ function BriefingForm({
             loadingText="Creating…"
             disabled={
               submitting ||
-              // Block submit while the Full Knitting image is still
-              // uploading — otherwise fullKittingPath is null when the
-              // handler runs and initiateKitting() never gets called,
-              // so the FK row never lands in the database.
               uploadingFullKitting ||
               (requiresFullKitting && !fullKittingPath)
             }
             className="gap-2 px-6 shadow-sm shadow-primary/20"
           >
             <Check className="h-4 w-4" />
-            Create brief
+            {splitEnabled
+              ? `Create & split · ${splitRows.length} designer${splitRows.length === 1 ? "" : "s"}`
+              : "Create brief"}
           </LoadingButton>
         </div>
       </form>
@@ -1561,6 +1725,259 @@ function FullKittingSection({
 }
 
 // ============================================================================
+// SPLIT ROWS BUILDER
+// ============================================================================
+
+function SplitRowsBuilder({
+  rows,
+  onChange,
+  totalQty,
+  defaultDesignType,
+  defaultFabric,
+  defaultDeadline,
+  designers,
+  disabled,
+  error,
+}: {
+  rows: BriefSplitRow[];
+  onChange: (rows: BriefSplitRow[]) => void;
+  totalQty: number;
+  defaultDesignType: string;
+  defaultFabric: string;
+  defaultDeadline: string;
+  designers: { id: string; full_name: string; is_active?: boolean | null }[];
+  disabled?: boolean;
+  error?: string;
+}) {
+  const { fabrics } = useFabrics();
+  const { categories: conceptCategories } = useConceptCategories();
+
+  const fabricOptions = useMemo(
+    () => fabrics.map((f) => ({ value: f.name, label: f.name })),
+    [fabrics]
+  );
+  const designTypeOptions = useMemo(
+    () => conceptCategories.map((c) => ({ value: c.name, label: c.name })),
+    [conceptCategories]
+  );
+  const activeDesigners = useMemo(
+    () => designers.filter((d) => d.is_active !== false),
+    [designers]
+  );
+
+  const assigned = rows.reduce((s, r) => s + (r.qty_assigned || 0), 0);
+  const remaining = totalQty > 0 ? totalQty - assigned : 0;
+
+  const duplicateDesigners = useMemo(() => {
+    const ids = rows.map((r) => r.designer_id).filter(Boolean);
+    return new Set(ids.filter((id, i) => ids.indexOf(id) !== i));
+  }, [rows]);
+
+  function updateRow(key: number, patch: Partial<BriefSplitRow>) {
+    onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
+  function removeRow(key: number) {
+    onChange(rows.filter((r) => r.key !== key));
+  }
+
+  function addRow() {
+    onChange([
+      ...rows,
+      {
+        key: ++splitRowKey,
+        designer_id: "",
+        qty_assigned: 1,
+        planned_deadline: defaultDeadline,
+        design_type: "",
+        fabric: "",
+      },
+    ]);
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.02] p-3">
+      {/* Header counter */}
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-primary">
+          <Users className="h-3.5 w-3.5" />
+          Team split
+        </span>
+        <span
+          className={cn(
+            "rounded-full border px-2.5 py-1 font-mono text-xs font-semibold tabular-nums",
+            assigned > totalQty && totalQty > 0
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : assigned === totalQty && totalQty > 0
+              ? "border-success/40 bg-success/10 text-success"
+              : "border-border bg-secondary text-foreground"
+          )}
+        >
+          {assigned} / {totalQty || "—"}
+        </span>
+      </div>
+
+      {/* Rows */}
+      {rows.map((row, idx) => (
+        <div
+          key={row.key}
+          className="rounded-lg border border-border bg-card p-2.5"
+        >
+          <div className="grid grid-cols-[1fr_64px_110px_28px] items-end gap-1.5">
+            <div>
+              {idx === 0 && (
+                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Designer <span className="text-destructive">*</span>
+                </Label>
+              )}
+              <select
+                value={row.designer_id}
+                onChange={(e) =>
+                  updateRow(row.key, { designer_id: e.target.value })
+                }
+                disabled={disabled}
+                className={cn(
+                  "h-9 w-full rounded-md border bg-card px-2 text-sm text-foreground outline-none transition-colors",
+                  "focus:border-primary focus:ring-1 focus:ring-ring disabled:opacity-50",
+                  duplicateDesigners.has(row.designer_id) &&
+                    row.designer_id &&
+                    "border-destructive"
+                )}
+              >
+                <option value="">Select…</option>
+                {activeDesigners.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              {idx === 0 && (
+                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Qty <span className="text-destructive">*</span>
+                </Label>
+              )}
+              <Input
+                type="number"
+                min={1}
+                value={row.qty_assigned}
+                onChange={(e) =>
+                  updateRow(row.key, {
+                    qty_assigned: Math.max(1, Number(e.target.value) || 1),
+                  })
+                }
+                disabled={disabled}
+                className="h-9 tabular-nums"
+              />
+            </div>
+            <div>
+              {idx === 0 && (
+                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Deadline
+                </Label>
+              )}
+              <Input
+                type="date"
+                value={row.planned_deadline}
+                onChange={(e) =>
+                  updateRow(row.key, { planned_deadline: e.target.value })
+                }
+                onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
+                disabled={disabled}
+                className="h-9 cursor-pointer text-xs"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={disabled || rows.length <= 2}
+              onClick={() => removeRow(row.key)}
+              className="inline-flex h-9 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-30"
+              aria-label="Remove row"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Row 2: Design Type + Fabric */}
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <div>
+              {idx === 0 && (
+                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Design Type
+                </Label>
+              )}
+              <Combobox
+                value={row.design_type}
+                onChange={(v) => updateRow(row.key, { design_type: v })}
+                options={designTypeOptions}
+                placeholder="Pick type"
+                searchPlaceholder="Search…"
+                clearable
+                disabled={disabled}
+              />
+            </div>
+            <div>
+              {idx === 0 && (
+                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Fabric
+                </Label>
+              )}
+              <Combobox
+                value={row.fabric}
+                onChange={(v) => updateRow(row.key, { fabric: v })}
+                options={fabricOptions}
+                placeholder="Pick fabric"
+                searchPlaceholder="Search…"
+                clearable
+                disabled={disabled}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Add designer */}
+      <button
+        type="button"
+        onClick={addRow}
+        disabled={disabled || (totalQty > 0 && remaining <= 0)}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/30 bg-card py-2.5 text-sm font-semibold text-primary transition-colors hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Plus className="h-4 w-4" />
+        Add designer
+      </button>
+
+      {/* Hint text */}
+      {rows.length < 2 ? (
+        <p className="flex items-center gap-1.5 text-xs text-warning">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          Add at least 2 designers to split this task.
+        </p>
+      ) : assigned > totalQty && totalQty > 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          Over by {assigned - totalQty} — reduce a designer's quantity.
+        </p>
+      ) : assigned === totalQty && totalQty > 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-success">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          Fully split across {rows.length} designers.
+        </p>
+      ) : remaining > 0 && totalQty > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {rows.length} designer{rows.length !== 1 ? "s" : ""} · {remaining} design{remaining !== 1 ? "s" : ""} left in pool, claimable by anyone.
+        </p>
+      ) : null}
+
+      {error && (
+        <p className="text-xs text-destructive">{error}</p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Small building blocks
 // ============================================================================
 
@@ -1764,12 +2181,14 @@ function Field({
   htmlFor,
   required,
   error,
+  hint,
   children,
 }: {
   label: string;
   htmlFor: string;
   required?: boolean;
   error?: string;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -1777,6 +2196,7 @@ function Field({
       <Label htmlFor={htmlFor}>
         {label}
         {required && <span className="ml-0.5 text-destructive">*</span>}
+        {hint && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{hint}</span>}
       </Label>
       {children}
       {error && <p className="text-xs text-destructive">{error}</p>}

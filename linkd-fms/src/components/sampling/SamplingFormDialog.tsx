@@ -379,7 +379,7 @@ export function SamplingFormDialog({
               Order / Sample toggle was removed per spec. */}
           <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
             <SectionHeader icon={ClipboardList} title="Team" />
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4">
               <Field label="Printed Mtr">
                 <Input type="number" min={0} step={0.5} value={printedMtr} onChange={(e) => setPrintedMtr(e.target.value)} disabled={saving} />
               </Field>
@@ -429,7 +429,7 @@ export function SamplingFormDialog({
           {/* Toggles + Comments */}
           <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
             <SectionHeader icon={CheckSquare} title="Status" />
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 mb-2">
               <ToggleRow label="Completed" checked={isCompleted} onChange={setIsCompleted} disabled={saving} />
               <ToggleRow label="Neatly Prepared" checked={neatlyPrepared} onChange={setNeatlyPrepared} disabled={saving} />
             </div>

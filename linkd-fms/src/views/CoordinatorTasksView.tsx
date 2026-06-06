@@ -294,7 +294,7 @@ function AddTaskDialog({
 
           {/* Date + Time side by side */}
           <section className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-colors hover:border-primary/30">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <span className="flex items-center gap-1">
