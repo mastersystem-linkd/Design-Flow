@@ -252,7 +252,8 @@ export function TaskDetailDrawer({
                 )
               )}
 
-              {!editMode && (
+              {/* Completion section — hidden for split tasks (per-portion details are in AssignmentsPanel) */}
+              {!editMode && !task.is_split && (
                 <CompletionSection
                   task={task}
                   canComplete={!!canEdit}
