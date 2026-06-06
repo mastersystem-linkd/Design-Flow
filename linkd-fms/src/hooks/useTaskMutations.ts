@@ -758,6 +758,18 @@ export function useTaskMutations(): UseTaskMutations {
           );
         }
 
+        // Notify previous designer when their task is reassigned
+        const prevId = current.assigned_to as string | null;
+        if (prevId && prevId !== designerId && prevId !== profile.id) {
+          void sendNotification(
+            prevId,
+            "Task Reassigned",
+            `${data.task_code ?? "A task"} has been reassigned to another designer.`,
+            "warning",
+            "/dashboard"
+          );
+        }
+
         return { data, error: null };
       } finally {
         setOpPending(key, false);
@@ -866,6 +878,19 @@ export function useTaskMutations(): UseTaskMutations {
             "Task carried forward to you",
             `${data.task_code ?? "A task"} was handed to you (${data.qty_completed}/${data.qty} done). Note: ${reason}`,
             "info",
+            "/dashboard"
+          );
+        }
+
+        // Notify the original designer that their task was returned to pool or handed off.
+        if (prevAssignee && prevAssignee !== profile.id) {
+          void sendNotification(
+            prevAssignee,
+            target.kind === "designer" ? "Task Handed Off" : "Task Returned to Pool",
+            target.kind === "designer"
+              ? `${data.task_code ?? "A task"} was handed to another designer. Note: ${reason}`
+              : `${data.task_code ?? "A task"} was returned to the open pool. Note: ${reason}`,
+            "warning",
             "/dashboard"
           );
         }
@@ -983,6 +1008,19 @@ export function useTaskMutations(): UseTaskMutations {
               : `Returned to pool — ${qtyDone}/${current.qty} preserved as sub-task`,
           });
 
+          if (prevAssignee && prevAssignee !== profile.id) {
+            const code = current.task_code ?? "A task";
+            void sendNotification(
+              prevAssignee,
+              mode === "reset" ? "Task Returned to Pool" : "Task Split — Your Progress Saved",
+              mode === "reset"
+                ? `${code} was returned to pool. Your progress was reset.`
+                : `Your ${qtyDone} designs on ${code} were saved. The remaining ${current.qty - qtyDone} are back in the pool.`,
+              mode === "reset" ? "warning" : "info",
+              "/dashboard"
+            );
+          }
+
           return { data, error: null };
         }
 
@@ -1002,6 +1040,17 @@ export function useTaskMutations(): UseTaskMutations {
           changed_by: profile.id,
           note: `Split: ${qtyDone} preserved for original designer, remaining assigned to new designer`,
         });
+
+        if (prevAssignee && prevAssignee !== profile.id) {
+          const code = current.task_code ?? "A task";
+          void sendNotification(
+            prevAssignee,
+            "Task Split — Your Progress Saved",
+            `Your ${qtyDone} designs on ${code} were saved. Remaining assigned to another designer.`,
+            "info",
+            "/dashboard"
+          );
+        }
 
         if (opts?.assignToDesignerId) {
           const remaining = current.qty - qtyDone;
