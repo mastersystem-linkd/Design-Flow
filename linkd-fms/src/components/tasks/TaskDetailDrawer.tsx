@@ -31,6 +31,8 @@ import {
   FolderOpen,
   Users,
   Clock,
+  ChevronDown,
+  CheckCircle2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast, LazyImage } from "@/components/ui";
@@ -46,6 +48,7 @@ import { LoadingButton } from "@/components/ui/LoadingButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PostDoneModal } from "@/components/tasks/PostDoneModal";
 import { AssignmentsPanel } from "@/components/tasks/AssignmentsPanel";
+import { ReturnToPoolDialog } from "@/components/tasks/ReturnToPoolDialog";
 import { useTaskAssignments } from "@/hooks/useTaskAssignments";
 import {
   Avatar,
@@ -326,10 +329,18 @@ function CompletionSection({
   onAddDetails: () => void;
 }) {
   const { assignments } = useTaskAssignments(task.is_split ? task.id : null);
+  const [expanded, setExpanded] = useState(false);
+  const disclosureId = `completion-subtasks-${task.id}`;
 
-  // For split tasks: show per-designer completion details from portions
-  if (task.is_split && (task.status === "completed" || task.status === "done")) {
+  // Re-collapse when task changes (drawer reopened / different task)
+  useEffect(() => {
+    setExpanded(false);
+  }, [task.id]);
+
+  // For completed split tasks: disclosure card with per-designer grid + expandable sub-task cards
+  if (task.is_split && task.status === "completed") {
     const completedPortions = assignments.filter((a) => a.status === "completed");
+    const totalQtyCompleted = assignments.reduce((s, a) => s + a.qty_completed, 0);
     const lastCompletedAt = completedPortions
       .map((a) => a.completed_at)
       .filter(Boolean)
@@ -337,72 +348,136 @@ function CompletionSection({
       .pop();
 
     return (
-      <div className="rounded-xl border border-success/30 bg-success/10 p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-success">
-          Completion Details
-        </p>
+      <div className="space-y-2">
+        {/* Q3: Slim overall line */}
+        <div className="flex items-center gap-2 rounded-lg border border-success/25 bg-success/5 px-3 py-2">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+          <span className="text-[11px] font-medium text-muted-foreground">
+            Overall ·{" "}
+            <span className="tabular-nums font-semibold text-foreground">
+              {totalQtyCompleted}/{task.qty}
+            </span>
+            {" · "}
+            <span className="font-semibold text-success">Completed</span>
+          </span>
+        </div>
 
-        {/* Per-designer breakdown */}
-        <div className="mt-2.5 space-y-2">
-          {assignments.map((a) => (
-            <div
-              key={a.id}
+        {/* Completion Details disclosure */}
+        <div className="rounded-xl border border-success/30 bg-success/10">
+          {/* Clickable header */}
+          <button
+            type="button"
+            onClick={() => setExpanded((p) => !p)}
+            aria-expanded={expanded}
+            aria-controls={disclosureId}
+            className="flex w-full items-center justify-between p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-xl"
+          >
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-success">
+                Completion Details
+              </p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {assignments.length} designer{assignments.length !== 1 ? "s" : ""}
+                {" · "}
+                <span className="tabular-nums font-medium">{totalQtyCompleted}/{task.qty}</span>
+                {lastCompletedAt && (
+                  <> · auto-completed {formatDate(lastCompletedAt)}</>
+                )}
+              </p>
+            </div>
+            <ChevronDown
+              aria-hidden
               className={cn(
-                "rounded-lg border px-3 py-2",
-                a.status === "completed"
-                  ? "border-success/20 bg-success/5"
-                  : "border-border bg-card"
+                "h-4 w-4 shrink-0 text-success transition-transform duration-200",
+                expanded && "rotate-180"
               )}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] font-semibold text-foreground">
-                  {a.designer?.full_name ?? "Unknown"}
+            />
+          </button>
+
+          {/* Always-visible: per-designer completion grid */}
+          <div className="space-y-2 px-4 pb-4">
+            {assignments.map((a) => (
+              <div
+                key={a.id}
+                className={cn(
+                  "rounded-lg border px-3 py-2",
+                  a.status === "completed"
+                    ? "border-success/20 bg-success/5"
+                    : "border-border bg-card"
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-foreground">
+                    {a.designer?.full_name ?? "Unknown"}
+                  </span>
+                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                    {a.qty_completed}/{a.qty_assigned} designs
+                  </span>
+                </div>
+                <div className="mt-1 grid grid-cols-3 gap-x-3 text-[11px]">
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                      Design Type
+                    </span>
+                    <p className="font-medium text-foreground">
+                      {a.design_type || "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                      Fabric
+                    </span>
+                    <p className="font-medium text-foreground">
+                      {a.completion_fabric || "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                      Completed
+                    </span>
+                    <p className="font-medium text-foreground">
+                      {a.completed_at ? formatDate(a.completed_at) : "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Task auto-completed footer */}
+            {lastCompletedAt && (
+              <div className="flex items-center justify-between border-t border-success/20 pt-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Task auto-completed
                 </span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">
-                  {a.qty_completed}/{a.qty_assigned} designs
+                <span className="text-[12px] font-semibold text-success">
+                  {formatDate(lastCompletedAt)}
                 </span>
               </div>
-              <div className="mt-1 grid grid-cols-3 gap-x-3 text-[11px]">
-                <div>
-                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                    Design Type
-                  </span>
-                  <p className="font-medium text-foreground">
-                    {a.design_type || "—"}
+            )}
+
+            {/* Expandable: full sub-task cards */}
+            <div
+              id={disclosureId}
+              className={cn(
+                "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+                expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+              )}
+              style={{ willChange: expanded ? "auto" : "grid-template-rows, opacity" }}
+            >
+              <div className="overflow-hidden">
+                <div className="space-y-2 pt-2 border-t border-success/20">
+                  <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                    <Users className="h-3.5 w-3.5 text-primary" />
+                    Team Sub-tasks
                   </p>
-                </div>
-                <div>
-                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                    Fabric
-                  </span>
-                  <p className="font-medium text-foreground">
-                    {a.completion_fabric || "—"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                    Completed
-                  </span>
-                  <p className="font-medium text-foreground">
-                    {a.completed_at ? formatDate(a.completed_at) : "—"}
-                  </p>
+                  {assignments.map((a) => (
+                    <CompletedSubtaskCard key={a.id} a={a} />
+                  ))}
                 </div>
               </div>
             </div>
-          ))}
-        </div>
-
-        {/* Task auto-completed date */}
-        {task.status === "completed" && lastCompletedAt && (
-          <div className="mt-2.5 flex items-center justify-between border-t border-success/20 pt-2">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Task auto-completed
-            </span>
-            <span className="text-[12px] font-semibold text-success">
-              {formatDate(lastCompletedAt)}
-            </span>
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -504,6 +579,67 @@ function CompletionSection({
   }
 
   return null;
+}
+
+// Read-only sub-task card for completed split tasks (inside disclosure)
+function CompletedSubtaskCard({ a }: { a: { id: string; designer_id: string; designer?: { full_name: string; avatar_url: string | null } | null; status: string; qty_completed: number; qty_assigned: number; design_type?: string | null; completion_fabric?: string | null; planned_deadline?: string | null; completed_at?: string | null } }) {
+  const pct = a.qty_assigned > 0 ? Math.min(100, (a.qty_completed / a.qty_assigned) * 100) : 0;
+
+  return (
+    <div className="rounded-xl border border-success/25 bg-gradient-to-b from-success/[0.04] to-card px-3 py-2.5">
+      {/* Avatar + name + badge + chips */}
+      <div className="flex items-center gap-2">
+        <Avatar className="h-7 w-7 shrink-0 bg-success/20 text-success">
+          <AvatarFallback className="bg-success/20 text-[9px] font-bold text-success">
+            {getInitials(a.designer?.full_name ?? "?")}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate text-[12px] font-semibold text-foreground">
+              {a.designer?.full_name ?? "Unknown"}
+            </span>
+            <span className="shrink-0 rounded-full border border-success/25 bg-success/10 px-1.5 py-px text-[9px] font-semibold text-success">
+              Completed
+            </span>
+            {a.design_type && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary">
+                <Sparkles className="h-2.5 w-2.5" />
+                {a.design_type}
+              </span>
+            )}
+            {a.completion_fabric && (
+              <span className="text-[10px] text-muted-foreground">
+                · {a.completion_fabric}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Progress bar (read-only) */}
+      <div className="mt-2">
+        <div className="relative h-5 overflow-hidden rounded-md border border-border bg-secondary">
+          <div
+            className="h-full rounded-md bg-gradient-to-r from-success/80 to-success"
+            style={{ width: `${pct}%` }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center gap-1 text-[10px] font-medium tabular-nums text-foreground">
+            {a.qty_completed}/{a.qty_assigned}
+            <span className="text-[9px] text-foreground/70">({Math.round(pct)}%)</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Completed date */}
+      {a.completed_at && (
+        <p className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+          <CalendarDays className="h-2.5 w-2.5" />
+          Completed {formatDate(a.completed_at)}
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ============================================================================
@@ -1892,7 +2028,8 @@ function HandoffControl({
   const { handoffTask, isPending } = useTaskMutations();
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
   const [open, setOpen] = useState(false);
-  const [targetId, setTargetId] = useState(""); // "" = open pool
+  const [poolDialogOpen, setPoolDialogOpen] = useState(false);
+  const [targetId, setTargetId] = useState("");
   const [note, setNote] = useState("");
   const busy = isPending("handoff", task.id);
 
@@ -1900,8 +2037,15 @@ function HandoffControl({
   if (task.status !== "in_progress") return null;
 
   const others = designers.filter((d) => d.id !== task.assigned_to);
+  const hasProgress = (task.qty_completed ?? 0) > 0;
 
   async function submit() {
+    if (!targetId && hasProgress) {
+      setOpen(false);
+      setPoolDialogOpen(true);
+      return;
+    }
+
     const target = targetId
       ? ({ kind: "designer", designerId: targetId } as const)
       : ({ kind: "pool" } as const);
@@ -1955,6 +2099,11 @@ function HandoffControl({
                   </option>
                 ))}
               </select>
+              {!targetId && hasProgress && (
+                <p className="text-[11px] text-warning">
+                  This task has {task.qty_completed}/{task.qty} progress — you'll choose how to handle it next.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">
@@ -1969,7 +2118,7 @@ function HandoffControl({
                 className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
               <p className="text-[11px] text-muted-foreground">
-                The next designer sees this as a “carried forward” note.
+                The next designer sees this as a "carried forward" note.
               </p>
             </div>
           </div>
@@ -1989,6 +2138,15 @@ function HandoffControl({
           </div>
         </DialogContent>
       </Dialog>
+
+      {poolDialogOpen && (
+        <ReturnToPoolDialog
+          task={task}
+          open={poolDialogOpen}
+          onOpenChange={setPoolDialogOpen}
+          onDone={onChanged}
+        />
+      )}
     </>
   );
 }
@@ -2002,13 +2160,14 @@ function AssigneeRow({
   isAdmin: boolean;
   onAssigned: () => void;
 }) {
-  const { assignTask, updateTask, isPending } = useTaskMutations();
+  const { assignTask, returnToPool, isPending } = useTaskMutations();
   const { profiles } = useProfiles({ roles: ["designer"] });
-  const pending = isPending("assign", task.id) || isPending("updateTask", task.id);
+  const [poolDialogOpen, setPoolDialogOpen] = useState(false);
+  const pending = isPending("assign", task.id) || isPending("returnToPool", task.id);
   const currentId = task.assigned_to ?? null;
 
   async function assign(designerId: string) {
-    if (designerId === currentId) return; // no-op
+    if (designerId === currentId) return;
     const { error } = await assignTask(task.id, designerId);
     if (error) {
       toast.error(error);
@@ -2018,20 +2177,31 @@ function AssigneeRow({
     onAssigned();
   }
 
-  // Reassignment is locked once the task reaches a "finished" state —
-  // changing who owns a task that's already shipped (or about to ship)
-  // rewrites history and confuses analytics. Admins can still see the
-  // current assignee, just not change it.
   const isFinished =
     task.status === "done" ||
     task.status === "approved" ||
     task.status === "sampling";
   const canReassign = isAdmin && !isFinished;
-  // "Send back to pool" — same gate, plus we need an assignee to clear.
   const canUnassign = !!currentId && canReassign;
+  // Broken state: status is not pool but assigned_to is null (from old bugs)
+  const isBrokenState =
+    !currentId &&
+    task.status !== "pool" &&
+    task.status !== "completed" &&
+    task.status !== "done" &&
+    canReassign;
 
-  async function unassign() {
-    const { error } = await updateTask(task.id, { assigned_to: null });
+  function handleSendToPool() {
+    const hasProgress = (task.qty_completed ?? 0) > 0 && !!currentId;
+    if (hasProgress) {
+      setPoolDialogOpen(true);
+    } else {
+      void doResetToPool();
+    }
+  }
+
+  async function doResetToPool() {
+    const { error } = await returnToPool(task.id, { mode: "reset" });
     if (error) {
       toast.error(error);
       return;
@@ -2040,7 +2210,6 @@ function AssigneeRow({
     onAssigned();
   }
 
-  // Designer / non-admin view: read-only label.
   if (!isAdmin) {
     return task.assignee ? (
       <span className="flex items-center gap-1.5">
@@ -2059,10 +2228,6 @@ function AssigneeRow({
     );
   }
 
-  // Admin / coordinator view: name (or "Open Pool") + change trigger.
-  // The Change button is hidden entirely once the task is finished — see
-  // `canReassign` above. We keep the read-only assignee chip so it still
-  // shows who owned the task at completion.
   return (
     <div className="flex items-center gap-2">
       {task.assignee ? (
@@ -2080,14 +2245,27 @@ function AssigneeRow({
       ) : (
         <span className="italic text-muted-foreground">Open Pool</span>
       )}
-      {!canReassign ? (
+
+      {/* Fix broken state: status!=pool but no assignee */}
+      {isBrokenState && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => void doResetToPool()}
+          className="ml-auto shrink-0 rounded-md border border-warning/50 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning transition-colors hover:bg-warning/20 disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Fix: Return to Pool"}
+        </button>
+      )}
+
+      {!canReassign && !isBrokenState ? (
         <span
           className="ml-auto shrink-0 rounded-md border border-border bg-secondary/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
           title={`Assignee is locked once a task is ${task.status}.`}
         >
           Locked
         </span>
-      ) : (
+      ) : !isBrokenState ? (
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
@@ -2146,7 +2324,7 @@ function AssigneeRow({
               <>
                 <DropdownMenu.Separator className="my-1 h-px bg-border" />
                 <DropdownMenu.Item
-                  onSelect={() => void unassign()}
+                  onSelect={handleSendToPool}
                   className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-destructive outline-none data-[highlighted]:bg-destructive/5"
                 >
                   Send back to Pool
@@ -2156,6 +2334,15 @@ function AssigneeRow({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+      ) : null}
+
+      {poolDialogOpen && (
+        <ReturnToPoolDialog
+          task={task}
+          open={poolDialogOpen}
+          onOpenChange={setPoolDialogOpen}
+          onDone={onAssigned}
+        />
       )}
     </div>
   );

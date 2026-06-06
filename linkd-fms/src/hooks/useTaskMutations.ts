@@ -6,6 +6,7 @@ import { sendNotification, sendNotificationToRole } from "@/lib/notifications";
 import type {
   Task,
   TaskInsert,
+  TaskAssignmentInsert,
   TaskStatus,
   TaskPriority,
   UserRole,
@@ -111,6 +112,11 @@ export interface UseTaskMutations {
     fabric: string,
     mtr?: number | null
   ) => Promise<MutationResult<Task>>;
+  /** Return a task to the open pool with 3 modes:
+   *  - reset: zero out progress, send to pool fresh
+   *  - split-pool: preserve designer's work as a sub-task, pool remaining
+   *  - split-assign: preserve + assign remaining to a specific designer */
+  returnToPool: (taskId: string, opts?: ReturnToPoolOpts) => Promise<MutationResult<Task>>;
   /** General field update (concept, description, fabric, qty, deadline, etc.) */
   updateTask: (
     taskId: string,
@@ -126,6 +132,14 @@ export interface UseTaskMutations {
 export type HandoffTarget =
   | { kind: "designer"; designerId: string }
   | { kind: "pool" };
+
+/** How to handle progress when returning a task to the pool. */
+export type ReturnToPoolMode = "reset" | "split-pool" | "split-assign";
+
+export interface ReturnToPoolOpts {
+  mode: ReturnToPoolMode;
+  assignToDesignerId?: string;
+}
 
 /** Fields the edit dialog can update. All optional — only changed values sent. */
 export interface UpdateTaskFields {
@@ -162,6 +176,7 @@ export type TaskMutationOp =
   | "updateTask"
   | "assign"
   | "handoff"
+  | "returnToPool"
   | "selfAssign"
   | "claimNext"
   | "markDone"
@@ -771,7 +786,7 @@ export function useTaskMutations(): UseTaskMutations {
       try {
         const { data: current, error: fetchErr } = await supabase
           .from("tasks")
-          .select("status, task_code, concept, qty, assigned_to")
+          .select("status, task_code, concept, qty, qty_completed, assigned_to, is_split")
           .eq("id", taskId)
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
@@ -788,6 +803,7 @@ export function useTaskMutations(): UseTaskMutations {
           status?: TaskStatus;
           assigned_at?: string;
           task_code?: string;
+          qty_completed?: number;
         } = {
           carry_forward_note: reason,
           carry_forward_from: prevAssignee,
@@ -803,11 +819,11 @@ export function useTaskMutations(): UseTaskMutations {
           update.status = "in_progress";
           update.assigned_at = nowIso;
         } else {
-          // Return to the open pool — rebrand the code to the Pool letter so the
-          // FIFO queue / claim flow reads it as unassigned. Sequence + concept +
-          // qty preserved; qty_completed is untouched so progress carries over.
+          // Return to the open pool — rebrand the code to the Pool letter.
+          // Progress is reset (qty_completed zeroed) so the task starts fresh.
           update.assigned_to = null;
           update.status = "pool";
+          update.qty_completed = 0;
           const seq = extractSeq(current.task_code);
           update.task_code = buildTaskCode({
             designerLetter: "P",
@@ -849,6 +865,150 @@ export function useTaskMutations(): UseTaskMutations {
             target.designerId,
             "Task carried forward to you",
             `${data.task_code ?? "A task"} was handed to you (${data.qty_completed}/${data.qty} done). Note: ${reason}`,
+            "info",
+            "/dashboard"
+          );
+        }
+
+        return { data, error: null };
+      } finally {
+        setOpPending(key, false);
+      }
+    },
+    [profile, setOpPending]
+  );
+
+  // --------------------------------------------------------------------
+  // returnToPool — Return a task to the pool with 3 modes:
+  //   reset:        zero progress, send to pool fresh
+  //   split-pool:   preserve designer's work as sub-task, pool remaining
+  //   split-assign: preserve + assign remaining to a specific designer
+  // --------------------------------------------------------------------
+  const returnToPool = useCallback(
+    async (taskId: string, opts?: ReturnToPoolOpts) => {
+      if (!profile) return { data: null, error: "Not authenticated" };
+
+      const mode = opts?.mode ?? "reset";
+      const key = `returnToPool:${taskId}`;
+      setOpPending(key, true);
+      try {
+        const { data: current, error: fetchErr } = await supabase
+          .from("tasks")
+          .select("status, task_code, concept, qty, qty_completed, assigned_to, is_split")
+          .eq("id", taskId)
+          .single();
+        if (fetchErr) return { data: null, error: fetchErr.message };
+        if (!current) return { data: null, error: "Task not found" };
+
+        const prevAssignee = (current.assigned_to as string | null) ?? null;
+        const qtyDone = current.qty_completed ?? 0;
+        const nowIso = new Date().toISOString();
+
+        // ── Split modes: preserve original designer's work as a sub-task ──
+        if (mode === "split-pool" || mode === "split-assign") {
+          if (!prevAssignee) {
+            return { data: null, error: "No previous designer to preserve work for." };
+          }
+          if (qtyDone <= 0) {
+            return { data: null, error: "No progress to preserve." };
+          }
+
+          const inserts: TaskAssignmentInsert[] = [
+            {
+              task_id: taskId,
+              designer_id: prevAssignee,
+              assigned_by: profile.id,
+              qty_assigned: qtyDone,
+              qty_completed: qtyDone,
+              status: "completed",
+              completed_at: nowIso,
+              completion_filled_at: nowIso,
+            },
+          ];
+
+          if (mode === "split-assign" && opts?.assignToDesignerId) {
+            const remaining = current.qty - qtyDone;
+            if (remaining <= 0) {
+              return { data: null, error: "No remaining qty to assign." };
+            }
+            inserts.push({
+              task_id: taskId,
+              designer_id: opts.assignToDesignerId,
+              assigned_by: profile.id,
+              qty_assigned: remaining,
+              qty_completed: 0,
+              status: "assigned",
+            });
+          }
+
+          const { error: splitErr } = await supabase
+            .from("task_assignments")
+            .insert(inserts);
+          if (splitErr) {
+            return { data: null, error: `Failed to create sub-tasks: ${splitErr.message}` };
+          }
+        }
+
+        // ── Reset / Split-pool: send to pool ──
+        if (mode === "reset" || mode === "split-pool") {
+          const seq = extractSeq(current.task_code);
+          const poolCode = buildTaskCode({
+            designerLetter: "P",
+            seq,
+            concept: current.concept,
+            qty: current.qty,
+          });
+
+          const { data, error } = await supabase
+            .from("tasks")
+            .update({
+              assigned_to: null,
+              status: "pool" as TaskStatus,
+              task_code: poolCode,
+              ...(mode === "reset" ? { qty_completed: 0 } : {}),
+            })
+            .eq("id", taskId)
+            .select("*")
+            .maybeSingle();
+          if (error) return { data: null, error: error.message };
+          if (!data) return { data: null, error: "Couldn't return to pool." };
+
+          void supabase.from("task_logs").insert({
+            task_id: taskId,
+            status_from: current.status as TaskStatus,
+            status_to: "pool" as TaskStatus,
+            changed_by: profile.id,
+            note: mode === "reset"
+              ? "Returned to pool — progress reset"
+              : `Returned to pool — ${qtyDone}/${current.qty} preserved as sub-task`,
+          });
+
+          return { data, error: null };
+        }
+
+        // ── Split-assign: clear assigned_to (task is now multi-designer) ──
+        const { data, error } = await supabase
+          .from("tasks")
+          .update({ assigned_to: null })
+          .eq("id", taskId)
+          .select("*")
+          .maybeSingle();
+        if (error) return { data: null, error: error.message };
+
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: current.status as TaskStatus,
+          status_to: "in_progress" as TaskStatus,
+          changed_by: profile.id,
+          note: `Split: ${qtyDone} preserved for original designer, remaining assigned to new designer`,
+        });
+
+        if (opts?.assignToDesignerId) {
+          const remaining = current.qty - qtyDone;
+          void sendNotification(
+            opts.assignToDesignerId,
+            "Task Assignment",
+            `You've been assigned ${remaining} designs on ${current.task_code ?? "a task"}`,
             "info",
             "/dashboard"
           );
@@ -1307,6 +1467,7 @@ export function useTaskMutations(): UseTaskMutations {
     updateQtyCompleted,
     assignTask,
     handoffTask,
+    returnToPool,
     selfAssignTask,
     claimPoolTask,
     getNextPoolTasks,

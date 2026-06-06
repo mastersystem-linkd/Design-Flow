@@ -95,6 +95,9 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
   if (isLoading) return null;
   if (assignments.length === 0) return null;
 
+  // Completed split tasks are rendered entirely by CompletionSection's disclosure
+  if (task.is_split && task.status === "completed") return null;
+
   const overallPct =
     task.qty > 0 ? Math.min(100, (totalCompleted / task.qty) * 100) : 0;
   const poolRemaining = Math.max(0, task.qty - totalAssigned);

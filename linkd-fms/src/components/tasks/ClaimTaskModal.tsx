@@ -322,7 +322,7 @@ export function ClaimTaskModal({
               <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 sm:gap-4">
                 <div>
                   <Label htmlFor="claim-design-type" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Design Type <span className="text-destructive">*</span>
+                    Design Type <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
                   </Label>
                   <Combobox
                     id="claim-design-type"
@@ -337,7 +337,7 @@ export function ClaimTaskModal({
                 </div>
                 <div>
                   <Label htmlFor="claim-fabric" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Fabric <span className="text-destructive">*</span>
+                    Fabric <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
                   </Label>
                   <Combobox
                     id="claim-fabric"
@@ -399,7 +399,7 @@ export function ClaimTaskModal({
                   onClick={handleClaim}
                   loading={claiming}
                   loadingText="Claiming…"
-                  disabled={!deadline || !designType || !fabric || (showPortionInput && ((portionQty ?? 0) < 1 || qtyRemaining === 0))}
+                  disabled={!deadline || (showPortionInput && ((portionQty ?? 0) < 1 || qtyRemaining === 0))}
                   className="gap-1.5 px-5 shadow-sm shadow-primary/20"
                 >
                   <ArrowDownToLine className="h-4 w-4" />

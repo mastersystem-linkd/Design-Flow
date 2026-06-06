@@ -733,9 +733,10 @@ export function KanbanView() {
 
   // Complete a 'done' task. If the designer already picked a fabric at claim
   // time (task.fabric), finish straight away — no popup. Otherwise open the
-  // PostDoneModal to capture fabric first.
+  // PostDoneModal to capture the missing field(s) first. Completion requires
+  // BOTH fabric AND design type — if either is missing, open the modal.
   async function handleComplete(task: TaskWithRelations) {
-    if (task.fabric?.trim()) {
+    if (task.fabric?.trim() && task.concept?.trim()) {
       const { error } = await completeTask(task.id, task.fabric, null);
       if (error) {
         toast.error(error);
