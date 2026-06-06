@@ -141,41 +141,18 @@ interface GroupedNotification {
 }
 
 function groupNotifications(items: Notification[]): GroupedNotification[] {
-  const groups: GroupedNotification[] = [];
-  const seen = new Map<string, number>();
-
-  for (const n of items) {
-    const actor = extractActorName(n.message);
-    const groupKey = `${n.title}|${actor || ""}|${n.type}`;
-    const existingIdx = seen.get(groupKey);
-
-    if (existingIdx !== undefined) {
-      const existing = groups[existingIdx];
-      const timeDiff = new Date(existing.created_at).getTime() - new Date(n.created_at).getTime();
-      if (timeDiff < 3600000) {
-        existing.notifications.push(n);
-        existing.count++;
-        existing.is_read = existing.is_read && n.is_read;
-        continue;
-      }
-    }
-
-    seen.set(groupKey, groups.length);
-    groups.push({
-      key: n.id,
-      notifications: [n],
-      title: n.title,
-      message: n.message,
-      type: n.type,
-      link: n.link,
-      is_read: n.is_read,
-      created_at: n.created_at,
-      count: 1,
-      actorName: actor,
-    });
-  }
-
-  return groups;
+  return items.map((n) => ({
+    key: n.id,
+    notifications: [n],
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    link: n.link,
+    is_read: n.is_read,
+    created_at: n.created_at,
+    count: 1,
+    actorName: extractActorName(n.message),
+  }));
 }
 
 // ============================================================================
