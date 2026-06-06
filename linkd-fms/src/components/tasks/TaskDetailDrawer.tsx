@@ -30,6 +30,7 @@ import {
   Workflow,
   FolderOpen,
   Users,
+  Clock,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast, LazyImage } from "@/components/ui";
@@ -252,8 +253,7 @@ export function TaskDetailDrawer({
                 )
               )}
 
-              {/* Completion section — hidden for split tasks (per-portion details are in AssignmentsPanel) */}
-              {!editMode && !task.is_split && (
+              {!editMode && (
                 <CompletionSection
                   task={task}
                   canComplete={!!canEdit}
@@ -325,6 +325,88 @@ function CompletionSection({
   canComplete: boolean;
   onAddDetails: () => void;
 }) {
+  const { assignments } = useTaskAssignments(task.is_split ? task.id : null);
+
+  // For split tasks: show per-designer completion details from portions
+  if (task.is_split && (task.status === "completed" || task.status === "done")) {
+    const completedPortions = assignments.filter((a) => a.status === "completed");
+    const lastCompletedAt = completedPortions
+      .map((a) => a.completed_at)
+      .filter(Boolean)
+      .sort()
+      .pop();
+
+    return (
+      <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-success">
+          Completion Details
+        </p>
+
+        {/* Per-designer breakdown */}
+        <div className="mt-2.5 space-y-2">
+          {assignments.map((a) => (
+            <div
+              key={a.id}
+              className={cn(
+                "rounded-lg border px-3 py-2",
+                a.status === "completed"
+                  ? "border-success/20 bg-success/5"
+                  : "border-border bg-card"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] font-semibold text-foreground">
+                  {a.designer?.full_name ?? "Unknown"}
+                </span>
+                <span className="text-[10px] tabular-nums text-muted-foreground">
+                  {a.qty_completed}/{a.qty_assigned} designs
+                </span>
+              </div>
+              <div className="mt-1 grid grid-cols-3 gap-x-3 text-[11px]">
+                <div>
+                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                    Design Type
+                  </span>
+                  <p className="font-medium text-foreground">
+                    {a.design_type || "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                    Fabric
+                  </span>
+                  <p className="font-medium text-foreground">
+                    {a.completion_fabric || "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                    Completed
+                  </span>
+                  <p className="font-medium text-foreground">
+                    {a.completed_at ? formatDate(a.completed_at) : "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Task auto-completed date */}
+        {task.status === "completed" && lastCompletedAt && (
+          <div className="mt-2.5 flex items-center justify-between border-t border-success/20 pt-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Task auto-completed
+            </span>
+            <span className="text-[12px] font-semibold text-success">
+              {formatDate(lastCompletedAt)}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (task.status === "done") {
     const hasFabric = !!task.fabric?.trim();
     const hasDesignType = !!task.concept?.trim();
@@ -1161,9 +1243,9 @@ function BriefDetails({
   const hasMsgDate = !!task.whatsapp_received_date;
   const hasMsgTime = !!task.whatsapp_received_time;
   const hasAssignedBy = !!task.assigned_by;
-  const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0) + (hasMsgDate ? 1 : 0) + (hasAssignedBy ? 1 : 0);
+  const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0) + (hasMsgDate ? 1 : 0) + (hasMsgTime ? 1 : 0) + (hasAssignedBy ? 1 : 0);
   const oddTrailing = scalarCount % 2 === 1;
-  const lastKey = hasWa ? "wa" : hasFabric ? "fabric" : "assigned";
+  const lastKey = hasAssignedBy ? "assigned" : hasWa ? "wa" : hasFabric ? "fabric" : "assigned";
   const wide = (key: string) => (oddTrailing && key === lastKey ? "col-span-2" : "");
 
   return (
@@ -1321,25 +1403,26 @@ function BriefDetails({
             )}
 
             {hasWa && (
-              <InfoCard
-                label="WhatsApp group"
-                icon={<MessageSquare className="h-3 w-3" />}
-                className={wide("wa")}
-              >
+              <InfoCard label="WhatsApp group" icon={<MessageSquare className="h-3 w-3" />}>
                 {task.whatsapp_group}
               </InfoCard>
             )}
 
-            {hasMsgDate && (
-              <InfoCard label="Message Date" icon={<CalendarDays className="h-3 w-3" />}>
-                {task.whatsapp_received_date}
-                {hasMsgTime && <span className="ml-1 text-muted-foreground">{task.whatsapp_received_time}</span>}
+            {hasAssignedBy && (
+              <InfoCard label="Assigned By" icon={<UserCircle2 className="h-3 w-3" />} className={wide("assigned")}>
+                {task.assigned_by}
               </InfoCard>
             )}
 
-            {hasAssignedBy && (
-              <InfoCard label="Assigned By" icon={<UserCircle2 className="h-3 w-3" />}>
-                {task.assigned_by}
+            {hasMsgDate && (
+              <InfoCard label="Received Date" icon={<CalendarDays className="h-3 w-3" />}>
+                {task.whatsapp_received_date}
+              </InfoCard>
+            )}
+
+            {hasMsgTime && (
+              <InfoCard label="Received Time" icon={<Clock className="h-3 w-3" />}>
+                {task.whatsapp_received_time}
               </InfoCard>
             )}
           </div>

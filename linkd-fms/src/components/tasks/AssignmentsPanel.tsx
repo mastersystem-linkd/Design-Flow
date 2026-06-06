@@ -428,6 +428,18 @@ function AssignmentCard({
         )}
       </div>
 
+      {/* Completion details (for completed portions) */}
+      {isCompleted && (a.completed_at || a.completion_fabric || a.design_type) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+          {a.completed_at && (
+            <span className="inline-flex items-center gap-1">
+              <CalendarDays className="h-2.5 w-2.5" />
+              Completed {formatDate(a.completed_at)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Progress tracker */}
       <div className="mt-2">
         <ProgressTracker
