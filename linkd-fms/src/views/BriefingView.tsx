@@ -1129,8 +1129,8 @@ function BriefingForm({
 
         {/* ============== ASSIGNMENT — Assign To + Assigned By + Priority ============== */}
         <SectionCard icon={UserCheck} title="Assignment">
-          {/* Split toggle */}
-          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
+          {/* Split toggle — admin/coordinator only (designers can't assign other designers; RLS blocks it) */}
+          {!isDesigner && <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
             <div className="space-y-0.5">
               <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <span className="rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wider text-white">
@@ -1169,7 +1169,7 @@ function BriefingForm({
                 )}
               />
             </button>
-          </div>
+          </div>}
 
           {/* Single assignment (default) */}
           {!splitEnabled && (
