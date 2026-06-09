@@ -67,13 +67,12 @@ async function cleanupUserReferences(
   // 1. Delete rows owned by this user (CASCADE or sole-owner)
   await del("notifications", "user_id");
   await del("task_comments", "user_id");
-  await del("task_logs", "user_id");
   await del("task_logs", "changed_by");
   await del("task_assignments", "designer_id");
   await del("user_preferences", "user_id");
-  await del("designer_codes", "designer_id");
+  await del("designer_codes", "profile_id");
   await del("coordinator_tasks", "created_by");
-  await del("sampling_logs", "created_by");
+  await del("sampling_logs", "logged_by");
 
   // 2. NOT NULL RESTRICT FKs → must delete rows (can't null)
   await del("files", "uploaded_by");
