@@ -1130,7 +1130,7 @@ function BriefingForm({
         {/* ============== ASSIGNMENT — Assign To + Assigned By + Priority ============== */}
         <SectionCard icon={UserCheck} title="Assignment">
           {/* Split toggle */}
-          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2 sm:items-center sm:gap-4">
             <div className="space-y-0.5">
               <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <span className="rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wider text-white">
@@ -1497,7 +1497,7 @@ function FullKittingSection({
         </h2>
       </div>
 
-      <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2 sm:items-center sm:gap-4">
         <div className="space-y-0.5">
           <p className="text-sm font-medium text-foreground">
             Requires Full Knitting submission?
@@ -1661,7 +1661,7 @@ function FullKittingSection({
                 coordinator fills this in here, the row skips the DEO queue
                 and lands as Completed. */}
             <div className="space-y-3 rounded-md border border-border bg-card p-4">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start justify-between gap-3 sm:gap-4">
                 <div className="space-y-0.5">
                   <p className="text-sm font-medium text-foreground">
                     Digitize the knitting form now?
@@ -1821,15 +1821,28 @@ function SplitRowsBuilder({
       {rows.map((row, idx) => (
         <div
           key={row.key}
-          className="rounded-lg border border-border bg-card p-2.5"
+          className="relative rounded-lg border border-border bg-card p-2.5"
         >
-          <div className="grid grid-cols-[1fr_64px_110px_28px] items-end gap-1.5">
-            <div>
-              {idx === 0 && (
-                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Designer <span className="text-destructive">*</span>
-                </Label>
-              )}
+          {/* Mobile remove — top-right (desktop uses the inline trash column).
+              Only shown when removable (≥ 3 rows). */}
+          {rows.length > 2 && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => removeRow(row.key)}
+              className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-30 sm:hidden"
+              aria-label="Remove row"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {/* Designer · Qty · Deadline (· remove on desktop). On mobile the
+              Designer takes a full row, then Qty + Deadline sit side by side. */}
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-[1fr_64px_110px_28px] sm:items-end">
+            <div className="col-span-2 sm:col-span-1">
+              <Label className={cn("mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground", idx !== 0 && "sm:hidden")}>
+                Designer <span className="text-destructive">*</span>
+              </Label>
               <select
                 value={row.designer_id}
                 onChange={(e) =>
@@ -1853,11 +1866,9 @@ function SplitRowsBuilder({
               </select>
             </div>
             <div>
-              {idx === 0 && (
-                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Qty <span className="text-destructive">*</span>
-                </Label>
-              )}
+              <Label className={cn("mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground", idx !== 0 && "sm:hidden")}>
+                Qty <span className="text-destructive">*</span>
+              </Label>
               <Input
                 type="number"
                 min={1}
@@ -1873,11 +1884,9 @@ function SplitRowsBuilder({
               />
             </div>
             <div>
-              {idx === 0 && (
-                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Deadline
-                </Label>
-              )}
+              <Label className={cn("mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground", idx !== 0 && "sm:hidden")}>
+                Deadline
+              </Label>
               <Input
                 type="date"
                 value={row.planned_deadline}
@@ -1893,7 +1902,7 @@ function SplitRowsBuilder({
               type="button"
               disabled={disabled || rows.length <= 2}
               onClick={() => removeRow(row.key)}
-              className="inline-flex h-9 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-30"
+              className="hidden h-9 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-30 sm:inline-flex"
               aria-label="Remove row"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -1903,11 +1912,9 @@ function SplitRowsBuilder({
           {/* Row 2: Design Type + Fabric */}
           <div className="mt-1.5 grid grid-cols-2 gap-1.5">
             <div>
-              {idx === 0 && (
-                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Design Type
-                </Label>
-              )}
+              <Label className={cn("mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground", idx !== 0 && "sm:hidden")}>
+                Design Type
+              </Label>
               <Combobox
                 value={row.design_type}
                 onChange={(v) => updateRow(row.key, { design_type: v })}
@@ -1919,11 +1926,9 @@ function SplitRowsBuilder({
               />
             </div>
             <div>
-              {idx === 0 && (
-                <Label className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Fabric
-                </Label>
-              )}
+              <Label className={cn("mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground", idx !== 0 && "sm:hidden")}>
+                Fabric
+              </Label>
               <Combobox
                 value={row.fabric}
                 onChange={(v) => updateRow(row.key, { fabric: v })}

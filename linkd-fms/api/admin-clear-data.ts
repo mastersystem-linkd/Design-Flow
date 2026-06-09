@@ -75,13 +75,57 @@ const NIL_ID = "00000000-0000-0000-0000-000000000000";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// The timestamp column each table is filtered/deleted by for date-range ops.
+// SERVER-derived (never trust a client-supplied column) so a range delete can't
+// be aimed at an arbitrary column. Mirrors `orderCol` in DangerZoneTab.tsx.
+const TABLE_DATE_COL: Record<ClearableTable, string> = {
+  tasks: "created_at",
+  task_logs: "timestamp",
+  task_comments: "created_at",
+  concepts: "created_at",
+  samples: "created_at",
+  salvedge_records: "created_at",
+  notifications: "created_at",
+  files: "uploaded_at",
+  full_kitting_details: "created_at",
+  sampling_logs: "logged_at",
+};
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}/;
+/**
+ * Normalize an inclusive [from, to] date range to ISO timestamp bounds.
+ * A bare YYYY-MM-DD is widened to the whole UTC day. Returns null if neither
+ * bound is a valid date — range ops MUST have at least one bound so they can
+ * never degrade into "delete everything".
+ */
+function rangeBounds(
+  from?: string,
+  to?: string
+): { gte?: string; lte?: string } | null {
+  const out: { gte?: string; lte?: string } = {};
+  if (from) {
+    if (!DATE_ONLY_RE.test(from)) return null;
+    out.gte = from.length === 10 ? `${from}T00:00:00.000Z` : from;
+  }
+  if (to) {
+    if (!DATE_ONLY_RE.test(to)) return null;
+    out.lte = to.length === 10 ? `${to}T23:59:59.999Z` : to;
+  }
+  if (!out.gte && !out.lte) return null;
+  return out;
+}
+
 type ClearKind =
   | "clear-table"
   | "clear-all"
   | "clear-notifs"
   | "counts"
   | "list-rows"
-  | "delete-rows";
+  | "delete-rows"
+  | "count-range"
+  | "delete-range"
+  | "count-all-range"
+  | "delete-all-range";
 interface RequestBody {
   kind?: ClearKind;
   table?: string;
@@ -91,6 +135,10 @@ interface RequestBody {
   cols?: string;
   orderCol?: string;
   limit?: number;
+  /** For `list-rows` / `count-range` / `delete-range` — inclusive date bounds
+   *  (YYYY-MM-DD or full ISO). Filters on the table's server-derived date col. */
+  from?: string;
+  to?: string;
 }
 
 function isClearableTable(value: unknown): value is ClearableTable {
@@ -283,16 +331,142 @@ export default async function handler(
     const cols = typeof body.cols === "string" && body.cols.trim() ? body.cols : "id";
     const orderCol = typeof body.orderCol === "string" && body.orderCol ? body.orderCol : "id";
     const limit = typeof body.limit === "number" && body.limit > 0 ? Math.min(body.limit, 500) : 200;
-    const { data, error } = await admin
-      .from(body.table)
-      .select(cols)
-      .order(orderCol, { ascending: false })
-      .limit(limit);
+    // Filters (gte/lte) MUST precede transforms (order/limit) for PostgREST.
+    let lq = admin.from(body.table).select(cols);
+    if (body.from || body.to) {
+      const r = rangeBounds(body.from, body.to);
+      if (!r) {
+        res.status(400).json({ error: "Invalid date range." });
+        return;
+      }
+      const dateCol = TABLE_DATE_COL[body.table];
+      if (r.gte) lq = lq.gte(dateCol, r.gte);
+      if (r.lte) lq = lq.lte(dateCol, r.lte);
+    }
+    const { data, error } = await lq.order(orderCol, { ascending: false }).limit(limit);
     if (error) {
       res.status(500).json({ error: `Failed to list ${body.table}: ${error.message}` });
       return;
     }
     res.status(200).json({ rows: data ?? [] });
+    return;
+  }
+
+  // ── count-range — how many rows fall in [from, to] on the table's date
+  //    column. Server-side count, so it scales to millions of rows. ──
+  if (body.kind === "count-range") {
+    if (!isClearableTable(body.table)) {
+      res.status(400).json({
+        error: `'table' must be one of: ${CLEARABLE_TABLES.join(", ")}`,
+      });
+      return;
+    }
+    const r = rangeBounds(body.from, body.to);
+    if (!r) {
+      res.status(400).json({ error: "Provide a valid from and/or to date." });
+      return;
+    }
+    const dateCol = TABLE_DATE_COL[body.table];
+    let cq = admin.from(body.table).select("*", { count: "exact", head: true });
+    if (r.gte) cq = cq.gte(dateCol, r.gte);
+    if (r.lte) cq = cq.lte(dateCol, r.lte);
+    const { count, error } = await cq;
+    if (error) {
+      res.status(500).json({ error: `Failed to count ${body.table}: ${error.message}` });
+      return;
+    }
+    res.status(200).json({ count: count ?? 0 });
+    return;
+  }
+
+  // ── delete-range — delete every row in [from, to] on the table's date
+  //    column. Pure server-side DELETE … WHERE col BETWEEN … — no rows are
+  //    loaded into memory, so it handles thousands/millions of rows. Requires
+  //    at least one bound (rangeBounds enforces this), so it can never become
+  //    an unbounded "delete everything". ──
+  if (body.kind === "delete-range") {
+    if (!isClearableTable(body.table)) {
+      res.status(400).json({
+        error: `'table' must be one of: ${CLEARABLE_TABLES.join(", ")}`,
+      });
+      return;
+    }
+    const r = rangeBounds(body.from, body.to);
+    if (!r) {
+      res.status(400).json({ error: "Provide a valid from and/or to date to delete a range." });
+      return;
+    }
+    const dateCol = TABLE_DATE_COL[body.table];
+    let dq = admin.from(body.table).delete({ count: "exact" });
+    if (r.gte) dq = dq.gte(dateCol, r.gte);
+    if (r.lte) dq = dq.lte(dateCol, r.lte);
+    const { error, count } = await dq;
+    if (error) {
+      res.status(500).json({ error: `Failed to delete range from ${body.table}: ${error.message}` });
+      return;
+    }
+    res.status(200).json({ cleared: count ?? 0 });
+    return;
+  }
+
+  // ── count-all-range — total rows in [from, to] across EVERY transactional
+  //    table (each on its own date column). Server-side, scales. ──
+  if (body.kind === "count-all-range") {
+    const r = rangeBounds(body.from, body.to);
+    if (!r) {
+      res.status(400).json({ error: "Provide a valid from and/or to date." });
+      return;
+    }
+    let total = 0;
+    const perTable: Record<string, number> = {};
+    for (const t of CLEAR_ALL_ORDER) {
+      const dateCol = TABLE_DATE_COL[t];
+      let cq = admin.from(t).select("*", { count: "exact", head: true });
+      if (r.gte) cq = cq.gte(dateCol, r.gte);
+      if (r.lte) cq = cq.lte(dateCol, r.lte);
+      const { count } = await cq;
+      perTable[t] = count ?? 0;
+      total += count ?? 0;
+    }
+    res.status(200).json({ count: total, perTable });
+    return;
+  }
+
+  // ── delete-all-range — delete rows in [from, to] across EVERY transactional
+  //    table. Child-first order (CLEAR_ALL_ORDER) so FK cascades don't fight.
+  //    Pure server-side DELETE … WHERE date BETWEEN …, never loads rows. Does
+  //    NOT reset the task-code counter (that's only for a full wipe). ──
+  if (body.kind === "delete-all-range") {
+    const r = rangeBounds(body.from, body.to);
+    if (!r) {
+      res.status(400).json({ error: "Provide a valid from and/or to date to delete a range." });
+      return;
+    }
+    let total = 0;
+    const perTable: Record<string, number> = {};
+    const errors: Record<string, string> = {};
+    for (const t of CLEAR_ALL_ORDER) {
+      const dateCol = TABLE_DATE_COL[t];
+      let dq = admin.from(t).delete({ count: "exact" });
+      if (r.gte) dq = dq.gte(dateCol, r.gte);
+      if (r.lte) dq = dq.lte(dateCol, r.lte);
+      const { error, count } = await dq;
+      if (error) {
+        const missing =
+          error.code === "42P01" ||
+          error.code === "PGRST205" ||
+          /does not exist|could not find the table|schema cache/i.test(error.message);
+        if (!missing) errors[t] = error.message;
+        continue;
+      }
+      perTable[t] = count ?? 0;
+      total += count ?? 0;
+    }
+    res.status(200).json({
+      cleared: total,
+      perTable,
+      ...(Object.keys(errors).length ? { errors } : {}),
+    });
     return;
   }
 
