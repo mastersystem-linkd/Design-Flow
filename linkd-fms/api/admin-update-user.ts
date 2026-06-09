@@ -68,6 +68,7 @@ async function cleanupUserReferences(
   await del("notifications", "user_id");
   await del("task_comments", "user_id");
   await del("task_logs", "user_id");
+  await del("task_logs", "changed_by");
   await del("task_assignments", "designer_id");
   await del("user_preferences", "user_id");
   await del("designer_codes", "designer_id");
