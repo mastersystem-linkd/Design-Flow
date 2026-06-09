@@ -40,13 +40,19 @@ interface RequestBody {
 
 const ALLOWED_ROLES: Role[] = ["super_admin", "admin", "design_coordinator", "designer", "deo"];
 
-/** Wipe all FK references to a user so auth.admin.deleteUser succeeds. */
+/** Wipe all FK references to a user so auth.admin.deleteUser succeeds.
+ *  Strategy:
+ *    - Rows owned solely by this user → delete
+ *    - Nullable FK columns → set null
+ *    - NOT NULL + RESTRICT FK columns (tasks.created_by, files.uploaded_by)
+ *      → delete those rows too (they'd be orphaned anyway)
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function cleanupUserReferences(
   admin: any,
   userId: string
 ): Promise<void> {
-  // Delete rows that belong solely to this user
+  // 1. Delete rows that belong solely to this user
   const deleteTables = [
     { table: "notifications", column: "user_id" },
     { table: "task_comments", column: "user_id" },
@@ -60,16 +66,33 @@ async function cleanupUserReferences(
     await admin.from(table).delete().eq(column, userId);
   }
 
-  // Nullify FK columns on shared rows (RESTRICT / NO ACTION refs)
+  // 2. NOT NULL RESTRICT FKs → must delete (can't null)
+  //    Delete files first (files.uploaded_by references profiles ON DELETE RESTRICT)
+  await admin.from("files").delete().eq("uploaded_by", userId);
+  //    Delete tasks created by this user (tasks.created_by NOT NULL RESTRICT)
+  //    First remove child references to those tasks
+  const { data: userTasks } = await admin
+    .from("tasks")
+    .select("id")
+    .eq("created_by", userId);
+  if (userTasks?.length) {
+    const taskIds = userTasks.map((t: { id: string }) => t.id);
+    await admin.from("task_comments").delete().in("task_id", taskIds);
+    await admin.from("task_logs").delete().in("task_id", taskIds);
+    await admin.from("task_assignments").delete().in("task_id", taskIds);
+    await admin.from("files").delete().in("task_id", taskIds);
+    await admin.from("full_kitting_details").delete().in("task_id", taskIds);
+    await admin.from("tasks").delete().in("id", taskIds);
+  }
+
+  // 3. Nullable FK columns → set null
   await admin.from("tasks").update({ assigned_to: null }).eq("assigned_to", userId);
-  await admin.from("tasks").update({ created_by: null } as any).eq("created_by", userId);
   await admin.from("tasks").update({ completion_filled_by: null }).eq("completion_filled_by", userId);
-  await admin.from("files").update({ uploaded_by: null } as any).eq("uploaded_by", userId);
   await admin.from("concepts").update({ designer_id: null }).eq("designer_id", userId);
   await admin.from("salvedge_records").update({ designer_id: null }).eq("designer_id", userId);
   await admin.from("profiles").update({ deactivated_by: null }).eq("deactivated_by", userId);
 
-  // Delete the profile itself
+  // 4. Delete the profile itself
   await admin.from("profiles").delete().eq("id", userId);
 }
 
