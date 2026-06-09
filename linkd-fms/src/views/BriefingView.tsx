@@ -1152,8 +1152,8 @@ function BriefingForm({
                 setSplitEnabled(next);
                 if (next && splitRows.length === 0) {
                   setSplitRows([
-                    { key: ++splitRowKey, designer_id: "", qty_assigned: 1, planned_deadline: plannedDeadline, design_type: "", fabric: "" },
-                    { key: ++splitRowKey, designer_id: "", qty_assigned: 1, planned_deadline: plannedDeadline, design_type: "", fabric: "" },
+                    { key: ++splitRowKey, designer_id: "", qty_assigned: 0, planned_deadline: plannedDeadline, design_type: "", fabric: "" },
+                    { key: ++splitRowKey, designer_id: "", qty_assigned: 0, planned_deadline: plannedDeadline, design_type: "", fabric: "" },
                   ]);
                 }
               }}
@@ -1787,7 +1787,7 @@ function SplitRowsBuilder({
       {
         key: ++splitRowKey,
         designer_id: "",
-        qty_assigned: 1,
+        qty_assigned: 0,
         planned_deadline: defaultDeadline,
         design_type: "",
         fabric: "",
@@ -1861,10 +1861,11 @@ function SplitRowsBuilder({
               <Input
                 type="number"
                 min={1}
-                value={row.qty_assigned}
+                placeholder="0"
+                value={row.qty_assigned || ""}
                 onChange={(e) =>
                   updateRow(row.key, {
-                    qty_assigned: Math.max(1, Number(e.target.value) || 1),
+                    qty_assigned: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
                 disabled={disabled}
