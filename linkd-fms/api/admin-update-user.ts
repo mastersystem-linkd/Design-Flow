@@ -149,6 +149,51 @@ export default async function handler(
     return;
   }
 
+  // ── 3b. Delete by email (orphaned auth users not in profiles) ────────
+  if (body.delete && body.email && !body.user_id) {
+    const targetEmail = body.email.trim().toLowerCase();
+    // Find the auth user by listing and matching email
+    const { data: listData, error: listErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (listErr) {
+      res.status(500).json({ error: listErr.message });
+      return;
+    }
+    const authUser = listData.users.find(
+      (u) => u.email?.toLowerCase() === targetEmail
+    );
+    if (!authUser) {
+      res.status(404).json({ error: `No auth user found with email ${targetEmail}` });
+      return;
+    }
+    const resolvedId = authUser.id;
+    if (resolvedId === callerUser.user.id) {
+      res.status(400).json({ error: "You cannot delete your own account" });
+      return;
+    }
+    const cleanupTables = [
+      { table: "notifications", column: "user_id" },
+      { table: "task_comments", column: "user_id" },
+      { table: "task_logs", column: "user_id" },
+      { table: "task_assignments", column: "designer_id" },
+      { table: "user_preferences", column: "user_id" },
+      { table: "designer_codes", column: "designer_id" },
+    ];
+    for (const { table, column } of cleanupTables) {
+      await admin.from(table).delete().eq(column, resolvedId);
+    }
+    await admin.from("tasks").update({ assigned_to: null }).eq("assigned_to", resolvedId);
+    await admin.from("tasks").update({ completion_filled_by: null }).eq("completion_filled_by", resolvedId);
+    await admin.from("files").update({ uploaded_by: null }).eq("uploaded_by", resolvedId);
+    await admin.from("profiles").delete().eq("id", resolvedId);
+    const { error: delErr } = await admin.auth.admin.deleteUser(resolvedId);
+    if (delErr) {
+      res.status(500).json({ error: `Failed to delete auth user: ${delErr.message}` });
+      return;
+    }
+    res.status(200).json({ ok: true, deleted: resolvedId, email: targetEmail });
+    return;
+  }
+
   const targetId = body.user_id;
   if (!targetId) {
     res.status(400).json({ error: "user_id is required" });
