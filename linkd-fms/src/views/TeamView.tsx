@@ -89,6 +89,8 @@ export function TeamView() {
   const [editUser, setEditUser] = useState<Profile | null>(null);
   const [deleteUser, setDeleteUser] = useState<Profile | null>(null);
   const [removingUser, setRemovingUser] = useState(false);
+  const [permDeleteUser, setPermDeleteUser] = useState<Profile | null>(null);
+  const [permDeleting, setPermDeleting] = useState(false);
 
   // Email map (user_id → email) — auth.users isn't in profiles, so we fetch
   // via the admin-update-user edge function in list_emails mode. Only admins
@@ -202,6 +204,23 @@ export function TeamView() {
     }
     setRemovingUser(false);
     setDeleteUser(null);
+  }
+
+  async function confirmPermDeleteUser() {
+    if (!permDeleteUser) return;
+    setPermDeleting(true);
+    const { error: apiErr } = await callAdminApi("admin-update-user", {
+      user_id: permDeleteUser.id,
+      delete: true,
+    });
+    if (apiErr) {
+      toast.error(formatAdminApiError(apiErr, "Failed to delete user"));
+    } else {
+      toast.success(`${permDeleteUser.full_name} permanently deleted`);
+      await refetchProfiles();
+    }
+    setPermDeleting(false);
+    setPermDeleteUser(null);
   }
 
   // ── Delete designer code ──
@@ -337,6 +356,7 @@ export function TeamView() {
                             onScorecard={() => setScorecardDesignerId(p.id)}
                             onEdit={() => setEditUser(p)}
                             onRemove={() => setDeleteUser(p)}
+                            onPermDelete={!isSelf ? () => setPermDeleteUser(p) : undefined}
                           />
                         )}
                       </div>
@@ -667,6 +687,21 @@ export function TeamView() {
         confirmLabel={removingUser ? "Removing…" : "Remove"}
         onConfirm={() => void confirmDeleteUser()}
         onCancel={() => setDeleteUser(null)}
+      />
+
+      {/* Permanent delete user confirmation */}
+      <ConfirmDialog
+        open={!!permDeleteUser}
+        title="Permanently delete this user?"
+        description={
+          permDeleteUser
+            ? `${permDeleteUser.full_name} will be permanently deleted from both the auth system and the database. Their tasks will be unassigned. This cannot be undone.`
+            : ""
+        }
+        variant="danger"
+        confirmLabel={permDeleting ? "Deleting…" : "Permanently Delete"}
+        onConfirm={() => void confirmPermDeleteUser()}
+        onCancel={() => setPermDeleteUser(null)}
       />
     </div>
   );
@@ -1328,12 +1363,14 @@ function TeamRowActionsMenu({
   onScorecard,
   onEdit,
   onRemove,
+  onPermDelete,
 }: {
   showScorecard: boolean;
   showRemove: boolean;
   onScorecard: () => void;
   onEdit: () => void;
   onRemove: () => void;
+  onPermDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -1368,7 +1405,7 @@ function TeamRowActionsMenu({
     if (open) { setOpen(false); return; }
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      const itemCount = 1 + (showScorecard ? 1 : 0) + (showRemove ? 1 : 0);
+      const itemCount = 1 + (showScorecard ? 1 : 0) + (showRemove ? 1 : 0) + (onPermDelete ? 1 : 0);
       const menuHeight = itemCount * 38 + 16;
       const spaceBelow = window.innerHeight - rect.bottom;
       const openUp = spaceBelow < menuHeight + 8;
@@ -1433,6 +1470,17 @@ function TeamRowActionsMenu({
                 <Trash2 className="h-3.5 w-3.5" />
                 Remove
               </button>
+              {onPermDelete && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setOpen(false); onPermDelete(); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Permanently Delete
+                </button>
+              )}
             </>
           )}
         </div>,

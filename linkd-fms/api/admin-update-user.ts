@@ -29,6 +29,7 @@ interface RequestBody {
   user_id?: string;
   fetch?: boolean;
   list_emails?: boolean;
+  delete?: boolean;
   email?: string;
   password?: string;
   full_name?: string;
@@ -180,6 +181,47 @@ export default async function handler(
       created_at: profile?.created_at ?? null,
       avatar_url: profile?.avatar_url ?? null,
     });
+    return;
+  }
+
+  // ── 3c. Delete mode ──────────────────────────────────────────────────
+  if (body.delete) {
+    // Prevent self-deletion
+    if (targetId === callerUser.user.id) {
+      res.status(400).json({ error: "You cannot delete your own account" });
+      return;
+    }
+
+    // Clean up FK references so the auth delete doesn't fail
+    const cleanupTables = [
+      { table: "notifications", column: "user_id" },
+      { table: "task_comments", column: "user_id" },
+      { table: "task_logs", column: "user_id" },
+      { table: "task_assignments", column: "designer_id" },
+      { table: "user_preferences", column: "user_id" },
+      { table: "designer_codes", column: "designer_id" },
+    ];
+
+    for (const { table, column } of cleanupTables) {
+      await admin.from(table).delete().eq(column, targetId);
+    }
+
+    // Nullify FK references where deletion would break data
+    await admin.from("tasks").update({ assigned_to: null }).eq("assigned_to", targetId);
+    await admin.from("tasks").update({ completion_filled_by: null }).eq("completion_filled_by", targetId);
+    await admin.from("files").update({ uploaded_by: null }).eq("uploaded_by", targetId);
+
+    // Delete profile
+    await admin.from("profiles").delete().eq("id", targetId);
+
+    // Delete auth user
+    const { error: delErr } = await admin.auth.admin.deleteUser(targetId);
+    if (delErr) {
+      res.status(500).json({ error: `Failed to delete auth user: ${delErr.message}` });
+      return;
+    }
+
+    res.status(200).json({ ok: true, deleted: targetId });
     return;
   }
 
