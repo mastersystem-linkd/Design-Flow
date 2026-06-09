@@ -725,44 +725,51 @@ function AddUserDialog({
 
     setSubmitting(true);
     try {
-      const { data, error: invokeErr } = await supabase.functions.invoke<{
-        id: string;
-        email: string;
-        full_name: string;
-        role: UserRole;
-        error?: string;
-      }>("admin-create-user", {
-        body: {
-          email: mail,
-          password,
-          full_name: name,
-          role,
-        },
-      });
+      const payload = { email: mail, password, full_name: name, role };
 
-      // Edge Function returns 4xx/5xx with `{ error: string }` in the body.
-      // `supabase.functions.invoke` surfaces both transport errors (invokeErr)
-      // and server-side errors (data.error), so handle both.
-      if (invokeErr) {
-        // Pull the JSON body if present — Supabase wraps non-2xx responses.
-        const fnErr = invokeErr as unknown as {
-          message?: string;
-          context?: { body?: string };
-        };
-        let serverMsg: string | null = null;
-        if (fnErr.context?.body) {
-          try {
-            serverMsg = (JSON.parse(fnErr.context.body) as { error?: string })
-              .error ?? null;
-          } catch {
-            /* not JSON */
+      // Try the Vercel API route first (works in production).
+      // Falls back to the Supabase Edge Function on localhost where /api/* returns 404.
+      const { data, error: apiErr } = await callAdminApi<{ id: string }>(
+        "admin-create-user",
+        payload
+      );
+
+      if (apiErr && apiErr.status === 404) {
+        // Vercel API route not available (dev mode) — fall back to Edge Function
+        const { data: efData, error: efErr } = await supabase.functions.invoke<{
+          id: string;
+          error?: string;
+        }>("admin-create-user", { body: payload });
+
+        if (efErr) {
+          const fnErr = efErr as unknown as {
+            message?: string;
+            context?: { body?: string };
+          };
+          let serverMsg: string | null = null;
+          if (fnErr.context?.body) {
+            try {
+              serverMsg = (JSON.parse(fnErr.context.body) as { error?: string })
+                .error ?? null;
+            } catch { /* not JSON */ }
           }
+          setError(serverMsg ?? fnErr.message ?? "Failed to create user");
+          return;
         }
-        setError(serverMsg ?? fnErr.message ?? "Failed to create user");
+        if (efData?.error) { setError(efData.error); return; }
+        if (!efData?.id) { setError("Couldn't create user — no id returned"); return; }
+
+        toast.success(
+          `${name} added as ${ROLE_LABELS[role]}. They can sign in immediately with the email + password you set.`
+        );
+        reset();
+        onOpenChange(false);
+        onCreated();
         return;
       }
-      if (data?.error) {
-        setError(data.error);
+
+      if (apiErr) {
+        setError(formatAdminApiError(apiErr, "Failed to create user"));
         return;
       }
       if (!data?.id) {

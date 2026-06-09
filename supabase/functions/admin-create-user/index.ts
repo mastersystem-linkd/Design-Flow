@@ -28,7 +28,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-type Role = "admin" | "design_coordinator" | "designer" | "deo";
+type Role = "super_admin" | "admin" | "design_coordinator" | "designer" | "deo";
 
 interface CreateUserBody {
   email: string;
@@ -37,7 +37,7 @@ interface CreateUserBody {
   role: Role;
 }
 
-const ALLOWED_ROLES: Role[] = ["admin", "design_coordinator", "designer", "deo"];
+const ALLOWED_ROLES: Role[] = ["super_admin", "admin", "design_coordinator", "designer", "deo"];
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -88,7 +88,7 @@ export default async function handler(req: Request): Promise<Response> {
     .maybeSingle();
 
   const callerRole = callerProfile?.role;
-  if (callerRole !== "admin" && callerRole !== "design_coordinator") {
+  if (callerRole !== "super_admin" && callerRole !== "admin" && callerRole !== "design_coordinator") {
     return json(
       { error: "Only admins or design coordinators can create users" },
       403
