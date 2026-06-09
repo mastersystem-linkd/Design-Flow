@@ -40,6 +40,39 @@ interface RequestBody {
 
 const ALLOWED_ROLES: Role[] = ["super_admin", "admin", "design_coordinator", "designer", "deo"];
 
+/** Wipe all FK references to a user so auth.admin.deleteUser succeeds. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function cleanupUserReferences(
+  admin: any,
+  userId: string
+): Promise<void> {
+  // Delete rows that belong solely to this user
+  const deleteTables = [
+    { table: "notifications", column: "user_id" },
+    { table: "task_comments", column: "user_id" },
+    { table: "task_logs", column: "user_id" },
+    { table: "task_assignments", column: "designer_id" },
+    { table: "user_preferences", column: "user_id" },
+    { table: "designer_codes", column: "designer_id" },
+    { table: "coordinator_tasks", column: "created_by" },
+  ];
+  for (const { table, column } of deleteTables) {
+    await admin.from(table).delete().eq(column, userId);
+  }
+
+  // Nullify FK columns on shared rows (RESTRICT / NO ACTION refs)
+  await admin.from("tasks").update({ assigned_to: null }).eq("assigned_to", userId);
+  await admin.from("tasks").update({ created_by: null } as any).eq("created_by", userId);
+  await admin.from("tasks").update({ completion_filled_by: null }).eq("completion_filled_by", userId);
+  await admin.from("files").update({ uploaded_by: null } as any).eq("uploaded_by", userId);
+  await admin.from("concepts").update({ designer_id: null }).eq("designer_id", userId);
+  await admin.from("salvedge_records").update({ designer_id: null }).eq("designer_id", userId);
+  await admin.from("profiles").update({ deactivated_by: null }).eq("deactivated_by", userId);
+
+  // Delete the profile itself
+  await admin.from("profiles").delete().eq("id", userId);
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -170,21 +203,7 @@ export default async function handler(
       res.status(400).json({ error: "You cannot delete your own account" });
       return;
     }
-    const cleanupTables = [
-      { table: "notifications", column: "user_id" },
-      { table: "task_comments", column: "user_id" },
-      { table: "task_logs", column: "user_id" },
-      { table: "task_assignments", column: "designer_id" },
-      { table: "user_preferences", column: "user_id" },
-      { table: "designer_codes", column: "designer_id" },
-    ];
-    for (const { table, column } of cleanupTables) {
-      await admin.from(table).delete().eq(column, resolvedId);
-    }
-    await admin.from("tasks").update({ assigned_to: null }).eq("assigned_to", resolvedId);
-    await admin.from("tasks").update({ completion_filled_by: null }).eq("completion_filled_by", resolvedId);
-    await admin.from("files").update({ uploaded_by: null }).eq("uploaded_by", resolvedId);
-    await admin.from("profiles").delete().eq("id", resolvedId);
+    await cleanupUserReferences(admin, resolvedId);
     const { error: delErr } = await admin.auth.admin.deleteUser(resolvedId);
     if (delErr) {
       res.status(500).json({ error: `Failed to delete auth user: ${delErr.message}` });
@@ -237,27 +256,7 @@ export default async function handler(
       return;
     }
 
-    // Clean up FK references so the auth delete doesn't fail
-    const cleanupTables = [
-      { table: "notifications", column: "user_id" },
-      { table: "task_comments", column: "user_id" },
-      { table: "task_logs", column: "user_id" },
-      { table: "task_assignments", column: "designer_id" },
-      { table: "user_preferences", column: "user_id" },
-      { table: "designer_codes", column: "designer_id" },
-    ];
-
-    for (const { table, column } of cleanupTables) {
-      await admin.from(table).delete().eq(column, targetId);
-    }
-
-    // Nullify FK references where deletion would break data
-    await admin.from("tasks").update({ assigned_to: null }).eq("assigned_to", targetId);
-    await admin.from("tasks").update({ completion_filled_by: null }).eq("completion_filled_by", targetId);
-    await admin.from("files").update({ uploaded_by: null }).eq("uploaded_by", targetId);
-
-    // Delete profile
-    await admin.from("profiles").delete().eq("id", targetId);
+    await cleanupUserReferences(admin, targetId);
 
     // Delete auth user
     const { error: delErr } = await admin.auth.admin.deleteUser(targetId);
