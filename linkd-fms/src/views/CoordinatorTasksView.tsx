@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Plus, Search, CheckCircle2, Clock, RefreshCw,
-  Trash2, X, ClipboardList, Calendar, User, Download,
+  Trash2, X, ClipboardList, Calendar, User, Download, ArrowUpRight,
 } from "lucide-react";
 import { useCoordinatorTasks } from "@/hooks/useCoordinatorTasks";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +25,7 @@ function monthStartISO() { const d = new Date(); return `${d.getFullYear()}-${St
 
 export function CoordinatorTasksView() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const canLog = isCoordinator(profile?.role) || profile?.role === "admin" || profile?.role === "super_admin";
   const { tasks, isLoading, refetch, createTask, toggleComplete, deleteTask } = useCoordinatorTasks();
 
@@ -90,6 +92,13 @@ export function CoordinatorTasksView() {
     const { error } = await toggleComplete(task.id, !task.is_completed);
     if (error) toast.error(error);
     else toast.success(task.is_completed ? "Marked as pending" : "Marked as completed");
+  }
+
+  /** Jump to the task this FK to-do is about — All Tasks → In Progress,
+   *  focused on just that task so the coordinator can add Full Knitting fast. */
+  function handleRedirect(task: CoordinatorTask) {
+    if (!task.related_task_id) return;
+    navigate(`/dashboard?status=in_progress&focus=${task.related_task_id}`);
   }
 
   return (
@@ -182,9 +191,22 @@ export function CoordinatorTasksView() {
                     </td>
                     {canLog && (
                       <td className={cn(TABLE_TD, "text-right")}>
-                        <button type="button" onClick={() => setDeleteTarget(t)} className="rounded p-1 text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive" title="Delete">
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          {t.related_task_id && !t.is_completed && (
+                            <button
+                              type="button"
+                              onClick={() => handleRedirect(t)}
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-1.5 py-1 text-[10px] font-semibold text-primary transition-colors hover:border-primary hover:bg-primary/15"
+                              title="Go to this task to add Full Knitting details"
+                            >
+                              <span className="hidden sm:inline">Add FK</span>
+                              <ArrowUpRight className="h-3 w-3" />
+                            </button>
+                          )}
+                          <button type="button" onClick={() => setDeleteTarget(t)} className="rounded p-1 text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive" title="Delete">
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>

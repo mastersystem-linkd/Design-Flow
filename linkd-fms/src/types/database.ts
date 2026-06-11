@@ -562,6 +562,10 @@ export type Database = {
           completion_filled_by: string | null;
           completion_filled_at: string | null;
           requirement_received_at: string | null;
+          // Sampling requirement flag (migration 0069)
+          sampling_required: boolean;
+          sampling_flagged_at: string | null;
+          sampling_flagged_by: string | null;
           // Hand-off / carry-forward context (migration 0056)
           carry_forward_note: string | null;
           carry_forward_from: string | null;
@@ -572,6 +576,11 @@ export type Database = {
           // Task split (migration 0060)
           is_split: boolean;
           qty_remaining: number | null;
+          // External integration (migration 0073)
+          external_source: string | null;
+          external_ref_id: string | null;
+          external_callback_url: string | null;
+          external_brief: Record<string, unknown> | null;
           created_by: string;
           created_at: string;
           updated_at: string;
@@ -623,6 +632,15 @@ export type Database = {
           pool_week_start?: string | null;
           is_split?: boolean;
           qty_remaining?: number | null;
+          // Sampling requirement flag (migration 0069)
+          sampling_required?: boolean;
+          sampling_flagged_at?: string | null;
+          sampling_flagged_by?: string | null;
+          // External integration (migration 0073)
+          external_source?: string | null;
+          external_ref_id?: string | null;
+          external_callback_url?: string | null;
+          external_brief?: Record<string, unknown> | null;
           created_by: string;
           created_at?: string;
           updated_at?: string;
@@ -674,6 +692,15 @@ export type Database = {
           pool_week_start?: string | null;
           is_split?: boolean;
           qty_remaining?: number | null;
+          // Sampling requirement flag (migration 0069)
+          sampling_required?: boolean;
+          sampling_flagged_at?: string | null;
+          sampling_flagged_by?: string | null;
+          // External integration (migration 0073)
+          external_source?: string | null;
+          external_ref_id?: string | null;
+          external_callback_url?: string | null;
+          external_brief?: Record<string, unknown> | null;
           created_by?: string;
           created_at?: string;
           updated_at?: string;
@@ -798,6 +825,136 @@ export type Database = {
             referencedColumns: ["id"];
           }
         ];
+      };
+      // ── External Integration tables (migration 0073) ──
+      external_integrations: {
+        Row: {
+          id: string;
+          name: string;
+          api_key_hash: string;
+          api_key_prefix: string | null;
+          webhook_url: string | null;
+          webhook_secret: string | null;
+          is_active: boolean;
+          last_used_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          api_key_hash: string;
+          api_key_prefix?: string | null;
+          webhook_url?: string | null;
+          webhook_secret?: string | null;
+          is_active?: boolean;
+          last_used_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          api_key_hash?: string;
+          api_key_prefix?: string | null;
+          webhook_url?: string | null;
+          webhook_secret?: string | null;
+          is_active?: boolean;
+          last_used_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      webhook_outbox: {
+        Row: {
+          id: string;
+          event: string;
+          entity_type: string;
+          entity_id: string;
+          ref_id: string | null;
+          target_url: string;
+          payload: Record<string, unknown>;
+          status: "pending" | "sent" | "failed";
+          attempts: number;
+          max_attempts: number;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          next_retry_at: string | null;
+          created_at: string;
+          sent_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          event: string;
+          entity_type: string;
+          entity_id: string;
+          ref_id?: string | null;
+          target_url: string;
+          payload: Record<string, unknown>;
+          status?: "pending" | "sent" | "failed";
+          attempts?: number;
+          max_attempts?: number;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          next_retry_at?: string | null;
+          created_at?: string;
+          sent_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          event?: string;
+          entity_type?: string;
+          entity_id?: string;
+          ref_id?: string | null;
+          target_url?: string;
+          payload?: Record<string, unknown>;
+          status?: "pending" | "sent" | "failed";
+          attempts?: number;
+          max_attempts?: number;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          next_retry_at?: string | null;
+          created_at?: string;
+          sent_at?: string | null;
+        };
+        Relationships: [];
+      };
+      integration_events: {
+        Row: {
+          id: string;
+          direction: string;
+          event: string;
+          entity_type: string | null;
+          entity_id: string | null;
+          ref_id: string | null;
+          status: string | null;
+          detail: Record<string, unknown> | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          direction: string;
+          event: string;
+          entity_type?: string | null;
+          entity_id?: string | null;
+          ref_id?: string | null;
+          status?: string | null;
+          detail?: Record<string, unknown> | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          direction?: string;
+          event?: string;
+          entity_type?: string | null;
+          entity_id?: string | null;
+          ref_id?: string | null;
+          status?: string | null;
+          detail?: Record<string, unknown> | null;
+          created_at?: string;
+        };
+        Relationships: [];
       };
       task_logs: {
         Row: {
@@ -1046,6 +1203,17 @@ export type Database = {
           /** Optional FK to the originating brief. Set when the coordinator
            *  picked the task in the sampling form; null for walk-in samples. */
           task_id: string | null;
+          /** Sample lifecycle + provenance (migration 0069). Pending Samples
+           *  sub-tab filters source='task_completion'. */
+          sample_status: "pending" | "in_progress" | "completed";
+          source: "manual" | "task_completion" | "sales_erp";
+          /** Design type captured at completion (migration 0070). */
+          design_type: string | null;
+          // External integration (migration 0073)
+          external_source: string | null;
+          external_ref_id: string | null;
+          external_callback_url: string | null;
+          external_brief: Record<string, unknown> | null;
         };
         Insert: {
           id?: string;
@@ -1075,6 +1243,14 @@ export type Database = {
           full_kitting_image_url?: string | null;
           created_by?: string | null;
           task_id?: string | null;
+          sample_status?: "pending" | "in_progress" | "completed";
+          source?: "manual" | "task_completion" | "sales_erp";
+          design_type?: string | null;
+          // External integration (migration 0073)
+          external_source?: string | null;
+          external_ref_id?: string | null;
+          external_callback_url?: string | null;
+          external_brief?: Record<string, unknown> | null;
         };
         Update: {
           id?: string;
@@ -1104,6 +1280,14 @@ export type Database = {
           full_kitting_image_url?: string | null;
           created_by?: string | null;
           task_id?: string | null;
+          sample_status?: "pending" | "in_progress" | "completed";
+          source?: "manual" | "task_completion" | "sales_erp";
+          design_type?: string | null;
+          // External integration (migration 0073)
+          external_source?: string | null;
+          external_ref_id?: string | null;
+          external_callback_url?: string | null;
+          external_brief?: Record<string, unknown> | null;
         };
         Relationships: [];
       };
@@ -1219,6 +1403,8 @@ export type Database = {
           created_by: string;
           created_at: string;
           updated_at: string;
+          /** FK to-dos link back to the task they're about (migration 0072). */
+          related_task_id: string | null;
         };
         Insert: {
           id?: string;
@@ -1231,6 +1417,7 @@ export type Database = {
           created_by: string;
           created_at?: string;
           updated_at?: string;
+          related_task_id?: string | null;
         };
         Update: {
           id?: string;
@@ -1243,6 +1430,7 @@ export type Database = {
           created_by?: string;
           created_at?: string;
           updated_at?: string;
+          related_task_id?: string | null;
         };
         Relationships: [
           {
@@ -1420,6 +1608,18 @@ export type Database = {
       is_admin: { Args: Record<string, never>; Returns: boolean };
       is_admin_or_coordinator: { Args: Record<string, never>; Returns: boolean };
       is_deo: { Args: Record<string, never>; Returns: boolean };
+      create_fk_coordinator_task: {
+        Args: { p_task_id: string; p_task_code: string; p_designer_name: string };
+        Returns: undefined;
+      };
+      complete_fk_coordinator_task: {
+        Args: { p_task_id: string; p_task_code: string };
+        Returns: undefined;
+      };
+      split_my_claim: {
+        Args: { p_task_id: string; p_keep: number };
+        Returns: undefined;
+      };
       next_task_code: { Args: Record<string, never>; Returns: string };
       next_concept_code: { Args: Record<string, never>; Returns: string };
       notify_user: {
@@ -1535,6 +1735,13 @@ export type TaskAssignment = Tables<"task_assignments">;
 export type TaskAssignmentInsert = TablesInsert<"task_assignments">;
 export type TaskAssignmentUpdate = TablesUpdate<"task_assignments">;
 
+/** External integration tables (migration 0073). */
+export type ExternalIntegration = Tables<"external_integrations">;
+export type WebhookOutbox = Tables<"webhook_outbox">;
+export type WebhookOutboxInsert = TablesInsert<"webhook_outbox">;
+export type IntegrationEvent = Tables<"integration_events">;
+export type IntegrationEventInsert = TablesInsert<"integration_events">;
+
 /** Task assignment joined with designer + assigner profiles. */
 export interface TaskAssignmentWithDesigner extends TaskAssignment {
   designer: { id: string; full_name: string; avatar_url: string | null; role: string } | null;
@@ -1561,6 +1768,8 @@ export interface TaskWithRelations extends Task {
   task_logs?: TaskLog[];
   files?: FileRecord[];
   sampling_logs?: SamplingLog[];
+  /** True when a full_kitting_details row exists for this task (joined as count). */
+  full_kitting_details_added?: boolean;
 }
 
 export interface ConceptWithRelations extends Concept {

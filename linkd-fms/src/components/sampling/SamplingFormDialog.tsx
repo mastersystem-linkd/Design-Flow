@@ -227,6 +227,19 @@ export function SamplingFormDialog({
       ...(completionTimestamp !== undefined
         ? { completion_timestamp: completionTimestamp }
         : {}),
+      // Advance the sampling lifecycle ON SAVE. A task-sourced sample (from the
+      // Pending tab) leaves Pending only when the coordinator saves it:
+      // in_progress while being worked, completed when marked done. Manual
+      // samples only flip to completed (they never sit in the Pending tab).
+      ...(editSample?.source === "task_completion" || editSample?.source === "sales_erp"
+        ? {
+            sample_status: (isCompleted ? "completed" : "in_progress") as
+              | "completed"
+              | "in_progress",
+          }
+        : isCompleted
+          ? { sample_status: "completed" as const }
+          : {}),
     };
 
     if (isEdit && editSample) {

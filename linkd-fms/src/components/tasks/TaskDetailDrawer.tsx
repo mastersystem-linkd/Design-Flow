@@ -21,9 +21,11 @@ import {
   Trash2,
   Package,
   CalendarDays,
+  FlaskConical,
   Flag,
   UserCircle2,
   Layers,
+  Split,
   History,
   ClipboardList,
   ChevronRight,
@@ -39,6 +41,9 @@ import { toast, LazyImage } from "@/components/ui";
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +52,8 @@ import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PostDoneModal } from "@/components/tasks/PostDoneModal";
+import { ClaimTaskModal } from "@/components/tasks/ClaimTaskModal";
+import { SplitMyClaimDialog } from "@/components/tasks/SplitMyClaimDialog";
 import { AssignmentsPanel } from "@/components/tasks/AssignmentsPanel";
 import { ReturnToPoolDialog } from "@/components/tasks/ReturnToPoolDialog";
 import { useTaskAssignments } from "@/hooks/useTaskAssignments";
@@ -79,6 +86,10 @@ import {
 } from "@/lib/days";
 import { cn, formatDate } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { isFullKittingBlocking } from "@/lib/taskHelpers";
+import { sendNotificationToRole } from "@/lib/notifications";
+import { flagFkPendingToCoordinator } from "@/lib/fkCoordinatorTask";
+import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 import type {
   TaskStatus,
   TaskPriority,
@@ -104,6 +115,10 @@ export interface TaskDetailDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChange?: () => void;
+  /** When provided, the drawer delegates the "Claim Task" action to the parent
+   *  (which can run skip + FK warning chain before opening the claim modal).
+   *  If not provided, the drawer handles FK locally and opens its own claim modal. */
+  onClaimTask?: (taskId: string) => void;
 }
 
 export function TaskDetailDrawer({
@@ -111,6 +126,7 @@ export function TaskDetailDrawer({
   open,
   onOpenChange,
   onChange,
+  onClaimTask,
 }: TaskDetailDrawerProps) {
   const { task, files, logs, isLoading, error, refetch } = useTaskDetail(taskId);
   const { profile, user } = useAuth();
@@ -120,11 +136,36 @@ export function TaskDetailDrawer({
   const [editMode, setEditMode] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [postDoneOpen, setPostDoneOpen] = useState(false);
+  const [splitMineOpen, setSplitMineOpen] = useState(false);
 
   // Edit visible to admin/coordinator OR the designer who owns the task
   const isOwner = !!(task && (task.assigned_to === user?.id || task.created_by === user?.id));
   const canEdit = isAdminRole(profile?.role) || isOwner;
   const canDelete = isAdminRole(profile?.role) || isOwner;
+
+  // The ASSIGNEE can split off their own claim: keep part, release the rest to
+  // the pool. Only on an in-progress, not-yet-split task with room to release.
+  const canSplitMine = !!(
+    task &&
+    task.assigned_to === user?.id &&
+    !task.is_split &&
+    (task.status === "in_progress" || task.status === "full_kitting") &&
+    task.qty > 1 &&
+    Math.max(1, task.qty_completed ?? 0) <= task.qty - 1
+  );
+
+  // One-step completion: the moment a task the owner just worked on transitions
+  // to 'done', auto-open the completion modal so Design Type + Fabric + Sampling
+  // are captured immediately (instead of a separate "Add Completion Details"
+  // click). The modal's "Skip for Now" still lets them defer.
+  const prevStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    if (task && prev && prev !== "done" && task.status === "done" && isOwner) {
+      setPostDoneOpen(true);
+    }
+    prevStatusRef.current = task?.status;
+  }, [task?.status, isOwner]);
 
   // Reset edit mode when drawer closes or task changes
   useEffect(() => {
@@ -151,22 +192,21 @@ export function TaskDetailDrawer({
 
   // Complete a 'done' task. If both fabric AND design type are set, finish
   // straight away; otherwise open PostDoneModal to capture missing fields.
+  // Full Knitting gate: block if FK is required but not yet added.
   async function handleComplete() {
     if (!task) return;
+    if (isFullKittingBlocking(task)) {
+      toast.error(
+        "Full Knitting details are required before completing this task. Ask the coordinator to add them."
+      );
+      return;
+    }
     if (task.qty > 0 && task.qty_completed < task.qty) {
       toast.error(`Complete progress first (${task.qty_completed}/${task.qty}).`);
       return;
     }
-    if (task.fabric?.trim() && task.concept?.trim()) {
-      const { error: compErr } = await completeTask(task.id, task.fabric, null);
-      if (compErr) {
-        toast.error(compErr);
-        return;
-      }
-      toast.success("Task completed! 🎉");
-      handleChanged();
-      return;
-    }
+    // Completion details (Design Type + Fabric + Sampling Required) are
+    // MANDATORY for every task — always open the modal, never auto-complete.
     setPostDoneOpen(true);
   }
 
@@ -219,6 +259,7 @@ export function TaskDetailDrawer({
                     if (changedKeys.length > 0) {
                       void supabase.from("task_logs").insert({
                         task_id: task.id,
+                        status_from: task.status,
                         status_to: task.status,
                         changed_by: user?.id ?? "",
                         note: `Fields updated: ${changedKeys.join(", ")}`,
@@ -233,6 +274,11 @@ export function TaskDetailDrawer({
                 />
               ) : (
                 <BriefDetails task={task} onChanged={handleChanged} />
+              )}
+
+              {/* Sales ERP Brief — collapsible panel showing the original ERP brief JSONB */}
+              {!editMode && task.external_source && task.external_brief && (
+                <SalesErpBriefPanel brief={task.external_brief} refId={task.external_ref_id} />
               )}
 
               {/* Team Assignments — visible when a task has been split among multiple designers */}
@@ -254,6 +300,19 @@ export function TaskDetailDrawer({
                     <p className="mt-1 text-xs text-muted-foreground">Locked — quantity not set yet. Admin/coordinator will add it.</p>
                   </div>
                 )
+              )}
+
+              {/* Split my claim — the assignee can keep part and release the
+                  rest to the pool (turns a full individual claim into a split). */}
+              {!editMode && canSplitMine && (
+                <button
+                  type="button"
+                  onClick={() => setSplitMineOpen(true)}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 bg-primary/[0.03] px-3 py-2 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  Split task — keep fewer, release the rest to the pool
+                </button>
               )}
 
               {!editMode && (
@@ -285,6 +344,7 @@ export function TaskDetailDrawer({
               task={task}
               files={files}
               onChanged={handleChanged}
+              onClaimTask={onClaimTask}
             />
 
             <ConfirmDialog
@@ -302,6 +362,13 @@ export function TaskDetailDrawer({
               onOpenChange={setPostDoneOpen}
               task={task}
               onCompleted={handleChanged}
+            />
+
+            <SplitMyClaimDialog
+              task={task}
+              open={splitMineOpen}
+              onOpenChange={setSplitMineOpen}
+              onDone={handleChanged}
             />
           </>
         )}
@@ -328,7 +395,8 @@ function CompletionSection({
   canComplete: boolean;
   onAddDetails: () => void;
 }) {
-  const { assignments } = useTaskAssignments(task.is_split ? task.id : null);
+  const hasAssignments = task.is_split || task.status === "completed" || task.status === "done";
+  const { assignments } = useTaskAssignments(hasAssignments ? task.id : null);
   const [expanded, setExpanded] = useState(false);
   const disclosureId = `completion-subtasks-${task.id}`;
 
@@ -337,8 +405,30 @@ function CompletionSection({
     setExpanded(false);
   }, [task.id]);
 
-  // For completed split tasks: disclosure card with per-designer grid + expandable sub-task cards
-  if (task.is_split && task.status === "completed") {
+  // Flag-sampling-later for an already-completed task (status stays completed).
+  // flagSamplingRequired self-invalidates the tasks query, so the drawer refreshes.
+  // Only the owner designer or an admin/coordinator may flag (matches RLS).
+  const { profile, user } = useAuth();
+  const canFlagSampling =
+    isAdminOrCoordinator(profile?.role) || task.assigned_to === user?.id;
+  const { flagSamplingRequired } = useTaskMutations();
+  const [samplingConfirm, setSamplingConfirm] = useState(false);
+  const [flaggingSampling, setFlaggingSampling] = useState(false);
+
+  async function handleFlagSampling() {
+    setFlaggingSampling(true);
+    const { error } = await flagSamplingRequired(task.id);
+    setFlaggingSampling(false);
+    setSamplingConfirm(false);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success("Added to sampling queue");
+  }
+
+  // For completed tasks with assignments: disclosure card with per-designer grid + expandable sub-task cards
+  if (assignments.length > 0 && task.status === "completed") {
     const completedPortions = assignments.filter((a) => a.status === "completed");
     const totalQtyCompleted = assignments.reduce((s, a) => s + a.qty_completed, 0);
     const lastCompletedAt = completedPortions
@@ -482,15 +572,19 @@ function CompletionSection({
     );
   }
 
-  if (task.status === "done") {
+  // Non-split only — a split task is completed per-portion (the parent never
+  // shows its own completion CTA, which would mint a spurious parent sample).
+  if (task.status === "done" && !task.is_split) {
+    const fkBlocking = isFullKittingBlocking(task);
     const hasFabric = !!task.fabric?.trim();
     const hasDesignType = !!task.concept?.trim();
     const qtyMet = task.qty > 0 && task.qty_completed >= task.qty;
-    const isReady = hasFabric && hasDesignType && qtyMet;
+    const isReady = hasFabric && hasDesignType && qtyMet && !fkBlocking;
     const missing: string[] = [];
     if (!qtyMet) missing.push(`progress (${task.qty_completed}/${task.qty})`);
     if (!hasDesignType) missing.push("design type");
     if (!hasFabric) missing.push("fabric");
+    if (fkBlocking) missing.push("Full Knitting");
     return (
       <div
         className={cn(
@@ -513,14 +607,18 @@ function CompletionSection({
             <p className="mt-0.5 text-xs text-muted-foreground">
               {isReady
                 ? `${task.concept} · ${task.fabric}. Mark this task completed.`
-                : `Add ${missing.join(" & ")} to complete.`}
+                : fkBlocking && missing.length === 1
+                  ? "Waiting for coordinator to add Full Knitting details."
+                  : `Add ${missing.join(" & ")} to complete.`}
             </p>
             {canComplete && (
               <Button
                 type="button"
                 size="sm"
                 onClick={onAddDetails}
+                disabled={fkBlocking}
                 className="mt-3 gap-1.5"
+                title={fkBlocking ? "Full Knitting details are required before completing" : undefined}
               >
                 <Check className="h-3.5 w-3.5" />
                 {isReady ? "Complete Task" : "Add Completion Details"}
@@ -532,8 +630,9 @@ function CompletionSection({
     );
   }
 
-  if (task.status === "completed") {
+  if (task.status === "completed" && !task.is_split) {
     return (
+      <>
       <div className="rounded-xl border border-success/30 bg-success/10 p-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-success">
           Completion Details
@@ -574,7 +673,41 @@ function CompletionSection({
             </dd>
           </div>
         </dl>
+
+        {/* Sampling-required flag — badge if set, else a button to flag later. */}
+        {task.sampling_required ? (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+            <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Sampling Required
+              {task.sampling_flagged_at && (
+                <span className="font-normal text-muted-foreground">
+                  {" · "}flagged {formatDate(task.sampling_flagged_at)}
+                </span>
+              )}
+            </span>
+          </div>
+        ) : canFlagSampling && !task.is_split ? (
+          <button
+            type="button"
+            onClick={() => setSamplingConfirm(true)}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            Mark Sampling Required
+          </button>
+        ) : null}
       </div>
+
+      <ConfirmDialog
+        open={samplingConfirm}
+        title="Add this task to the sampling queue?"
+        description="This task will be flagged for sampling and added to the Sampling queue. The task stays completed."
+        confirmLabel={flaggingSampling ? "Adding…" : "Add to Sampling"}
+        onConfirm={() => void handleFlagSampling()}
+        onCancel={() => setSamplingConfirm(false)}
+      />
+      </>
     );
   }
 
@@ -715,6 +848,7 @@ function DrawerHeader({
           <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wider text-primary">
             {task.task_code}
           </span>
+          <ExternalOriginBadge source={task.external_source} refId={task.external_ref_id} size="md" />
           <Badge className={cn("text-[10px]", STATUS_COLORS[task.status])}>
             {statusLabelForTask(task)}
           </Badge>
@@ -1332,6 +1466,70 @@ function EditableBriefDetails({
 }
 
 // ============================================================================
+// ============================================================================
+// Sales ERP Brief — collapsible panel showing the original external brief JSONB
+// ============================================================================
+
+function SalesErpBriefPanel({
+  brief,
+  refId,
+}: {
+  brief: Record<string, unknown>;
+  refId?: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const entries = Object.entries(brief).filter(
+    ([, v]) => v !== null && v !== undefined && v !== ""
+  );
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-center gap-1.5 text-left"
+      >
+        <Workflow className="h-3.5 w-3.5 text-primary" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+          Sales ERP Brief
+        </span>
+        {refId && (
+          <span className="ml-1 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary/70">
+            {refId}
+          </span>
+        )}
+        <ChevronRight
+          className={cn(
+            "h-3 w-3 text-muted-foreground transition-transform duration-200",
+            expanded && "rotate-90"
+          )}
+        />
+        {!expanded && (
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            {entries.length} field{entries.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+          {entries.map(([key, val]) => (
+            <div key={key} className={typeof val === "object" ? "col-span-2" : ""}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {key.replace(/_/g, " ")}
+              </p>
+              <p className="mt-0.5 text-xs text-foreground break-words">
+                {typeof val === "object" ? JSON.stringify(val, null, 2) : String(val)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 3 — BRIEF DETAILS (read-only view)
 // ============================================================================
 
@@ -1345,6 +1543,10 @@ function BriefDetails({
   const { user, profile } = useAuth();
   const isAdmin = isAdminRole(profile?.role);
   const isOwner = !!(task.assigned_to === user?.id || task.created_by === user?.id);
+  // The CREATOR of the brief (a designer who logged it from My Board → New
+  // Brief) may edit its assigned qty — it's their own task. Tasks created by
+  // someone else (admin/coordinator, or the external Sales ERP) stay read-only.
+  const isCreator = !!(task.created_by === user?.id);
   const canEdit = isAdmin || isOwner;
   const [expanded, setExpanded] = useState(true);
 
@@ -1432,7 +1634,11 @@ function BriefDetails({
               icon={<Package className="h-3 w-3" />}
               tone="primary"
             >
-              {canEdit ? (
+              {/* Assigned qty is editable by coordinator+ OR the designer who
+                  CREATED the brief (their own task). A designer merely assigned
+                  someone else's task — or an ERP/admin-created one — sees it
+                  read-only and changes only their PROGRESS via the QtyTracker. */}
+              {isAdmin || isCreator ? (
                 <EditableQtyCell taskId={task.id} qty={task.qty} onSaved={onChanged}>
                   <span className="tabular-nums">{qtyValueInner}</span>
                 </EditableQtyCell>
@@ -1628,6 +1834,7 @@ function EditableFieldCell({
     if (!error) {
       void supabase.from("task_logs").insert({
         task_id: taskId,
+        status_from: "in_progress",
         status_to: "in_progress",
         changed_by: user?.id ?? "",
         note: `${field === "concept" ? "Design type" : "Fabric"} changed: "${currentValue || "—"}" → "${val.trim()}"`,
@@ -1708,6 +1915,7 @@ function EditableQtyCell({
     if (!error) {
       void supabase.from("task_logs").insert({
         task_id: taskId,
+        status_from: "in_progress",
         status_to: "in_progress",
         changed_by: user?.id ?? "",
         note: `Quantity changed: ${qty}m → ${n}m`,
@@ -2715,6 +2923,19 @@ function QtyTracker({
           </LoadingButton>
         </div>
 
+        {/* Full Knitting gate note — Mark Completed stays locked until the
+            coordinator adds the Full Knitting details. */}
+        {isFullKittingBlocking(task) && (
+          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              You can update your progress, but{" "}
+              <strong>Mark Completed is locked</strong> until the coordinator
+              adds the Full Knitting details for this task.
+            </span>
+          </div>
+        )}
+
         {willComplete && !hasFiles && isConceptTrackTask(task) && (
           <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -3243,13 +3464,15 @@ function ActionFooter({
   task,
   files,
   onChanged,
+  onClaimTask,
 }: {
   task: TaskWithRelations;
   files: FileWithUploader[];
   onChanged: () => void;
+  onClaimTask?: (taskId: string) => void;
 }) {
   const { profile, user } = useAuth();
-  const { assignTask, updateTaskStatus, isPending } = useTaskMutations();
+  const { updateTaskStatus, isPending } = useTaskMutations();
   const role = profile?.role;
   const userId = user?.id ?? null;
 
@@ -3257,6 +3480,11 @@ function ActionFooter({
   // task approval/revision was scoped to concepts-only).
   const [logCompletionOpen, setLogCompletionOpen] = useState(false);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
+  // Pool claim flow — opening the full ClaimTaskModal (design type / fabric /
+  // deadline / how-many) instead of a one-click accept.
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [fkWarnOpen, setFkWarnOpen] = useState(false);
+  const [fkNotifying, setFkNotifying] = useState(false);
 
   if (!role || !userId) {
     return <FooterShell />;
@@ -3268,18 +3496,14 @@ function ActionFooter({
   const hasFiles = files.length > 0;
   const qtyComplete = task.qty_completed >= task.qty && task.qty > 0;
 
-  async function accept() {
-    if (!userId) return;
-    const { error } = await assignTask(task.id, userId);
-    if (error) {
-      toast.error(error);
+  async function advance(next: TaskStatus, successMsg?: string) {
+    // Hard gate: a task that requires Full Knitting can NEVER be completed
+    // (advanced to 'done') until the coordinator adds the details — regardless
+    // of which footer/role triggered it (in_progress AND full_kitting paths).
+    if (next === "done" && isFullKittingBlocking(task)) {
+      toast.error("Full Knitting details must be added before completing this task.");
       return;
     }
-    toast.success("Task accepted");
-    onChanged();
-  }
-
-  async function advance(next: TaskStatus, successMsg?: string) {
     const { error } = await updateTaskStatus(task.id, next);
     if (error) {
       toast.error(error);
@@ -3290,6 +3514,10 @@ function ActionFooter({
   }
 
   function attemptSubmit() {
+    if (isFullKittingBlocking(task)) {
+      toast.error("Full Knitting details must be added before completing.");
+      return;
+    }
     setSubmitWarning(null);
     const needsFiles = isConceptTrackTask(task) && !hasFiles;
     if (!qtyComplete || needsFiles) {
@@ -3319,20 +3547,127 @@ function ActionFooter({
     );
   }
 
-  // ----------------- POOL: Accept Task (designer / admin) -----------------
+  // ----------------- POOL: Claim Task (designer / admin) -----------------
+  // When the parent provides `onClaimTask`, delegate entirely — the parent
+  // runs the full skip-ahead + FK warning chain and opens its own ClaimTaskModal.
+  // When not provided, fall back to the local FK-only logic.
   if (task.status === "pool" && isUnassigned) {
+    if (onClaimTask) {
+      return (
+        <FooterShell>
+          <LoadingButton
+            loading={false}
+            onClick={() => onClaimTask(task.id)}
+            className="w-full bg-primary text-white hover:bg-primary/90"
+            size="lg"
+          >
+            <HandPlatter className="mr-1.5 h-4 w-4" />
+            Claim Task
+          </LoadingButton>
+        </FooterShell>
+      );
+    }
+
+    const fkBlocking = isFullKittingBlocking(task);
     return (
-      <FooterShell>
-        <LoadingButton
-          loading={isPending("assign", task.id)}
-          onClick={accept}
-          className="w-full bg-primary text-white hover:bg-primary/90"
-          size="lg"
-        >
-          <HandPlatter className="mr-1.5 h-4 w-4" />
-          Accept Task
-        </LoadingButton>
-      </FooterShell>
+      <>
+        <FooterShell>
+          <LoadingButton
+            loading={false}
+            onClick={() => fkBlocking ? setFkWarnOpen(true) : setClaimOpen(true)}
+            className="w-full bg-primary text-white hover:bg-primary/90"
+            size="lg"
+          >
+            <HandPlatter className="mr-1.5 h-4 w-4" />
+            Claim Task
+          </LoadingButton>
+        </FooterShell>
+
+        {/* FK warning dialog */}
+        <Dialog open={fkWarnOpen} onOpenChange={setFkWarnOpen}>
+          <DialogContent className="max-w-sm" srTitle="Full Knitting warning">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-5 w-5 text-warning" />
+                Full Knitting Not Added Yet
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 px-6 pb-2">
+              <p className="text-sm text-muted-foreground">
+                This task requires Full Knitting details, but the coordinator
+                hasn&apos;t added them yet.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                You can claim and start working, but you won&apos;t be able to
+                mark it complete until the coordinator adds the Full Knitting details.
+              </p>
+            </div>
+            <DialogFooter className="flex-col gap-2 px-6 pb-6 sm:flex-col">
+              <Button
+                onClick={() => {
+                  // Just open the claim form — the coordinator notification +
+                  // to-do only fire when the designer actually claims (onClaimed).
+                  setFkWarnOpen(false);
+                  setClaimOpen(true);
+                }}
+                className="w-full"
+              >
+                Continue Without Full Knitting
+              </Button>
+              <Button
+                variant="outline"
+                disabled={fkNotifying}
+                onClick={async () => {
+                  setFkNotifying(true);
+                  try {
+                    await sendNotificationToRole(
+                      ["admin", "design_coordinator"],
+                      "Full Knitting Needed",
+                      `${profile?.full_name ?? "A designer"} is waiting on Full Knitting details for ${task.task_code ?? "a task"}`,
+                      "warning",
+                      "/dashboard"
+                    );
+                    toast.info("Coordinator notified");
+                  } catch {
+                    toast.error("Failed to notify coordinator");
+                  }
+                  setFkNotifying(false);
+                  setFkWarnOpen(false);
+                }}
+                className="w-full"
+              >
+                {fkNotifying ? "Notifying…" : "Ask Coordinator to Add"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setFkWarnOpen(false)}
+                className="w-full text-muted-foreground"
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <ClaimTaskModal
+          open={claimOpen}
+          onOpenChange={setClaimOpen}
+          preselectedTaskId={task.id}
+          onClaimed={() => {
+            // FK coordinator notification + to-do fire ONLY on a REAL claim,
+            // with the actual claimer — never on "Continue Without FK" intent.
+            if (isFullKittingBlocking(task)) {
+              void flagFkPendingToCoordinator(
+                task.id,
+                task.task_code ?? "a task",
+                profile?.full_name ?? "A designer"
+              );
+            }
+            setClaimOpen(false);
+            onChanged();
+          }}
+        />
+      </>
     );
   }
 
@@ -3356,6 +3691,7 @@ function ActionFooter({
   // ----------------- IN_PROGRESS: Mark Completed (designer only) -----------------
   if (task.status === "in_progress" && isAssignee) {
     const progressMet = task.qty > 0 && task.qty_completed >= task.qty;
+    const fkGate = isFullKittingBlocking(task);
     return (
       <FooterShell>
         <div className="w-full space-y-2">
@@ -3365,7 +3701,7 @@ function ActionFooter({
               <span>{submitWarning}</span>
             </div>
           )}
-          {progressMet ? (
+          {progressMet && !fkGate ? (
             <LoadingButton
               loading={isPending("updateStatus", task.id)}
               onClick={attemptSubmit}
@@ -3375,10 +3711,21 @@ function ActionFooter({
               <Send className="mr-1.5 h-4 w-4" />
               Mark Completed
             </LoadingButton>
-          ) : (
+          ) : !fkGate ? (
             <p className="text-center text-[11px] text-muted-foreground">
               {task.qty === 0 ? "Quantity not set — ask admin to add it." : `Complete progress (${task.qty_completed}/${task.qty}) to mark done.`}
             </p>
+          ) : null}
+          {fkGate && (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Waiting for Full Knitting details</p>
+                  <p className="text-xs text-muted-foreground">The coordinator needs to add Full Knitting details before you can complete this task. You can keep updating your progress.</p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </FooterShell>
@@ -3416,6 +3763,23 @@ function ActionFooter({
               <ArrowRight className="mr-1.5 h-4 w-4 rotate-180" />
               Request Revision
             </LoadingButton>
+          </div>
+        </FooterShell>
+      );
+    }
+    if (isFullKittingBlocking(task)) {
+      return (
+        <FooterShell>
+          <div className="w-full rounded-lg border border-warning/30 bg-warning/10 p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Waiting for Full Knitting details</p>
+                <p className="text-xs text-muted-foreground">
+                  The coordinator needs to add the Full Knitting details before this task can be completed.
+                </p>
+              </div>
+            </div>
           </div>
         </FooterShell>
       );

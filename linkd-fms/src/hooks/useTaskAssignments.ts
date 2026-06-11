@@ -8,6 +8,7 @@ import {
   sendNotificationToMany,
   sendNotificationToRole,
 } from "@/lib/notifications";
+import { createPendingSample } from "@/lib/createPendingSample";
 import type { TaskAssignmentWithDesigner, TaskStatus } from "@/types/database";
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
@@ -74,10 +75,27 @@ export function useTaskAssignments(taskId: string | null) {
   async function fetchTaskInfo(tId: string) {
     const { data: t } = await supabase
       .from("tasks")
-      .select("task_code, concept, status")
+      .select("task_code, concept, status, qty, fabric, whatsapp_group, client:clients!tasks_client_id_fkey(party_name)")
       .eq("id", tId)
       .single();
     return t;
+  }
+
+  function taskSummary(t: {
+    concept?: string | null;
+    qty?: number | null;
+    fabric?: string | null;
+    whatsapp_group?: string | null;
+    client?: { party_name?: string } | null;
+  }): string {
+    const parts = [
+      t.concept || null,
+      t.client?.party_name || null,
+      t.qty ? `Qty: ${t.qty}` : null,
+      t.fabric || null,
+      t.whatsapp_group || null,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : "Task";
   }
 
   // Helper: insert a task_logs entry (fire-and-forget).
@@ -121,13 +139,13 @@ export function useTaskAssignments(taskId: string | null) {
       const taskInfo = await fetchTaskInfo(tId);
       const code = taskInfo?.task_code ?? "a task";
 
-      // Log split activity
-      const designerNames: string[] = [];
+      // Notify each designer with rich context
+      const summary = taskInfo ? taskSummary(taskInfo) : code;
       for (const s of splits) {
         void sendNotification(
           s.designerId,
           "Task Assignment",
-          `You've been assigned ${s.qty} designs (${s.designType}) on ${code}`,
+          `You've been assigned ${s.qty} designs (${s.designType}): ${summary}`,
           "info",
           "/dashboard"
         );
@@ -162,8 +180,15 @@ export function useTaskAssignments(taskId: string | null) {
       if (taskRow) {
         const { data: siblings } = await supabase
           .from("task_assignments")
-          .select("qty_assigned")
+          .select("qty_assigned, designer_id")
           .eq("task_id", tId);
+        // A designer can hold only ONE portion per task (unique index). If they
+        // already have one, point them to Resize instead of a raw DB error.
+        if ((siblings ?? []).some((r) => r.designer_id === user.id)) {
+          return {
+            error: "You already have a portion on this task. Use “Resize” in the task to change your quantity.",
+          };
+        }
         const alreadyAssigned = (siblings ?? []).reduce(
           (s, r) => s + r.qty_assigned,
           0
@@ -186,22 +211,87 @@ export function useTaskAssignments(taskId: string | null) {
         completion_fabric: input.fabric.trim(),
         status: "assigned" as const,
       });
-      if (err) return { error: err.message };
+      if (err) {
+        // Unique violation (raced past the pre-check) = already has a portion.
+        if ((err as { code?: string }).code === "23505") {
+          return { error: "You already have a portion on this task. Use “Resize” to change your quantity." };
+        }
+        return { error: err.message };
+      }
 
       // Parent status (is_split, status, qty_remaining) is set by the
       // recalc_task_from_assignments trigger — do NOT compute it here.
 
       // Notify admins + coordinators about the claim.
-      const code = taskRow?.task_code ?? "a task";
+      const claimInfo = await fetchTaskInfo(tId);
+      const claimSummary = claimInfo ? taskSummary(claimInfo) : (taskRow?.concept ?? "a task");
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Claim Joined",
-        `${designerName} claimed ${input.qty} designs (${input.designType}) of ${code}`,
+        `${designerName} claimed ${input.qty} designs (${input.designType}): ${claimSummary}`,
         "info",
         "/dashboard"
       );
 
       logActivity(tId, `${designerName} claimed ${input.qty} designs${input.designType ? ` (${input.designType})` : ""}`);
+
+      invalidate();
+      return { error: null };
+    },
+    [user, designerName, invalidate]
+  );
+
+  // ── reduceMyClaim ─────────────────────────────────────────────────────────
+  // A designer who claimed the WHOLE task as an individual decides to keep only
+  // part of it (e.g. 10 of 20) and release the rest to the pool — turning a full
+  // claim into a split AFTER the fact. Produces the SAME end-state as if they had
+  // originally claimed a portion: their kept work becomes a task_assignment and
+  // the remainder surfaces in the pool via `qty_remaining > 0` (the recalc trigger
+  // sets that). The released qty is then claimable by anyone via the normal
+  // claimPortion flow — the rest of the workflow stays untouched.
+  const reduceMyClaim = useCallback(
+    async (tId: string, keepQty: number) => {
+      if (!user) return { error: "Not authenticated" };
+      const keep = Math.floor(keepQty);
+      if (!Number.isFinite(keep) || keep < 1) {
+        return { error: "Enter how many designs you want to keep (at least 1)." };
+      }
+
+      // Light client-side pre-check for friendly errors + the notification copy.
+      // The RPC is the AUTHORITATIVE guard and runs the insert + parent update
+      // atomically as SECURITY DEFINER — a designer can't null their own
+      // tasks.assigned_to under RLS, and a non-atomic two-step would orphan the
+      // assignment on a mid-way failure (migration 0076).
+      const { data: t } = await supabase
+        .from("tasks")
+        .select("qty, qty_completed, concept, task_code")
+        .eq("id", tId)
+        .maybeSingle();
+      if (t) {
+        if (keep >= t.qty) {
+          return { error: `Keep fewer than ${t.qty} to release some to the pool.` };
+        }
+        const done = t.qty_completed ?? 0;
+        if (keep < done) {
+          return { error: `You've already completed ${done} — you can't keep fewer than that.` };
+        }
+      }
+
+      const { error: rpcErr } = await supabase.rpc("split_my_claim", {
+        p_task_id: tId,
+        p_keep: keep,
+      });
+      if (rpcErr) return { error: rpcErr.message };
+
+      const released = t ? t.qty - keep : 0;
+      void sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Task Split",
+        `${designerName} kept ${keep} designs${t ? ` and released ${released} to the pool` : ""}: ${t?.concept ?? t?.task_code ?? "a task"}`,
+        "info",
+        "/dashboard"
+      );
+      logActivity(tId, `${designerName} split the task — kept ${keep}${t ? `, released ${released} to the pool` : ""}`);
 
       invalidate();
       return { error: null };
@@ -223,7 +313,7 @@ export function useTaskAssignments(taskId: string | null) {
       const row = assignments.find((a) => a.id === assignmentId);
       if (row && taskId) {
         const taskInfo = await fetchTaskInfo(taskId);
-        const code = taskInfo?.task_code ?? "a task";
+        const summary = taskInfo ? taskSummary(taskInfo) : "a task";
         const name = row.designer?.full_name ?? designerName;
         const oldQty = row.qty_assigned;
 
@@ -231,7 +321,7 @@ export function useTaskAssignments(taskId: string | null) {
           void sendNotificationToRole(
             ["admin", "design_coordinator"],
             "Claim Released",
-            `${name} released their portion of ${code} back to the pool`,
+            `${name} released their portion back to pool: ${summary}`,
             "info",
             "/dashboard"
           );
@@ -240,7 +330,7 @@ export function useTaskAssignments(taskId: string | null) {
           void sendNotificationToRole(
             ["admin", "design_coordinator"],
             "Claim Resized",
-            `${name} changed their claim on ${code} to ${newQty}`,
+            `${name} resized claim ${oldQty} → ${newQty}: ${summary}`,
             "info",
             "/dashboard"
           );
@@ -304,13 +394,31 @@ export function useTaskAssignments(taskId: string | null) {
   // ── completePortion ───────────────────────────────────────────────────────
 
   const completePortion = useCallback(
-    async (assignmentId: string, fabricOverride?: string, designTypeOverride?: string) => {
+    async (
+      assignmentId: string,
+      fabricOverride?: string,
+      designTypeOverride?: string,
+      samplingRequired?: boolean
+    ) => {
       const row = assignments.find((a) => a.id === assignmentId);
       if (!row) return { error: "Assignment not found" };
-      if (row.qty_completed !== row.qty_assigned) {
+      // Allow completing with AT LEAST the assigned qty (extra is fine); only
+      // block when they've done LESS than assigned.
+      if (row.qty_completed < row.qty_assigned) {
         return {
-          error: `Cannot complete: ${row.qty_completed}/${row.qty_assigned} done. Finish all designs or reduce your claim first.`,
+          error: `Cannot complete: only ${row.qty_completed}/${row.qty_assigned} done. Finish your assigned quantity (or Resize your claim) first.`,
         };
+      }
+      // FK gate: check parent task before allowing portion completion.
+      {
+        const { data: parentCheck } = await supabase
+          .from("tasks")
+          .select("requires_full_kitting, full_kitting_image_url, full_kitting_details!full_kitting_details_task_id_fkey(id)")
+          .eq("id", row.task_id)
+          .maybeSingle();
+        if (parentCheck?.requires_full_kitting && !parentCheck.full_kitting_image_url && !parentCheck.full_kitting_details) {
+          return { error: "Full Knitting details must be added before completing this portion." };
+        }
       }
 
       const now = new Date().toISOString();
@@ -336,7 +444,7 @@ export function useTaskAssignments(taskId: string | null) {
       // Fetch task info for notification messages.
       const tId = row.task_id;
       const taskInfo = await fetchTaskInfo(tId);
-      const code = taskInfo?.task_code ?? "a task";
+      const summary = taskInfo ? taskSummary(taskInfo) : "a task";
       const portionType = row.design_type ?? "designs";
 
       // Notify admins + coordinators: portion completed.
@@ -344,12 +452,27 @@ export function useTaskAssignments(taskId: string | null) {
       void sendNotificationToRole(
         ["admin", "design_coordinator"],
         "Portion Completed",
-        `${portionDesigner} completed their ${row.qty_assigned} (${portionType}) of ${code}`,
+        `${portionDesigner} completed ${row.qty_assigned} (${portionType}): ${summary}`,
         "success",
         "/dashboard"
       );
 
       logActivity(tId, `${portionDesigner} completed sub-task: ${row.qty_assigned} designs (${portionType})`, "completed", "in_progress");
+
+      // Per-portion sample when this designer flagged sampling. Uses THIS
+      // portion's fabric + design, so a split task with different fabric/design
+      // across portions yields separate samples (deduped by task+fabric+design).
+      if (samplingRequired) {
+        await createPendingSample({
+          taskId: tId,
+          fabric: fabricOverride?.trim() || row.completion_fabric || null,
+          designType: designTypeOverride?.trim() || row.design_type || null,
+          createdBy: user?.id ?? "",
+          summary,
+        });
+        // Refresh the Sampling page (Pending tab) so the new sample appears.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.samples.all });
+      }
 
       // Finalize the parent task via RPC (SECURITY DEFINER — works for any role).
       // The recalc trigger should set status='completed' but doesn't stamp
@@ -371,7 +494,7 @@ export function useTaskAssignments(taskId: string | null) {
         void sendNotificationToRole(
           ["admin", "design_coordinator"],
           "Task Fully Completed",
-          `${code} is fully completed`,
+          `All portions completed: ${summary}`,
           "success",
           "/dashboard"
         );
@@ -384,7 +507,7 @@ export function useTaskAssignments(taskId: string | null) {
           void sendNotificationToMany(
             designerIds,
             "Task Fully Completed",
-            `${code} is fully completed — great teamwork!`,
+            `All portions completed — great teamwork! ${summary}`,
             "success",
             "/dashboard"
           );
@@ -394,7 +517,7 @@ export function useTaskAssignments(taskId: string | null) {
       invalidate();
       return { error: null };
     },
-    [assignments, invalidate]
+    [assignments, invalidate, user, queryClient]
   );
 
   // ── markPortionDone (back-compat, not used by new UI) ─────────────────────
@@ -444,6 +567,7 @@ export function useTaskAssignments(taskId: string | null) {
     error: error instanceof Error ? error.message : null,
     splitTask,
     claimPortion,
+    reduceMyClaim,
     updateAssignmentClaim,
     updateAssignmentDetails,
     updateAssignmentQty,

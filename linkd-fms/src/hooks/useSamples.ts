@@ -31,6 +31,17 @@ export interface SampleLinkedTask {
   description: string | null;
   assigned_to: string | null;
   client_id: string | null;
+  qty: number | null;
+  qty_completed: number | null;
+  fabric: string | null;
+  whatsapp_group: string | null;
+  whatsapp_received_date: string | null;
+  whatsapp_received_time: string | null;
+  assigned_by: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  planned_deadline: string | null;
+  started_late: boolean | null;
   client: { party_name: string } | null;
   assignee: { full_name: string; avatar_url: string | null } | null;
 }
@@ -52,6 +63,13 @@ export interface SampleFilters {
   customerName?: string;
   /** Filter by is_completed. */
   status?: "pending" | "completed" | "all";
+  /** Provenance filter — single value or array for the Pending Samples tab. */
+  source?: "manual" | "task_completion" | "sales_erp" | ("task_completion" | "sales_erp")[];
+  /** Lifecycle status filter (pending / in_progress / completed). */
+  sampleStatus?: "pending" | "in_progress" | "completed";
+  /** Hide pending auto-created samples (task_completion + sales_erp) — they
+   *  live in the Pending tab until processed. Used by the main Samples tab. */
+  excludePendingTaskSamples?: boolean;
 }
 
 export interface UseSamples {
@@ -94,6 +112,17 @@ const FULL_SAMPLE_SELECT = `
     description,
     assigned_to,
     client_id,
+    qty,
+    qty_completed,
+    fabric,
+    whatsapp_group,
+    whatsapp_received_date,
+    whatsapp_received_time,
+    assigned_by,
+    created_at,
+    started_at,
+    planned_deadline,
+    started_late,
     client:clients!tasks_client_id_fkey(party_name),
     assignee:profiles!tasks_assigned_to_fkey(full_name, avatar_url)
   )
@@ -131,6 +160,21 @@ async function fetchSamples(
     } else if (filters?.status === "completed") {
       q = q.eq("is_completed", true);
     }
+    if (filters?.source) {
+      if (Array.isArray(filters.source)) {
+        q = q.in("source", filters.source);
+      } else {
+        q = q.eq("source", filters.source);
+      }
+    }
+    if (filters?.sampleStatus) {
+      q = q.eq("sample_status", filters.sampleStatus);
+    }
+    if (filters?.excludePendingTaskSamples) {
+      // Hide pending auto-created samples (task_completion + sales_erp) —
+      // they live in the Pending tab until processed.
+      q = q.or("sample_status.neq.pending,source.eq.manual");
+    }
     if (pagination) {
       q = q.range(pagination.from, pagination.to);
     }
@@ -162,6 +206,36 @@ async function fetchSamples(
     // so consumers can rely on the field existing.
     task: row.task ?? null,
   }));
+
+  // PostgREST nested embeds through nullable FKs can return null for the
+  // client even when the task has a client_id. Patch those in a single
+  // batch query so `task.client.party_name` is always resolved.
+  const missingClientIds = new Set<string>();
+  for (const s of samples) {
+    const t = s.task as (SampleLinkedTask & { client_id?: string | null }) | null;
+    if (t?.client_id && !t.client?.party_name) {
+      missingClientIds.add(t.client_id);
+    }
+  }
+  if (missingClientIds.size > 0) {
+    const { data: clients } = await supabase
+      .from("clients")
+      .select("id, party_name")
+      .in("id", Array.from(missingClientIds));
+    if (clients) {
+      const clientMap = new Map(clients.map((c) => [c.id, c.party_name]));
+      for (const s of samples) {
+        const t = s.task as (SampleLinkedTask & { client_id?: string | null }) | null;
+        if (t?.client_id && !t.client?.party_name) {
+          const name = clientMap.get(t.client_id);
+          if (name) {
+            t.client = { party_name: name };
+          }
+        }
+      }
+    }
+  }
+
   return { samples, totalCount: count ?? samples.length };
 }
 

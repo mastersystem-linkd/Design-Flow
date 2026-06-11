@@ -13,6 +13,7 @@ import {
   Paintbrush,
   Users,
   ListChecks,
+  Globe,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/database";
@@ -32,6 +33,7 @@ import { StorageTab } from "@/components/system/StorageTab";
 import { AppInfoTab } from "@/components/system/AppInfoTab";
 import { AppearanceTab } from "@/components/system/AppearanceTab";
 import { DangerZoneTab } from "@/components/system/DangerZoneTab";
+import { IntegrationsTab } from "@/components/system/IntegrationsTab";
 import { TeamView } from "@/views/TeamView";
 
 // ============================================================================
@@ -62,6 +64,7 @@ type TabId =
   | "dropdowns"
   | "clients"
   | "designer-codes"
+  | "integrations"
   | "storage"
   | "danger";
 
@@ -138,6 +141,14 @@ const TABS: TabSpec[] = [
     icon: Tag,
     desc: "Unique code letters for designers",
     group: "data",
+    canAccess: (role) => isSuperAdmin(role) || role === "admin",
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    icon: Globe,
+    desc: "Sales ERP connection & sync log",
+    group: "system",
     canAccess: (role) => isSuperAdmin(role) || role === "admin",
   },
   {
@@ -315,6 +326,8 @@ function renderTab(id: TabId, role: UserRole) {
       return <ClientManagementTab />;
     case "designer-codes":
       return adminOnly(<DesignerCodesTab />);
+    case "integrations":
+      return adminOnly(<IntegrationsTab />);
     case "storage":
       return adminOnly(<StorageTab />);
     case "danger":

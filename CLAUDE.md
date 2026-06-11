@@ -8,6 +8,7 @@ Act as an expert full-stack developer (React 18, TypeScript, Supabase, Tailwind 
 - **Tech Stack:** React 18, Vite 5, TypeScript (strict), React Router v6, Tailwind CSS 3.
 - **Backend:** Supabase (PostgreSQL, Auth, Storage). 
 - **Strict Dependency Pin:** The `@supabase/supabase-js` version is **strictly pinned to 2.45.4**. Do not update it, as newer versions cause request-hang bugs in this Vite environment.
+- **Reference docs:** [`database.md`](database.md) (repo root) is the complete **schema brain** — every table, field, FK, constraint, RLS policy, trigger, RPC, storage bucket + **where each table renders in the UI**. [`PROJECT_FLOW.md`](PROJECT_FLOW.md) traces the whole app start-to-end. Keep both (and `linkd-fms/public/flow-diagram.html`) in sync whenever you change the schema or a major flow.
 
 ## 2. Code Style & Architecture
 - **Imports:** Always use the `@/` path alias for absolute imports (e.g., `import { Button } from "@/components/ui"`). Never use relative paths for deep imports.
@@ -369,10 +370,10 @@ The app's visual identity is the **selvedge** — the finished edge of woven clo
 - `.warp-draw` / `.weft-in` — dashboard hero entrance (transform+opacity only, ≤700ms).
 
 ### 19.4 Fonts
-- **Body:** Manrope (system-ui fallback) — `fontFamily.sans`, loaded via the Google Fonts `<link>` in `index.html`.
-- **Display:** Sora — `fontFamily.display`. Applied to `h1–h4` in `index.css`.
-- **Serif accent:** **Fraunces** (variable, self-hosted via `@fontsource-variable/fraunces`). The "delicate serif punctuation" against the geometric sans. `fontFamily.serif` now resolves to Fraunces (was a Manrope alias — that was a no-op). Opt in via the Tailwind `font-serif` utility **or** the richer `.font-serif-accent` class (sets optical-size + soft slant). Use for eyebrow labels, hero accents, person names, and empty-state headlines (`EmptyState` title uses it). **Never** on body copy or data numerals.
-- **Data numerals:** JetBrains Mono 700 — self-hosted via `@fontsource/jetbrains-mono`, `font-display: swap`. Opt-in only via `.font-mono-data` or `font-mono-data` Tailwind class. Never global.
+- **ONE family app-wide: Sora.** `tailwind.config.js` maps `sans`, `serif`, **and** `display` all to `Sora` (only `mono-data` differs), and `src/index.css` declares `font-family: "Sora"` **once** on the body with an explicit "do not declare font-family anywhere else" rule. Headings (`h1–h4`) keep weight + tight tracking but inherit Sora. Loaded via the Google Fonts `<link>` in `index.html` (weights 400–800). Don't reintroduce a second family outside the login page.
+- **Data numerals:** JetBrains Mono 700 — self-hosted via `@fontsource/jetbrains-mono/700` (imported in `main.tsx`) + Google Fonts, `font-display: swap`. Opt-in ONLY via `.font-mono-data` / `font-mono-data` (tabular figures on KPIs, charts, data tables). Never global.
+- **Login page only (`/login`):** the `.df-login`-scoped CSS in `LoginView.tsx` uses **Bricolage Grotesque** (wordmark + h1 + card headings) and **Hanken Grotesk** (body/labels) for a distinct editorial look, isolated from the rest of the app. Both are loaded from Google Fonts for the login screen only.
+- **Removed (do NOT reference):** **Manrope** (old body) and **Fraunces** (old serif accent) are gone — the app was normalized to the single Sora family. `.font-display` and `.font-serif-accent` utilities still exist but now resolve to Sora (kept as no-op back-compat).
 - All faces use `font-display: swap` — no CLS on first paint.
 - **Default theme is `light`** (`<ThemeProvider defaultTheme="light">` in `main.tsx`). The premium uplift was tuned to read well in **both** themes (the aurora is richer in dark, restrained in light) — never hardcode theme-specific values, keep extending the `:root` / `.dark` tokens.
 
@@ -485,6 +486,7 @@ The `/coordinator-tasks` route gives coordinators a personal task-tracking surfa
 - **CSV export** of filtered records.
 - **12-hour AM/PM time picker** in the log form (`TimeInput12h`) — same pattern as `MessageTimeInput` (auto-advance, arrow keys, blur-padding).
 - **Table layout:** 4 columns — Requester, Description, Requested (date), Status.
+- **FK to-do redirect (§33.4):** rows auto-created by the FK workflow carry a `related_task_id` and render an **"Add FK ↗"** button (only when `related_task_id && !is_completed`). It jumps to All Tasks **focused on that one task** so the coordinator adds Full Knitting in one hop; the to-do then auto-completes (Pending → Done) when FK is saved.
 
 ## 29. Designer Concept Dashboard
 
@@ -543,8 +545,157 @@ Renders only when the task has assignments. Each row: designer avatar/name, `qty
 - **My Tasks** (`KanbanView`): fetches `task_assignments` where `designer_id = me` into `myAssignmentTaskIds` and merges those into the visible filter, so a designer's portion-tasks appear even though `tasks.assigned_to` isn't them.
 
 ### 30.8 Known gaps (as of this writing)
-- **No DB-level qty guard** — Σ`qty_assigned` ≤ `task.qty` is enforced only in the UI; a direct/racy insert can over-assign. Consider a constraint/trigger if this bites.
+- **DB-level qty guard** — `enforce_assignment_constraints()` trigger (migration 0062, relaxed by 0068) now blocks over-assign (Σ`qty_assigned` ≤ `task.qty`). However, `qty_completed` may exceed `qty_assigned` (extra work OK).
 - Per-portion **`in_progress`** transition is never set (see §30.1).
 - **Notifications** cover split + mark-done only — not claim-joined / all-done / other §STEP-8 points.
 - **Dashboard crediting** — the designer leaderboard does **not** yet credit a designer's `qty_completed` on split tasks (no `task_assignments` usage in `useTaskAnalytics`).
 - The migration must be applied in Supabase or every split/claim-portion call errors with `relation "task_assignments" does not exist`.
+
+## 31. FK Gate — Full Kitting Completion Blocking
+
+Tasks that `requires_full_kitting = true` cannot be completed until the coordinator uploads FK details.
+
+### 31.1 Helper functions (`lib/taskHelpers.ts`)
+- **`isFullKittingAdded(task)`** — returns `true` when the task has a `full_kitting_image_url` OR a linked `full_kitting_details` record. Checks both the task's direct image field and the joined FK details.
+- **`isFullKittingBlocking(task)`** — returns `true` when `requires_full_kitting && !isFullKittingAdded(task)`. This is the gate.
+- **`wasCreatedByAdminOrCoordinator(task)`** — checks if the task was created by an admin/coordinator role (used to determine if FK flagging should happen on claim).
+
+### 31.2 Where the gate is enforced
+- **`markTaskDone(taskId)`** in `useTaskMutations` — before setting `status='done'`, calls `isFullKittingBlocking()`. If true, returns `{ error: "Full Kitting details must be added before marking done" }`. The task stays in_progress.
+- **`completeTask(taskId, ...)`** — same check. Blocks `done → completed` if FK is missing.
+- **TaskDetailDrawer** — shows a warning banner when the task is FK-blocked: "Full Kitting details needed before completion." The Mark Done / Complete buttons are visually disabled with a tooltip explaining the block.
+
+### 31.3 Unblocking
+The coordinator adds FK details via `KittingStageADialog` → upload image → the task's `full_kitting_image_url` or `full_kitting_details` row gets populated → `isFullKittingBlocking()` returns false → designer can now complete.
+
+## 32. Sampling Automation — task completion → pending sample
+
+When a designer completes a task and flags "Sampling Required", a pending sample is auto-created.
+
+### 32.1 PostDoneModal changes
+`PostDoneModal.tsx` now collects three fields:
+- **Fabric** (required) — Combobox from `useFabrics()`
+- **Design Type** (required) — Combobox from `useConceptCategories()`
+- **Sampling Required** toggle — `<Switch>` component (`@/components/ui/Switch`). Defaults to OFF.
+
+### 32.2 completeTask signature
+`completeTask(taskId, { fabric, designType?, samplingRequired? })` in `useTaskMutations`:
+1. FK gate check (`isFullKittingBlocking`)
+2. Optimistic lock on `.eq('status','done')`
+3. Stamps `completion_fabric`, `completion_filled_by`, `completion_filled_at`
+4. If `samplingRequired === true` → calls `createPendingSample(taskId, fabric, designType)`
+5. Sets `tasks.sampling_required`, `sampling_flagged_at`, `sampling_flagged_by` on the task
+
+### 32.3 createPendingSample (`lib/createPendingSample.ts`)
+`createPendingSample({ taskId, fabric, designType, createdBy, summary })`:
+1. Resolves **party name + uid via two plain queries** (`tasks` then `clients`) — **NOT** a nested embed. The `samples→task→client` embed returns a null client, which is what made party names come through blank.
+2. **LD briefs** (no `client_id`) resolve their party from the **default LD party in the `clients` table** (LD group — "LD Silk Mills") via `resolveDefaultLdParty()` (cached). This is **backend-driven — never hardcode the `"LD Silk Mills"` string**; renaming it in Settings → Party Name flows through. A null result here only means a Job Work brief that genuinely lost its client.
+3. Dedup: skips if a sample already exists for `(task_id, fabric, design_type)` with `source='task_completion'`.
+4. Inserts `source='task_completion'`, `sample_status='pending'`, `party_name`, `quality=fabric`, `design_type`. Unique index `uq_samples_task_completion` (0070) is the DB backstop.
+5. **Errors are surfaced, not swallowed:** a real insert failure (anything but the 23505 dedup) toasts "Task saved, but adding it to Sampling failed: …" so a stale PostgREST schema cache / missing column / RLS denial is diagnosable. The caller's task completion still succeeds (best-effort).
+
+> **Schema-cache gotcha:** migrations 0069/0070 add `samples.source` / `sample_status` / `design_type` but **do not** `NOTIFY pgrst, 'reload schema'`. If pending samples silently stop being created, reload the cache (`NOTIFY pgrst, 'reload schema';`) — the insert was failing on an unknown column.
+
+### 32.4 Pending Samples UI (`PendingSamplesPanel.tsx`)
+- Renders in the Sampling Hub as a dedicated tab
+- Filters: `useSamples({ source: 'task_completion', sampleStatus: 'pending' })`
+- Each row: party_name (resolved from task→client), fabric, design_type, linked task_code, date
+- Actions: "Process" (opens SamplingFormDialog pre-filled → changes status to in_progress), "Delete"
+- The main Samples tab uses `excludePendingTaskSamples: true` to hide these until processed
+
+### 32.5 DB columns (migrations 0069–0070)
+- `tasks`: `sampling_required` (BOOLEAN), `sampling_flagged_at`, `sampling_flagged_by`
+- `samples`: `sample_status` ('pending'|'in_progress'|'completed'), `source` ('manual'|'task_completion'), `design_type`
+- Unique index: `(task_id, COALESCE(quality,''), COALESCE(design_type,''))` — allows different fabric/design combinations per task
+
+### 32.6 Flag-sampling-later + role-safe menu (KanbanView row ⋮)
+A **completed** task can be flagged for sampling after the fact: row ⋮ → **"Mark Sampling Required"** → `flagSamplingRequired(taskId)` (idempotent `.eq('sampling_required', false)`) sets the flags **and** calls `createPendingSample`. Once flagged the item reads **"Sampling Flagged ✓"**:
+- **Admin/coordinator** (`isAdmin = isAdminOrCoordinator(role)`) → clicking navigates to `/sampling`.
+- **Designer** → it's a **non-clickable confirmation**. Designers can't open `/sampling` (admin/coord-only route), so navigating there rendered "Access restricted" — gate the navigate on `isAdmin` and render a static `<div>` otherwise.
+
+## 33. FK Coordinator Workflow — auto-created to-dos
+
+When a designer claims a task that needs FK but doesn't have it yet, a coordinator to-do is auto-created so the coordinator knows to add FK details.
+
+### 33.1 Flagging (`lib/fkCoordinatorTask.ts`)
+**`flagFkPendingToCoordinator(taskId, taskCode, designerName)`** fires **ONLY on a successful claim, never on intent.** It's called from the `onClaimed` callback of `<ClaimTaskModal>` (in **both** `KanbanView` and `TaskDetailDrawer`), gated on `isFullKittingBlocking(task)`:
+- A designer who clicks **"Continue Without Full Knitting"** then **closes the form without claiming sends nothing**. (The old bug fired on that button click → the coordinator got a spurious, repeated to-do for a task nobody actually claimed.)
+- The to-do reflects the designer who **actually** claimed — if designer A starts the flow but designer B commits the claim, the coordinator is told about **B**.
+- Calls `create_fk_coordinator_task(p_task_id, p_task_code, p_designer_name)` (SECURITY DEFINER, 0071 → 0072 added `p_task_id`) → inserts a `coordinator_tasks` row with `related_task_id`. **Deduped: one open FK to-do per task.** Best-effort — never blocks the claim.
+
+### 33.2 Auto-close (`lib/fkCoordinatorTask.ts`)
+**`completeFkCoordinatorTask(taskId, taskCode)`** — called by `KittingStageADialog` after successful FK upload:
+- Calls the `complete_fk_coordinator_task` RPC (SECURITY DEFINER, migration 0072)
+- RPC finds the open coordinator_tasks row with `related_task_id = taskId` and marks it completed
+- If no open to-do exists (e.g. FK was added before claim), the RPC is a no-op
+
+### 33.3 DB schema
+- `coordinator_tasks.related_task_id` (UUID FK tasks, ON DELETE SET NULL) — added in migration 0072
+- `create_fk_coordinator_task(p_task_id, p_task_code, p_designer_name)` — SECURITY DEFINER RPC (0072 replaced the 2-arg 0071 version; dedup matches `related_task_id` OR the legacy description)
+- `complete_fk_coordinator_task(p_task_id, p_task_code)` — SECURITY DEFINER RPC (closes every open FK to-do for the task)
+
+### 33.4 Coordinator redirect → focus (the "Add FK ↗" button)
+The coordinator never hunts for the task. In `CoordinatorTasksView`, an FK to-do row (`related_task_id && !is_completed`) shows an **"Add FK ↗"** button → `navigate('/dashboard?status=in_progress&focus=<related_task_id>')`.
+- `KanbanView` reads `?focus=<id>` into `focusTaskId` and **hard-filters the visible table rows to that one task** — applied at the **render level** (`renderStageSection` + `visibleTasks`), NOT in `scoped`, so the pipeline stepper counts stay the **true pipeline totals** (not "1").
+- A **focus banner** above the table shows "Focused on <task_code>" with an **Add Full Knitting** button (opens `KittingStageADialog` via `setFkDrawerTask`) when the task is still FK-blocking, plus a **Clear focus** button (drops the `focus` URL param).
+- Legacy to-dos created before 0072 have `related_task_id = NULL` → no button; the `complete_fk_coordinator_task` description-fallback still closes them.
+
+## 34. Pool Skip & FK Warning Chain
+
+The claim flow for designers includes a multi-step warning chain before the claim modal opens.
+
+### 34.1 Flow: `openClaimOrWarn(task)`
+```
+openClaimOrWarn(task)
+  ↓
+Is this the front-of-queue task? (first eligible pool task by FIFO order)
+  ├─ YES → proceed to FK check
+  └─ NO  → show PoolSkipDialog
+           "This isn't the next task in line. Are you sure you want to skip?"
+           ├─ Confirm → proceed to FK check
+           └─ Cancel → abort
+  ↓
+Does task need FK but FK isn't added yet? (isFullKittingBlocking)
+  ├─ NO  → open ClaimTaskModal
+  └─ YES → show FK Warning Dialog
+           "This task requires Full Kitting details that haven't been added yet.
+            You can still claim it, but completion will be blocked until a
+            coordinator adds the FK details."
+           ├─ Proceed → open ClaimTaskModal (with yellow FK banner)
+           └─ Cancel → abort
+  ↓
+ClaimTaskModal opens — shows full task details, planned deadline input,
+optional fabric picker, optional designType, portion qty for split tasks.
+FK warning banner (yellow) shown inside modal if applicable.
+```
+
+### 34.2 Entry points
+The chain works from three places:
+- **Pool table rows** — "Claim" button triggers `openClaimOrWarn(task)`
+- **Task detail drawer** — "Accept Task" button in the action footer
+- **Pool summary card** — the single-task claim button for designers
+
+### 34.3 ClaimTaskModal FK banner
+When the task needs FK but doesn't have it, `ClaimTaskModal` shows a yellow warning banner at the top: "This task requires Full Kitting — a coordinator will need to add it before you can complete." Non-blocking — the designer can still claim.
+
+## 35. Return to Pool & Handoff
+
+### 35.1 Return to Pool (3 modes)
+Available via the ⋮ row menu on in_progress tasks. `returnToPool(taskId, mode, options?)` in `useTaskMutations`:
+
+| Mode | What happens | When to use |
+|------|-------------|------------|
+| `reset` | Wipes everything — task goes back to pool as if never claimed. `qty_completed=0`, `assigned_to=null`, `status='pool'`, clears `started_at`, `planned_deadline`, `fabric`. | Designer hasn't started any work |
+| `split-pool` | Preserves current designer's work (creates/keeps their assignment). Remaining qty goes back to pool — parent task gets `is_split=true`, `qty_remaining` updated. | Designer did partial work, rest should be first-come |
+| `split-assign` | Same as split-pool but the remaining qty is assigned to a specific other designer (creates their assignment row). | Admin knows who should pick up the rest |
+
+### 35.2 Handoff
+`handoffTask(taskId, toDesignerId, carryForward)` in `useTaskMutations`:
+- Transfers the task to another designer preserving `qty_completed` progress
+- Updates `assigned_to`, resets `started_at` to now, new `planned_deadline` (new designer chooses)
+- `carryForward` includes fields to preserve from the outgoing designer's work
+- Notifies both the outgoing and incoming designers via `sendNotification`
+
+## 36. Switch Component
+
+`@/components/ui/Switch.tsx` — a new toggle component for boolean inputs. Exported from the UI barrel file. Used in PostDoneModal for the "Sampling Required" toggle. Styled with semantic tokens (primary color when on, muted when off). Accessible: proper `role="switch"` + `aria-checked`.

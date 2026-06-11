@@ -108,7 +108,6 @@ interface FormErrors {
   concept?: string;
   description?: string;
   qty?: string;
-  full_kitting_image?: string;
   whatsapp_group?: string;
   whatsapp_received_date?: string;
   whatsapp_received_time?: string;
@@ -231,7 +230,7 @@ function BriefingForm({
   const refFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ---------------- full kitting state ----------------
-  const [requiresFullKitting, setRequiresFullKitting] = useState(false);
+  const [requiresFullKitting, setRequiresFullKitting] = useState(!isDesigner);
   const [fullKittingFile, setFullKittingFile] = useState<File | null>(null);
   const [fullKittingPath, setFullKittingPath] = useState<string | null>(null);
   const [fullKittingPreviewUrl, setFullKittingPreviewUrl] =
@@ -456,9 +455,6 @@ function BriefingForm({
       if (!assignedTo) e.assigned_to = "Choose a designer or Open Pool.";
     }
 
-    if (requiresFullKitting && !fullKittingPath) {
-      e.full_kitting_image = "Upload the Full Knitting reference image.";
-    }
     return e;
   }
 
@@ -479,7 +475,7 @@ function BriefingForm({
     setSplitRows([]);
     setRefFiles([]);
     if (refFileInputRef.current) refFileInputRef.current.value = "";
-    setRequiresFullKitting(false);
+    setRequiresFullKitting(!isDesigner);
     clearFullKittingFile({ removeRemote: true });
     setFullKittingNotes("");
     setShowInlineKittingForm(false);
@@ -598,12 +594,6 @@ function BriefingForm({
     window.setTimeout(() => {
       setUploadingFullKitting(false);
     }, 250);
-    // clear the image-required error once a file lands
-    setErrors((curr) => {
-      if (!curr.full_kitting_image) return curr;
-      const { full_kitting_image: _, ...rest } = curr;
-      return rest;
-    });
   }
 
   function onFullKittingDrop(e: React.DragEvent<HTMLDivElement>) {
@@ -623,11 +613,6 @@ function BriefingForm({
     if (!next) {
       clearFullKittingFile({ removeRemote: true });
       setFullKittingNotes("");
-      setErrors((curr) => {
-        if (!curr.full_kitting_image) return curr;
-        const { full_kitting_image: _, ...rest } = curr;
-        return rest;
-      });
     }
   }
 
@@ -1303,7 +1288,7 @@ function BriefingForm({
           }}
           onDragLeave={() => setDragActive(false)}
           onRemove={() => clearFullKittingFile({ removeRemote: true })}
-          error={submitAttempted ? errors.full_kitting_image : undefined}
+          error={undefined}
           inlineFormEnabled={showInlineKittingForm}
           onInlineFormToggle={setShowInlineKittingForm}
           inlineFormResetKey={kittingFormResetKey}
@@ -1339,8 +1324,7 @@ function BriefingForm({
             loadingText="Creating…"
             disabled={
               submitting ||
-              uploadingFullKitting ||
-              (requiresFullKitting && !fullKittingPath)
+              uploadingFullKitting
             }
             className="gap-2 px-6 shadow-sm shadow-primary/20"
           >
@@ -1503,7 +1487,7 @@ function FullKittingSection({
             Requires Full Knitting submission?
           </p>
           <p className="text-xs text-muted-foreground">
-            Toggle on when a knitting reference image is needed before approval.
+            When on, designer cannot complete the task until the coordinator adds Full Knitting details.
           </p>
         </div>
         <button
@@ -1539,7 +1523,7 @@ function FullKittingSection({
             <div className="space-y-1">
               <Label htmlFor="full-kitting-file">
                 Full Knitting Reference Image
-                <span className="ml-0.5 text-destructive">*</span>
+                <span className="ml-1 text-xs font-normal text-muted-foreground">(optional — can be added later)</span>
               </Label>
               <div
                 onDrop={onDrop}
@@ -1839,7 +1823,7 @@ function SplitRowsBuilder({
           {/* Designer · Qty · Deadline (· remove on desktop). On mobile the
               Designer takes a full row, then Qty + Deadline sit side by side. */}
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-[1fr_64px_110px_28px] sm:items-end">
-            <div className="col-span-2 sm:col-span-1">
+            <div className={cn("col-span-2 sm:col-span-1", rows.length > 2 && "pr-7 sm:pr-0")}>
               <Label className={cn("mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground", idx !== 0 && "sm:hidden")}>
                 Designer <span className="text-destructive">*</span>
               </Label>

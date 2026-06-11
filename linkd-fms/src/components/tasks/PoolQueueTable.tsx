@@ -14,10 +14,10 @@ import {
   Users,
   CircleDot,
   Circle,
+  Layers,
 } from "lucide-react";
 import {
   Badge,
-  ConfirmDialog,
   toast,
 } from "@/components/ui";
 import { usePoolWithGhosts, getMonday } from "@/hooks/useTasks";
@@ -25,6 +25,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { PRIORITY_LABELS, PRIORITY_COLORS } from "@/lib/constants";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { isFullKittingBlocking } from "@/lib/taskHelpers";
 import { supabase } from "@/lib/supabase";
 import type { TaskWithRelations, UserRole } from "@/types/database";
 
@@ -33,8 +34,9 @@ import type { TaskWithRelations, UserRole } from "@/types/database";
 // ============================================================================
 
 export interface PoolQueueTableProps {
-  /** Called when a designer clicks "Claim" (after skip confirmation if needed). */
-  onClaimTask: (taskId: string) => void;
+  /** Called when a designer clicks "Claim". queuePosition is 0-based index
+   *  in the visual claimable queue (this-week first, carry-over second). */
+  onClaimTask: (taskId: string, queuePosition: number) => void;
   /** Called when any row is clicked to open the task detail drawer. */
   onViewTask: (task: TaskWithRelations) => void;
   /** Called when the Edit action is chosen from the row menu. */
@@ -132,74 +134,30 @@ export function PoolQueueTable({
       });
   }, [tasks]);
 
-  // Skip confirmation state
-  const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
-  const [skipTaskId, setSkipTaskId] = useState<string | null>(null);
-  const [skipCount, setSkipCount] = useState(0);
-  const [skipSeq, setSkipSeq] = useState<number | null>(null);
+  // Skip confirmation is now handled by the parent (openClaimOrWarn in KanbanView).
 
   // Compute the current Monday for section headers
   const currentMonday = useMemo(() => getMonday(new Date()), []);
   const currentMondayStr = currentMonday.toISOString().split("T")[0];
 
-  // Split tasks into carry-over and this-week, excluding ghosts from carry-over count
-  const { carryOverTasks, thisWeekTasks, sectionInsertions } = useMemo(() => {
+  // Split tasks into "This Week" vs "Carry Over" by the BRIEFED date
+  // (created_at) — the date shown in the table — so a task briefed THIS week
+  // can never appear under "Carry Over". (The old `pool_week_start` could drift
+  // from the visible date, making a this-week task read as last-week's.) These
+  // groups are rendered as contiguous sections below, independent of the
+  // claim-order sort of `tasks`, so the grouping is always visually correct.
+  const { carryOverTasks, thisWeekTasks } = useMemo(() => {
     const carry: TaskWithRelations[] = [];
     const thisWeek: TaskWithRelations[] = [];
-
+    const briefedWeek = (d: string | null | undefined) =>
+      d ? getMonday(new Date(d)).toISOString().split("T")[0]! : "";
     for (const task of tasks) {
-      const ws = task.pool_week_start;
-      if (ws && ws < currentMondayStr!) {
-        carry.push(task);
-      } else {
-        thisWeek.push(task);
-      }
+      const ws = briefedWeek(task.created_at);
+      if (ws && ws < currentMondayStr!) carry.push(task);
+      else thisWeek.push(task);
     }
-
-    // Build a map of "before index N, insert this section header"
-    const insertions = new Map<number, { label: string; count: number; isCarryOver: boolean }>();
-
-    // Find indices in the combined (already-sorted) `tasks` array
-    let firstCarryIdx = -1;
-    let firstThisWeekIdx = -1;
-
-    for (let i = 0; i < tasks.length; i++) {
-      const ws = tasks[i]!.pool_week_start;
-      const isCarry = ws != null && ws < currentMondayStr!;
-      if (isCarry && firstCarryIdx === -1) firstCarryIdx = i;
-      if (!isCarry && firstThisWeekIdx === -1) firstThisWeekIdx = i;
-    }
-
-    // Count non-ghost tasks per section (includes effective ghosts from live assignment data)
-    const carryActiveCount = carry.filter((t) => !isEffectiveGhost(t)).length;
-    const thisWeekActiveCount = thisWeek.filter((t) => !isEffectiveGhost(t)).length;
-
-    if (firstCarryIdx >= 0 && carry.length > 0) {
-      insertions.set(firstCarryIdx, {
-        label: "Carry Over",
-        count: carryActiveCount,
-        isCarryOver: true,
-      });
-    }
-    if (firstThisWeekIdx >= 0) {
-      insertions.set(firstThisWeekIdx, {
-        label: "This Week",
-        count: thisWeekActiveCount,
-        isCarryOver: false,
-      });
-    }
-    // Edge case: if ALL tasks are this-week (no carry-over), show the "This Week" header at index 0
-    if (firstCarryIdx === -1 && firstThisWeekIdx === -1 && tasks.length > 0) {
-      const allThisWeek = tasks.filter((t) => !isEffectiveGhost(t)).length;
-      insertions.set(0, {
-        label: "This Week",
-        count: allThisWeek,
-        isCarryOver: false,
-      });
-    }
-
-    return { carryOverTasks: carry, thisWeekTasks: thisWeek, sectionInsertions: insertions };
-  }, [tasks, ghostIds, currentMondayStr, splitAssignments]);
+    return { carryOverTasks: carry, thisWeekTasks: thisWeek };
+  }, [tasks, currentMondayStr]);
 
   // Effective remaining: prefer live assignment data over potentially-stale qty_remaining.
   function effectiveRemaining(t: TaskWithRelations): number {
@@ -226,44 +184,15 @@ export function PoolQueueTable({
     !isEffectiveGhost(t) &&
     effectiveRemaining(t) > 0;
 
-  // The first claimable (non-ghost) pool task
-  const firstClaimableSeq = useMemo(() => {
-    const first = tasks.find(isClaimable);
-    return first?.pool_sequence ?? null;
-  }, [tasks, ghostIds, splitAssignments]);
+  // Visual claimable queue: this-week first, carry-over second (matches render order).
+  const claimableQueue = useMemo(() => {
+    return [...thisWeekTasks, ...carryOverTasks].filter(isClaimable);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thisWeekTasks, carryOverTasks, splitAssignments, ghostIds]);
 
   function handleClaimClick(task: TaskWithRelations) {
-    const isFirst =
-      firstClaimableSeq !== null &&
-      task.pool_sequence !== null &&
-      task.pool_sequence === firstClaimableSeq;
-
-    if (isFirst) {
-      onClaimTask(task.id);
-      return;
-    }
-
-    // Count how many non-ghost tasks have a lower pool_sequence
-    const higherPriorityCount = tasks.filter(
-      (t) =>
-        isClaimable(t) &&
-        t.pool_sequence != null &&
-        task.pool_sequence != null &&
-        t.pool_sequence < task.pool_sequence
-    ).length;
-
-    setSkipTaskId(task.id);
-    setSkipCount(higherPriorityCount);
-    setSkipSeq(task.pool_sequence);
-    setSkipConfirmOpen(true);
-  }
-
-  function handleSkipConfirm() {
-    if (skipTaskId) {
-      onClaimTask(skipTaskId);
-    }
-    setSkipConfirmOpen(false);
-    setSkipTaskId(null);
+    const pos = claimableQueue.findIndex((t) => t.id === task.id);
+    onClaimTask(task.id, pos);
   }
 
   // ── Loading / error states ────────────────────────────────────────────
@@ -282,60 +211,77 @@ export function PoolQueueTable({
   }
 
   // ── Render ────────────────────────────────────────────────────────────
+  // Render each group as a contiguous section (NOT by array position) — the
+  // pool is sorted by claim order, so this-week and carry-over tasks can be
+  // interleaved in `tasks`. Grouping them explicitly guarantees a task always
+  // appears under the section matching its Briefed date.
   const rows: React.ReactNode[] = [];
+  let globalIdx = 0;
 
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i]!;
-    const isGhost = isEffectiveGhost(task);
-    const section = sectionInsertions.get(i);
-
-    // Section header row
-    if (section) {
+  const pushSection = (
+    label: string,
+    isCarryOver: boolean,
+    description: string,
+    list: TaskWithRelations[]
+  ) => {
+    if (list.length === 0) return;
+    const activeCount = list.filter((t) => !isEffectiveGhost(t)).length;
+    rows.push(
+      <tr
+        key={`section-${label}`}
+        className={cn("border-b border-border", isCarryOver ? "bg-warning/5" : "bg-secondary/30")}
+      >
+        <td colSpan={99} className="px-3 py-2">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className={cn(
+              "text-[11px] font-bold uppercase tracking-wider",
+              isCarryOver ? "text-warning" : "text-foreground"
+            )}>
+              {label}
+            </span>
+            <span className="text-[11px] font-normal text-muted-foreground">
+              {"·"} {activeCount} to claim
+            </span>
+            <span className="text-[10px] font-normal normal-case text-muted-foreground/80">
+              {description}
+            </span>
+          </div>
+        </td>
+      </tr>
+    );
+    // Clean per-section row number — a continuous 1, 2, 3… per section (no
+    // duplicates or gaps like the raw pool_sequence had). Fully-assigned rows
+    // are still numbered (they stay greyed via the row styling).
+    let n = 0;
+    for (const task of list) {
+      const isGhost = isEffectiveGhost(task);
+      const displayNumber = String(++n);
+      const rowIndex = globalIdx++;
       rows.push(
-        <tr
-          key={`section-${section.label}`}
-          className={cn(
-            "border-b border-border",
-            section.isCarryOver
-              ? "bg-warning/5"
-              : "bg-secondary/30"
-          )}
-        >
-          <td
-            colSpan={99}
-            className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground"
-          >
-            <span className={section.isCarryOver ? "text-warning" : "text-foreground"}>
-              {section.label}
-            </span>
-            <span className="ml-2 font-normal text-muted-foreground">
-              {"·"} {section.count} task{section.count !== 1 ? "s" : ""}
-            </span>
-          </td>
-        </tr>
+        <PoolRow
+          key={task.id}
+          task={task}
+          isGhost={isGhost}
+          isDesigner={isDesigner}
+          isAdmin={isAdmin}
+          role={role}
+          currentUserId={user?.id ?? null}
+          rowIndex={rowIndex}
+          displayNumber={displayNumber}
+          isClaimable={isClaimable(task)}
+          onClaim={() => handleClaimClick(task)}
+          onView={() => onViewTask(task)}
+          onEdit={onEditTask ? () => onEditTask(task) : undefined}
+          onDelete={onDeleteTask ? () => onDeleteTask(task) : undefined}
+          onSplit={onSplitTask ? () => onSplitTask(task) : undefined}
+          assignedDesigners={splitAssignments[task.id]}
+        />
       );
     }
+  };
 
-    rows.push(
-      <PoolRow
-        key={task.id}
-        task={task}
-        isGhost={isGhost}
-        isDesigner={isDesigner}
-        isAdmin={isAdmin}
-        role={role}
-        currentUserId={user?.id ?? null}
-        rowIndex={i}
-        isClaimable={isClaimable(task)}
-        onClaim={() => handleClaimClick(task)}
-        onView={() => onViewTask(task)}
-        onEdit={onEditTask ? () => onEditTask(task) : undefined}
-        onDelete={onDeleteTask ? () => onDeleteTask(task) : undefined}
-        onSplit={onSplitTask ? () => onSplitTask(task) : undefined}
-        assignedDesigners={splitAssignments[task.id]}
-      />
-    );
-  }
+  pushSection("This Week", false, "Briefed this week.", thisWeekTasks);
+  pushSection("Carry Over", true, "Older tasks carried over from previous weeks.", carryOverTasks);
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card">
@@ -375,20 +321,6 @@ export function PoolQueueTable({
       )}
 
       {/* Skip confirmation dialog */}
-      <ConfirmDialog
-        open={skipConfirmOpen}
-        title="Skipping higher-priority tasks"
-        description={`You're choosing task #${skipSeq ?? "?"} while ${skipCount} task${skipCount !== 1 ? "s" : ""} with higher priority ${skipCount !== 1 ? "are" : "is"} available.`}
-        variant="warning"
-        confirmLabel="Claim Anyway"
-        cancelLabel="Cancel"
-        onConfirm={handleSkipConfirm}
-        onCancel={() => {
-          setSkipConfirmOpen(false);
-          setSkipTaskId(null);
-        }}
-      />
-
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           Failed to load pool: {error}
@@ -410,6 +342,8 @@ interface PoolRowProps {
   role: UserRole;
   currentUserId: string | null;
   rowIndex: number;
+  /** Clean per-section claim number ("1", "2", … or "—" for fully-assigned). */
+  displayNumber: string;
   isClaimable: boolean;
   onClaim: () => void;
   onView: () => void;
@@ -427,6 +361,7 @@ function PoolRow({
   role,
   currentUserId,
   rowIndex,
+  displayNumber,
   isClaimable: rowClaimable,
   onClaim,
   onView,
@@ -458,7 +393,8 @@ function PoolRow({
         isGhost && "opacity-50 bg-secondary/20 hover:bg-secondary/30"
       )}
     >
-      {/* # column — pool_sequence */}
+      {/* # column — clean per-section claim number (not the raw pool_sequence,
+          which had duplicates/gaps). "—" for fully-assigned rows. */}
       <td
         className={cn(
           "w-[48px] px-2 py-1.5 text-center align-middle font-mono text-sm font-bold tabular-nums",
@@ -469,7 +405,7 @@ function PoolRow({
               : "text-foreground"
         )}
       >
-        {task.pool_sequence ?? "—"}
+        {displayNumber}
       </td>
 
       {/* Briefed (created_at) */}
@@ -488,6 +424,11 @@ function PoolRow({
           {task.concept || "—"}
           {(task.is_split || (assignedDesigners && assignedDesigners.length > 0) || (task.qty_remaining != null && task.qty_remaining < task.qty)) && (
             <Badge className="ml-1 inline-flex items-center gap-0.5 align-middle text-[8px] bg-primary/10 text-primary border-primary/20 px-1 py-0">Team</Badge>
+          )}
+          {isFullKittingBlocking(task) && (
+            <span className="ml-1 inline-flex items-center gap-0.5 align-middle rounded border border-warning/30 bg-warning/10 px-1 py-0 text-[8px] font-semibold text-warning" title="Full Knitting required — not yet added">
+              <Layers className="h-2.5 w-2.5" />FK
+            </span>
           )}
         </span>
       </td>

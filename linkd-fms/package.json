@@ -11,7 +11,6 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@fontsource-variable/fraunces": "^5.2.9",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@radix-ui/react-avatar": "^1.1.1",
     "@radix-ui/react-dialog": "^1.1.2",

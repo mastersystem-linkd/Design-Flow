@@ -1,8 +1,11 @@
 import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { queryKeys } from "@/lib/queryKeys";
 import { useAuth } from "@/hooks/useAuth";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 import { sendNotification, sendNotificationToRole } from "@/lib/notifications";
+import { createPendingSample } from "@/lib/createPendingSample";
 import type {
   Task,
   TaskInsert,
@@ -109,9 +112,11 @@ export interface UseTaskMutations {
    */
   completeTask: (
     taskId: string,
-    fabric: string,
-    mtr?: number | null
+    opts: { fabric: string; designType?: string; samplingRequired?: boolean }
   ) => Promise<MutationResult<Task>>;
+  /** Flag an already-completed task as needing sampling (status stays
+   *  'completed') and create the pending sample. Idempotent. */
+  flagSamplingRequired: (taskId: string) => Promise<MutationResult<Task>>;
   /** Return a task to the open pool with 3 modes:
    *  - reset: zero out progress, send to pool fresh
    *  - split-pool: preserve designer's work as a sub-task, pool remaining
@@ -260,7 +265,10 @@ function abbrev4(s: string | null | undefined, fallback = "XXXX"): string {
 
 function extractSeq(taskCode: string | null | undefined): string {
   if (!taskCode) return "0000";
-  // grab the LAST run of digits in the code (ORD-YYYY-NNNN puts it at the end)
+  // DF format: "DF NN-..." — seq is the first digits after "DF "
+  const dfMatch = taskCode.match(/^DF\s+(\d+)/);
+  if (dfMatch) return dfMatch[1].padStart(4, "0");
+  // ORD format: "ORD-YYYY-NNNN" — seq is the last digits
   const m = taskCode.match(/(\d+)(?!.*\d)/);
   return m ? m[1].padStart(4, "0") : "0000";
 }
@@ -297,6 +305,37 @@ function buildTaskCode({
   const con = abbrev4(concept);
   const q = Math.max(0, Math.round(qty));
   return `DF ${formatSeqShort(seq)}-${d}${currentMonthYear()}-${con}-${q}M`;
+}
+
+async function fetchProfileName(userId: string): Promise<string> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  return data?.full_name ?? "Unknown";
+}
+
+/**
+ * Build a concise, human-readable task summary for notification messages.
+ * Includes design type, party name, qty — everything the reader needs to
+ * identify the task without looking it up.
+ */
+function taskSummary(t: {
+  concept?: string | null;
+  qty?: number | null;
+  fabric?: string | null;
+  whatsapp_group?: string | null;
+  client?: { party_name?: string } | null;
+}): string {
+  const parts = [
+    t.concept || null,
+    t.client?.party_name || null,
+    t.qty ? `Qty: ${t.qty}` : null,
+    t.fabric || null,
+    t.whatsapp_group || null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "Task";
 }
 
 /**
@@ -411,6 +450,7 @@ function computeStartedLate(
  */
 export function useTaskMutations(): UseTaskMutations {
   const { profile } = useAuth();
+  const queryClient = useQueryClient();
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const setOpPending = useCallback((key: string, value: boolean) => {
@@ -447,12 +487,6 @@ export function useTaskMutations(): UseTaskMutations {
 
       const requiresFullKitting = input.requires_full_kitting === true;
       const fullKittingImageUrl = input.full_kitting_image_url ?? null;
-      if (requiresFullKitting && !fullKittingImageUrl) {
-        return {
-          data: null,
-          error: "Full kitting requires an image upload",
-        };
-      }
 
       const fullKittingSubmittedAt =
         requiresFullKitting && fullKittingImageUrl
@@ -649,9 +683,11 @@ export function useTaskMutations(): UseTaskMutations {
           .select("*")
           .single();
         if (error) return { data: null, error: error.message };
+        const qtyStatus = (data?.status ?? currentStatus) as TaskStatus;
         void supabase.from("task_logs").insert({
           task_id: taskId,
-          status_to: data?.status ?? currentStatus,
+          status_from: qtyStatus,
+          status_to: qtyStatus,
           changed_by: profile.id,
           note: `Progress updated: ${newQty} of ${current.qty}`,
         });
@@ -747,24 +783,51 @@ export function useTaskMutations(): UseTaskMutations {
           return { data: null, error: msg };
         }
 
+        // Activity log — who assigned whom
+        // Use same status for from/to so it renders as note-only (the DB
+        // trigger already inserts the status-transition pill on status changes).
+        const prevId = current.assigned_to as string | null;
+        const newDesignerName = await fetchProfileName(designerId);
+        const logStatus = (data.status ?? current.status) as TaskStatus;
+        if (prevId && prevId !== designerId) {
+          const prevName = await fetchProfileName(prevId);
+          void supabase.from("task_logs").insert({
+            task_id: taskId,
+            status_from: logStatus,
+            status_to: logStatus,
+            changed_by: profile.id,
+            note: `${profile.full_name} reassigned from ${prevName} to ${newDesignerName}`,
+          });
+        } else {
+          void supabase.from("task_logs").insert({
+            task_id: taskId,
+            status_from: logStatus,
+            status_to: logStatus,
+            changed_by: profile.id,
+            note: designerId === profile.id
+              ? `${profile.full_name} accepted task from pool`
+              : `${profile.full_name} assigned to ${newDesignerName}`,
+          });
+        }
+
         // Notify assigned designer
+        const summary = taskSummary(data);
         if (data && designerId !== profile.id) {
           void sendNotification(
             designerId,
             "Task Assigned",
-            `You've been assigned task ${data.task_code ?? taskId}.`,
+            `You've been assigned: ${summary}`,
             "info",
             "/dashboard"
           );
         }
 
         // Notify previous designer when their task is reassigned
-        const prevId = current.assigned_to as string | null;
         if (prevId && prevId !== designerId && prevId !== profile.id) {
           void sendNotification(
             prevId,
             "Task Reassigned",
-            `${data.task_code ?? "A task"} has been reassigned to another designer.`,
+            `Your task has been reassigned: ${summary}`,
             "warning",
             "/dashboard"
           );
@@ -872,11 +935,12 @@ export function useTaskMutations(): UseTaskMutations {
         });
 
         // Notify the receiving designer (pool hand-offs have no single owner).
+        const handoffSummary = taskSummary(data);
         if (target.kind === "designer" && target.designerId !== profile.id) {
           void sendNotification(
             target.designerId,
             "Task carried forward to you",
-            `${data.task_code ?? "A task"} was handed to you (${data.qty_completed}/${data.qty} done). Note: ${reason}`,
+            `${handoffSummary} (${data.qty_completed}/${data.qty} done). Note: ${reason}`,
             "info",
             "/dashboard"
           );
@@ -888,8 +952,8 @@ export function useTaskMutations(): UseTaskMutations {
             prevAssignee,
             target.kind === "designer" ? "Task Handed Off" : "Task Returned to Pool",
             target.kind === "designer"
-              ? `${data.task_code ?? "A task"} was handed to another designer. Note: ${reason}`
-              : `${data.task_code ?? "A task"} was returned to the open pool. Note: ${reason}`,
+              ? `Handed to another designer: ${handoffSummary}. Note: ${reason}`
+              : `Returned to pool: ${handoffSummary}. Note: ${reason}`,
             "warning",
             "/dashboard"
           );
@@ -919,7 +983,7 @@ export function useTaskMutations(): UseTaskMutations {
       try {
         const { data: current, error: fetchErr } = await supabase
           .from("tasks")
-          .select("status, task_code, concept, qty, qty_completed, assigned_to, is_split")
+          .select("status, task_code, concept, qty, qty_completed, assigned_to, is_split, fabric")
           .eq("id", taskId)
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
@@ -948,6 +1012,8 @@ export function useTaskMutations(): UseTaskMutations {
               status: "completed",
               completed_at: nowIso,
               completion_filled_at: nowIso,
+              design_type: (current.concept as string) || null,
+              completion_fabric: (current.fabric as string) || null,
             },
           ];
 
@@ -976,21 +1042,23 @@ export function useTaskMutations(): UseTaskMutations {
 
         // ── Reset / Split-pool: send to pool ──
         if (mode === "reset" || mode === "split-pool") {
-          const seq = extractSeq(current.task_code);
-          const poolCode = buildTaskCode({
-            designerLetter: "P",
-            seq,
-            concept: current.concept,
-            qty: current.qty,
-          });
-
+          // Reset = fully fresh: clear any leftover split state (a stale
+          // task_assignment / qty_remaining / is_split from a PRIOR claim made
+          // the re-claim modal think the task was fully assigned, disabling the
+          // Claim button). Deleting the assignments first lets the recalc
+          // trigger reconcile; the update then forces it back to pool. Split
+          // modes keep their assignments (that's the whole point).
+          if (mode === "reset") {
+            await supabase.from("task_assignments").delete().eq("task_id", taskId);
+          }
           const { data, error } = await supabase
             .from("tasks")
             .update({
               assigned_to: null,
               status: "pool" as TaskStatus,
-              task_code: poolCode,
-              ...(mode === "reset" ? { qty_completed: 0 } : {}),
+              ...(mode === "reset"
+                ? { qty_completed: 0, qty_remaining: null, is_split: false }
+                : {}),
             })
             .eq("id", taskId)
             .select("*")
@@ -998,24 +1066,31 @@ export function useTaskMutations(): UseTaskMutations {
           if (error) return { data: null, error: error.message };
           if (!data) return { data: null, error: "Couldn't return to pool." };
 
+          const prevName = prevAssignee ? await fetchProfileName(prevAssignee) : null;
+          const splitDetails = [
+            prevName ? `${prevName}'s ${qtyDone}/${current.qty} preserved` : `${qtyDone}/${current.qty} preserved`,
+            current.concept ? `Type: ${current.concept}` : null,
+            current.fabric ? `Fabric: ${current.fabric}` : null,
+          ].filter(Boolean).join(", ");
+
           void supabase.from("task_logs").insert({
             task_id: taskId,
             status_from: current.status as TaskStatus,
             status_to: "pool" as TaskStatus,
             changed_by: profile.id,
             note: mode === "reset"
-              ? "Returned to pool — progress reset"
-              : `Returned to pool — ${qtyDone}/${current.qty} preserved as sub-task`,
+              ? `Returned to pool — progress reset${prevName ? ` (was with ${prevName})` : ""}`
+              : `Returned to pool — ${splitDetails}`,
           });
 
           if (prevAssignee && prevAssignee !== profile.id) {
-            const code = current.task_code ?? "A task";
+            const returnSummary = taskSummary(current);
             void sendNotification(
               prevAssignee,
               mode === "reset" ? "Task Returned to Pool" : "Task Split — Your Progress Saved",
               mode === "reset"
-                ? `${code} was returned to pool. Your progress was reset.`
-                : `Your ${qtyDone} designs on ${code} were saved. The remaining ${current.qty - qtyDone} are back in the pool.`,
+                ? `Returned to pool (progress reset): ${returnSummary}`
+                : `Your ${qtyDone} designs saved. Remaining ${current.qty - qtyDone} back in pool: ${returnSummary}`,
               mode === "reset" ? "warning" : "info",
               "/dashboard"
             );
@@ -1033,20 +1108,22 @@ export function useTaskMutations(): UseTaskMutations {
           .maybeSingle();
         if (error) return { data: null, error: error.message };
 
+        const splitPrevName = prevAssignee ? await fetchProfileName(prevAssignee) : "original designer";
+        const splitAssignName = opts?.assignToDesignerId ? await fetchProfileName(opts.assignToDesignerId) : "new designer";
         void supabase.from("task_logs").insert({
           task_id: taskId,
           status_from: current.status as TaskStatus,
           status_to: "in_progress" as TaskStatus,
           changed_by: profile.id,
-          note: `Split: ${qtyDone} preserved for original designer, remaining assigned to new designer`,
+          note: `Split: ${splitPrevName}'s ${qtyDone} designs preserved, remaining ${current.qty - qtyDone} assigned to ${splitAssignName}`,
         });
 
+        const splitSummary = taskSummary(current);
         if (prevAssignee && prevAssignee !== profile.id) {
-          const code = current.task_code ?? "A task";
           void sendNotification(
             prevAssignee,
             "Task Split — Your Progress Saved",
-            `Your ${qtyDone} designs on ${code} were saved. Remaining assigned to another designer.`,
+            `Your ${qtyDone} designs saved. Remaining assigned to ${splitAssignName}: ${splitSummary}`,
             "info",
             "/dashboard"
           );
@@ -1057,7 +1134,7 @@ export function useTaskMutations(): UseTaskMutations {
           void sendNotification(
             opts.assignToDesignerId,
             "Task Assignment",
-            `You've been assigned ${remaining} designs on ${current.task_code ?? "a task"}`,
+            `You've been assigned ${remaining} designs: ${splitSummary}`,
             "info",
             "/dashboard"
           );
@@ -1135,13 +1212,23 @@ export function useTaskMutations(): UseTaskMutations {
 
         if (error) return { data: null, error: error.message };
 
+        // Activity log (note-only — DB trigger handles the status pill)
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: "in_progress" as TaskStatus,
+          status_to: "in_progress" as TaskStatus,
+          changed_by: profile.id,
+          note: `${profile.full_name} claimed task from pool`,
+        });
+
         // Best-effort: notify previous assignee if there was one
+        const selfSummary = taskSummary(data);
         if (previousAssignee && previousAssignee !== profile.id) {
           try {
             void sendNotification(
               previousAssignee,
               "Task reassigned",
-              `Task ${newCode} was claimed by ${profile.full_name}.`,
+              `Claimed by ${profile.full_name}: ${selfSummary}`,
               "info",
               "/dashboard"
             );
@@ -1150,18 +1237,10 @@ export function useTaskMutations(): UseTaskMutations {
           }
         }
 
-        // Inform admins + coordinators that the pool just shrunk by one —
-        // gives them visibility into who's pulling work without polling.
-        const details = [
-          data.concept ? `Design: ${data.concept}` : null,
-          data.qty ? `Qty: ${data.qty}` : null,
-          data.planned_deadline ? `Deadline: ${new Date(data.planned_deadline).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : null,
-          data.priority === "urgent" ? "⚡ Urgent" : null,
-        ].filter(Boolean).join(" · ");
         void sendNotificationToRole(
           ["admin", "design_coordinator"],
           "Task Claimed from Pool",
-          `${profile.full_name} claimed "${data.concept || "Task"}" — ${details}`,
+          `${profile.full_name} claimed: ${selfSummary}`,
           "info",
           "/dashboard"
         );
@@ -1277,18 +1356,31 @@ export function useTaskMutations(): UseTaskMutations {
 
         if (claimError) return { data: null, error: claimError.message };
         if (!claimed) {
-          // Lost the race — the row left 'pool' between our read and write.
-          // Surface who grabbed it (and when) instead of a generic message.
           const msg = await fetchClaimedByMessage(chosen.id);
           return { data: null, error: msg };
         }
 
+        // Activity log (note-only — DB trigger handles the status pill)
+        const claimDetails = [
+          `Deadline: ${new Date(plannedDeadline).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`,
+          fab ? `Fabric: ${fab}` : null,
+          dt ? `Design type: ${dt}` : null,
+        ].filter(Boolean).join(", ");
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: "in_progress" as TaskStatus,
+          status_to: "in_progress" as TaskStatus,
+          changed_by: profile.id,
+          note: `${profile.full_name} claimed task from pool (${claimDetails})`,
+        });
+
         // STEP D — notify coordinators (best-effort)
         try {
+          const claimSummary = taskSummary(claimed);
           void sendNotificationToRole(
             ["admin", "design_coordinator"],
             "Task Claimed from Pool",
-            `${profile.full_name} claimed "${claimed.concept || "Task"}"${claimed.task_code ? ` (${claimed.task_code})` : ""}`,
+            `${profile.full_name} claimed: ${claimSummary}`,
             "info",
             "/dashboard"
           );
@@ -1314,14 +1406,18 @@ export function useTaskMutations(): UseTaskMutations {
       const key = `markDone:${taskId}`;
       setOpPending(key, true);
       try {
-        // Fetch assigned_at to compute delay
+        // Fetch assigned_at to compute delay + FK check
         const { data: current, error: fetchErr } = await supabase
           .from("tasks")
-          .select("assigned_at, status")
+          .select("assigned_at, status, requires_full_kitting, full_kitting_image_url, full_kitting_details!full_kitting_details_task_id_fkey(id)")
           .eq("id", taskId)
           .single();
         if (fetchErr) return { data: null, error: fetchErr.message };
         if (!current) return { data: null, error: "Task not found" };
+        // FK gate: block marking done when FK is required but not added
+        if (current.requires_full_kitting && !current.full_kitting_image_url && !current.full_kitting_details) {
+          return { data: null, error: "Full Knitting details must be added by the coordinator before you can complete this task." };
+        }
 
         const completedAt = new Date();
         let delayDays: number | null = null;
@@ -1347,15 +1443,20 @@ export function useTaskMutations(): UseTaskMutations {
 
         if (error) return { data: null, error: error.message };
 
-        const doneDetails = [
-          data.concept ? `Design: ${data.concept}` : null,
-          data.qty ? `Qty: ${data.qty}` : null,
-          data.qty_completed ? `Done: ${data.qty_completed}` : null,
-        ].filter(Boolean).join(" · ");
+        // Activity log (note-only — DB trigger handles the status pill)
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: "done" as TaskStatus,
+          status_to: "done" as TaskStatus,
+          changed_by: profile.id,
+          note: `${profile.full_name} marked task as done (${data.qty_completed ?? 0}/${data.qty} completed${delayDays !== null ? `, ${delayDays} day${delayDays === 1 ? "" : "s"} turnaround` : ""})`,
+        });
+
+        const doneSummary = taskSummary(data);
         void sendNotification(
           profile.id,
           "Task Completed",
-          `You completed "${data.concept || "Task"}" — ${doneDetails}. Great work!`,
+          `You completed: ${doneSummary} (${data.qty_completed ?? 0}/${data.qty} done)`,
           "success",
           "/dashboard"
         );
@@ -1363,7 +1464,7 @@ export function useTaskMutations(): UseTaskMutations {
         void sendNotificationToRole(
           ["admin", "design_coordinator"],
           "Task Completed",
-          `${profile.full_name} completed "${data.concept || "Task"}" — ${doneDetails}`,
+          `${profile.full_name} completed: ${doneSummary} (${data.qty_completed ?? 0}/${data.qty} done)`,
           "success",
           "/dashboard"
         );
@@ -1377,31 +1478,52 @@ export function useTaskMutations(): UseTaskMutations {
   );
 
   // --------------------------------------------------------------------
-  // completeTask — done → completed with fabric + mtr
+  // completeTask — done → completed with fabric + sampling
   // --------------------------------------------------------------------
   const completeTask = useCallback<UseTaskMutations["completeTask"]>(
-    async (taskId, fabric, mtr) => {
+    async (taskId, opts) => {
       if (!profile) return { data: null, error: "Not authenticated" };
-      const fab = (fabric ?? "").trim();
+      const fab = (opts.fabric ?? "").trim();
       if (!fab) {
         return { data: null, error: "Fabric is required to complete this task." };
       }
 
+      // Belt-and-suspenders: verify FK gate before allowing completion.
+      // UI callers already check this, but guard the mutation too.
+      const { data: taskCheck } = await supabase
+        .from("tasks")
+        .select("requires_full_kitting, full_kitting_image_url, full_kitting_details!full_kitting_details_task_id_fkey(id)")
+        .eq("id", taskId)
+        .maybeSingle();
+      if (taskCheck?.requires_full_kitting && !taskCheck.full_kitting_image_url && !taskCheck.full_kitting_details) {
+        return { data: null, error: "Full Knitting details must be added before completing this task." };
+      }
+
+      const samplingRequired = opts.samplingRequired ?? false;
+      const now = new Date().toISOString();
+
       const key = `complete:${taskId}`;
       setOpPending(key, true);
       try {
+        const patch: Record<string, unknown> = {
+          status: "completed" as const,
+          completion_fabric: fab,
+          completion_filled_by: profile.id,
+          completion_filled_at: now,
+          sampling_required: samplingRequired,
+          sampling_flagged_at: samplingRequired ? now : null,
+          sampling_flagged_by: samplingRequired ? profile.id : null,
+        };
+        if (opts.designType?.trim()) {
+          patch.concept = opts.designType.trim();
+        }
+
         const { data, error } = await supabase
           .from("tasks")
-          .update({
-            status: "completed" as const,
-            completion_fabric: fab,
-            completion_mtr: mtr ?? null,
-            completion_filled_by: profile.id,
-            completion_filled_at: new Date().toISOString(),
-          })
+          .update(patch)
           .eq("id", taskId)
-          .eq("status", "done") // only valid from the 'done' intermediate state
-          .select("*")
+          .eq("status", "done")
+          .select("*, client:clients!tasks_client_id_fkey(id, party_name)")
           .maybeSingle();
 
         if (error) return { data: null, error: error.message };
@@ -1412,12 +1534,24 @@ export function useTaskMutations(): UseTaskMutations {
           };
         }
 
+        // Activity log (note-only — DB trigger handles the status pill)
+        const logParts = [`Fabric: ${fab}`];
+        if (samplingRequired) logParts.push("Sampling: Yes");
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: "completed" as TaskStatus,
+          status_to: "completed" as TaskStatus,
+          changed_by: profile.id,
+          note: `${profile.full_name} completed task (${logParts.join(", ")})`,
+        });
+
         // Notify coordinators that a task is fully closed out.
         try {
+          const completeSummary = taskSummary(data);
           void sendNotificationToRole(
             ["admin", "design_coordinator"],
             "Task Fully Completed",
-            `${profile.full_name} completed "${data.concept || "Task"}" — Fabric: ${fab} · Qty: ${data.qty}`,
+            `${profile.full_name} completed: ${completeSummary}`,
             "success",
             "/dashboard"
           );
@@ -1425,12 +1559,86 @@ export function useTaskMutations(): UseTaskMutations {
           // non-critical
         }
 
-        return { data, error: null };
+        // Auto-create a pending sample row when sampling is flagged, then
+        // refresh the Sampling page (Pending tab) so it appears immediately.
+        if (samplingRequired) {
+          await createPendingSample({
+            taskId: data.id,
+            fabric: fab,
+            designType: opts.designType?.trim() || data.concept || null,
+            createdBy: profile.id,
+            summary: taskSummary(data),
+          });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.samples.all });
+        }
+
+        return { data: data as Task, error: null };
       } finally {
         setOpPending(key, false);
       }
     },
-    [profile, setOpPending]
+    [profile, setOpPending, queryClient]
+  );
+
+  // --------------------------------------------------------------------
+  // flagSamplingRequired — flag an already-completed task for sampling later
+  // --------------------------------------------------------------------
+  const flagSamplingRequired = useCallback<UseTaskMutations["flagSamplingRequired"]>(
+    async (taskId) => {
+      if (!profile) return { data: null, error: "Not authenticated" };
+      const key = `flagSampling:${taskId}`;
+      setOpPending(key, true);
+      try {
+        const { data, error } = await supabase
+          .from("tasks")
+          .update({
+            sampling_required: true,
+            sampling_flagged_at: new Date().toISOString(),
+            sampling_flagged_by: profile.id,
+          })
+          .eq("id", taskId)
+          .eq("sampling_required", false) // idempotent — only the first flag wins
+          .select("*, client:clients!tasks_client_id_fkey(id, party_name)")
+          .maybeSingle();
+
+        if (error) return { data: null, error: error.message };
+        if (!data) {
+          // Empty result = either the idempotency guard (already flagged) OR an
+          // RLS denial — both return no rows, so phrase it for both honestly.
+          return {
+            data: null,
+            error: "Couldn't flag this task for sampling — it may already be flagged, or you may not have permission.",
+          };
+        }
+
+        // Task status stays 'completed' — we only set the sampling flags and
+        // create the pending sample (idempotent). Reachable for NON-split tasks
+        // only (the flag-later UI is gated on !is_split); split tasks are
+        // sampled per-portion via completePortion.
+        await createPendingSample({
+          taskId: data.id,
+          fabric: data.completion_fabric ?? null,
+          designType: data.concept ?? null,
+          createdBy: profile.id,
+          summary: taskSummary(data),
+        });
+        void supabase.from("task_logs").insert({
+          task_id: taskId,
+          status_from: "completed" as TaskStatus,
+          status_to: "completed" as TaskStatus,
+          changed_by: profile.id,
+          note: `${profile.full_name} flagged this task for sampling`,
+        });
+        // Self-invalidate so callers (incl. the leaf row ⋮ menu) refresh without
+        // threading a refetch: the task row + the Pending Samples badge update.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.samples.all });
+        return { data: data as Task, error: null };
+      } finally {
+        setOpPending(key, false);
+      }
+    },
+    [profile, setOpPending, queryClient]
   );
 
   // --------------------------------------------------------------------
@@ -1443,11 +1651,6 @@ export function useTaskMutations(): UseTaskMutations {
       const key = `updateTask:${taskId}`;
       setOpPending(key, true);
       try {
-        // .maybeSingle() instead of .single() — when RLS hides the row from
-        // SELECT (e.g. a designer tries to update a task they don't own),
-        // PostgREST returns the "Cannot coerce the result to a single JSON
-        // object" error from .single(). maybeSingle returns null without
-        // throwing, and we surface a clear permission message ourselves.
         const { data, error } = await supabase
           .from("tasks")
           .update(fields)
@@ -1461,6 +1664,34 @@ export function useTaskMutations(): UseTaskMutations {
             error: "You don't have permission to update this task.",
           };
         }
+
+        // Activity log — summarize which fields changed
+        const fieldLabels: Record<string, string> = {
+          concept: "Design type", description: "Description", fabric: "Fabric",
+          qty: "Quantity", priority: "Priority", planned_deadline: "Deadline",
+          whatsapp_group: "WhatsApp group", assigned_by: "Assigned by",
+          client_id: "Party name", brief_type: "Brief type",
+          whatsapp_received_date: "Message date", whatsapp_received_time: "Message time",
+          assigned_to: "Assigned to", notes: "Notes",
+        };
+        const changedKeys = Object.keys(fields).filter((k) => k !== "completion_fabric");
+        const labels = changedKeys.map((k) => fieldLabels[k] ?? k);
+        if (labels.length > 0) {
+          // If assigned_to changed, resolve the name
+          let assignNote = "";
+          if (fields.assigned_to) {
+            const assigneeName = await fetchProfileName(fields.assigned_to);
+            assignNote = ` → ${assigneeName}`;
+          }
+          void supabase.from("task_logs").insert({
+            task_id: taskId,
+            status_from: data.status as TaskStatus,
+            status_to: data.status as TaskStatus,
+            changed_by: profile.id,
+            note: `${profile.full_name} edited: ${labels.join(", ")}${assignNote}`,
+          });
+        }
+
         return { data, error: null };
       } finally {
         setOpPending(key, false);
@@ -1522,6 +1753,7 @@ export function useTaskMutations(): UseTaskMutations {
     getNextPoolTasks,
     markTaskDone,
     completeTask,
+    flagSamplingRequired,
     updateTask,
     deleteTask,
     pending,

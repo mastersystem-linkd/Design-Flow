@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   ArrowDownToLine,
@@ -7,9 +7,11 @@ import {
   Layers,
   ExternalLink,
   Sparkles,
+  History,
+  ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 import confetti from "canvas-confetti";
-import { formatDistanceToNow } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -22,8 +24,10 @@ import { LoadingButton } from "@/components/ui/LoadingButton";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toaster";
 import { Combobox } from "@/components/ui/Combobox";
+import { formatDistanceToNow as fmtDist } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { kittingDetailPath } from "@/lib/routes";
+import { cn } from "@/lib/utils";
 import { useFabrics } from "@/hooks/useFabrics";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
 import {
@@ -31,6 +35,7 @@ import {
   type PoolTaskPreview,
 } from "@/hooks/useTaskMutations";
 import { useTaskAssignments } from "@/hooks/useTaskAssignments";
+import type { TaskAssignmentWithDesigner } from "@/types/database";
 
 const REF_FILE_BUCKET = "design-files";
 
@@ -45,6 +50,15 @@ interface KittingPreview {
   id: string;
   imageUrl: string | null;
   status: string;
+}
+
+interface TaskLogEntry {
+  id: string;
+  status_from: string | null;
+  status_to: string;
+  note: string | null;
+  timestamp: string;
+  changer: { full_name: string } | null;
 }
 
 interface ClaimTaskModalProps {
@@ -85,6 +99,7 @@ export function ClaimTaskModal({
   const [files, setFiles] = useState<RefFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [kitting, setKitting] = useState<KittingPreview | null>(null);
+  const [logs, setLogs] = useState<TaskLogEntry[]>([]);
 
   // Load existing assignments for the task (split tasks show who's already working)
   const { assignments, totalAssigned, claimPortion, isLoading: assignmentsLoading } = useTaskAssignments(
@@ -159,7 +174,7 @@ export function ClaimTaskModal({
 
   useEffect(() => {
     const taskId = task?.id;
-    if (!open || !taskId) { setFiles([]); setKitting(null); return; }
+    if (!open || !taskId) { setFiles([]); setKitting(null); setLogs([]); return; }
     let cancelled = false;
     setFilesLoading(true);
     void supabase
@@ -172,7 +187,6 @@ export function ClaimTaskModal({
         setFiles((data as RefFile[]) ?? []);
         setFilesLoading(false);
       });
-    // FK image + form status
     void supabase
       .from("full_kitting_details")
       .select("id, image_url, data_entry_status")
@@ -185,6 +199,15 @@ export function ClaimTaskModal({
           imageUrl: data.image_url,
           status: data.data_entry_status,
         });
+      });
+    void supabase
+      .from("task_logs")
+      .select("id, status_from, status_to, note, timestamp, changer:profiles!task_logs_changed_by_fkey(full_name)")
+      .eq("task_id", taskId)
+      .order("timestamp", { ascending: false })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setLogs((data as unknown as TaskLogEntry[]) ?? []);
       });
     return () => { cancelled = true; };
   }, [open, task?.id]);
@@ -247,8 +270,9 @@ export function ClaimTaskModal({
         className="max-w-[780px] max-h-[92vh] overflow-y-auto p-0"
         srTitle="Claim next task"
       >
-        {/* ── Header banner ── */}
-        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card px-4 py-2">
+        {/* ── Header banner ── (pr-12 keeps the priority badge clear of the
+            dialog's absolute close ✕ at right-4) */}
+        <div className="relative overflow-hidden border-b border-primary/15 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-card py-2 pl-4 pr-12">
           <div className="flex items-center gap-2">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20">
               <ArrowDownToLine className="h-3.5 w-3.5" />
@@ -259,7 +283,7 @@ export function ClaimTaskModal({
               </h1>
               {hasTask && receivedRef && (
                 <p className="text-[10px] text-muted-foreground">
-                  Received {formatDistanceToNow(new Date(receivedRef))} ago
+                  Received {fmtDist(new Date(receivedRef))} ago
                 </p>
               )}
             </div>
@@ -289,25 +313,75 @@ export function ClaimTaskModal({
               {/* Task details card */}
               <TaskDetails task={task} files={files} filesLoading={filesLoading} kitting={kitting} />
 
+              {/* FK gate warning — task requires Full Knitting but it hasn't been added */}
+              {task.requires_full_kitting && !task.full_kitting_image_url && !kitting && (
+                <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-sm font-semibold text-warning">Full Knitting Not Added Yet</p>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        This task requires Full Knitting, but the coordinator hasn&apos;t added it yet.
+                        You can claim and start working, but you <span className="font-semibold text-foreground">won&apos;t be able to complete</span> until the coordinator adds the Full Knitting details.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Carry-forward banner */}
+              {task.carry_forward_note && (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
+                    <ArrowRight className="h-3 w-3" />
+                    Carried forward
+                    {task.qty_completed ? ` · ${task.qty_completed}/${task.qty} done` : ""}
+                  </div>
+                  <p className="mt-1 text-xs text-foreground">{task.carry_forward_note}</p>
+                </div>
+              )}
+
               {/* Already working — show existing assignments */}
               {assignments.length > 0 && (
                 <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                     Already working ({totalAssigned}/{task.qty} assigned)
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="space-y-1.5">
                     {assignments.map((a) => (
-                      <span
+                      <div
                         key={a.id}
-                        className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-foreground"
+                        className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5"
                       >
-                        {a.designer?.full_name ?? "Unknown"}
-                        <span className="tabular-nums text-muted-foreground">({a.qty_assigned})</span>
-                      </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs font-semibold text-foreground">
+                            {a.designer?.full_name ?? "Unknown"}
+                          </span>
+                          <span className="ml-1.5 tabular-nums text-[11px] text-muted-foreground">
+                            {a.qty_completed}/{a.qty_assigned}
+                          </span>
+                          {(a.design_type || a.completion_fabric) && (
+                            <p className="text-[10px] text-muted-foreground">
+                              {[
+                                a.design_type ? `Type: ${a.design_type}` : null,
+                                a.completion_fabric ? `Fabric: ${a.completion_fabric}` : null,
+                              ].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                        {(a.status === "completed" || a.status === "done") && (
+                          <span className="shrink-0 rounded bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
+                            Done
+                          </span>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              {/* Task History — completed assignments + activity log */}
+              <TaskHistory assignments={assignments} logs={logs} />
 
               {/* Available-to-claim hint — shown whenever portion claiming is
                   offered so the designer knows they can take a slice. */}
@@ -523,6 +597,198 @@ function FileChip({ file }: { file: RefFile }) {
       <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
       <span className="max-w-[120px] truncate">{file.file_name}</span>
     </button>
+  );
+}
+
+// ── Status label helpers ────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<string, string> = {
+  pool: "Pool",
+  in_progress: "In Progress",
+  done: "Done",
+  completed: "Completed",
+  todo: "To Do",
+  full_kitting: "Full Kitting",
+};
+
+function statusLabel(s: string): string {
+  return STATUS_LABEL[s] ?? s;
+}
+
+// ── Task History (activity log + completed assignments) ─────────────────────
+
+function TaskHistory({
+  assignments,
+  logs,
+}: {
+  assignments: TaskAssignmentWithDesigner[];
+  logs: TaskLogEntry[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const completedAssignments = assignments.filter(
+    (a) => a.status === "completed" || a.status === "done"
+  );
+
+  const meaningfulLogs = useMemo(() => {
+    return logs.filter((l) => {
+      if (!l.status_from && l.note === "Task created") return true;
+      if (l.note) return true;
+      if (l.status_from && l.status_to && statusLabel(l.status_from) !== statusLabel(l.status_to)) return true;
+      return false;
+    });
+  }, [logs]);
+
+  if (completedAssignments.length === 0 && meaningfulLogs.length <= 1) return null;
+
+  const visibleLogs = expanded ? meaningfulLogs : meaningfulLogs.slice(0, 4);
+
+  return (
+    <section className="rounded-xl border border-border bg-secondary/20">
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+      >
+        <History className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Task History
+        </span>
+        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+          {meaningfulLogs.length}
+        </span>
+        <ChevronDown
+          className={cn(
+            "ml-auto h-3.5 w-3.5 text-muted-foreground transition-transform",
+            expanded && "rotate-180"
+          )}
+        />
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border/40 px-4 py-3 space-y-3">
+          {/* Completed work by previous designers */}
+          {completedAssignments.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Previous work
+              </p>
+              {completedAssignments.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-foreground">
+                      {a.designer?.full_name ?? "Designer"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {[
+                        `${a.qty_completed}/${a.qty_assigned} designs`,
+                        a.design_type ? `Type: ${a.design_type}` : null,
+                        a.completion_fabric ? `Fabric: ${a.completion_fabric}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-md bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
+                    Completed
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Activity timeline */}
+          {meaningfulLogs.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Activity log
+              </p>
+              <ol className="space-y-0">
+                {visibleLogs.map((l, i) => {
+                  const when = new Date(l.timestamp);
+                  const actor = l.changer?.full_name ?? "System";
+                  const sameLabel =
+                    l.status_from &&
+                    l.status_to &&
+                    statusLabel(l.status_from) === statusLabel(l.status_to);
+                  const isNoteOnly = sameLabel && !!l.note;
+                  const isCreation = !l.status_from;
+
+                  return (
+                    <li key={l.id} className="flex gap-2.5">
+                      <div className="flex flex-col items-center">
+                        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border bg-card">
+                          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                        </span>
+                        {i < visibleLogs.length - 1 && (
+                          <span className="mt-0.5 w-px flex-1 bg-border" />
+                        )}
+                      </div>
+                      <div className={cn("min-w-0 flex-1", i < visibleLogs.length - 1 ? "pb-2.5" : "pb-0")}>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-xs font-semibold text-foreground">
+                            {actor}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                            {fmtDist(when, { addSuffix: true })}
+                          </span>
+                        </div>
+                        {isNoteOnly ? (
+                          <p className="mt-0.5 text-[11px] text-foreground">{l.note}</p>
+                        ) : (
+                          <>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                              {isCreation ? (
+                                <span>created this task</span>
+                              ) : l.status_from ? (
+                                <>
+                                  <span>moved</span>
+                                  <span className="rounded bg-secondary px-1 py-0.5 text-[10px] font-medium text-foreground">
+                                    {statusLabel(l.status_from)}
+                                  </span>
+                                  <ArrowRight className="h-2.5 w-2.5" />
+                                  <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+                                    {statusLabel(l.status_to)}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>set to</span>
+                                  <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+                                    {statusLabel(l.status_to)}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                            {l.note && (
+                              <p className="mt-1 rounded-md bg-secondary/50 px-2 py-1 text-[11px] text-foreground">
+                                {l.note}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              {!expanded && meaningfulLogs.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(true)}
+                  className="text-[10px] font-medium text-primary hover:underline"
+                >
+                  Show all {meaningfulLogs.length} entries
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

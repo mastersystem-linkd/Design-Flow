@@ -45,6 +45,9 @@ import {
 } from "@/hooks/useSamples";
 import { useProfiles } from "@/hooks/useProfiles";
 import { SamplingFormDialog } from "@/components/sampling/SamplingFormDialog";
+import { PendingSamplesPanel } from "@/components/sampling/PendingSamplesPanel";
+import { SampleDevelopmentDialog } from "@/components/sampling/SampleDevelopmentDialog";
+import { TaskDetailDrawer } from "@/components/tasks/TaskDetailDrawer";
 import { BatchSampleEntry } from "@/components/sampling/BatchSampleEntry";
 import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
 import { AlertBanner } from "@/components/analytics/AlertBanner";
@@ -86,6 +89,7 @@ import { isAdminOrCoordinator } from "@/lib/permissions";
 import { kittingDetailPath } from "@/lib/routes";
 import { getKittingBySample } from "@/lib/kittingQueries";
 import { ConfirmDialog } from "@/components/ui";
+import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 import {
   TABLE_HEAD,
   TABLE_TH,
@@ -125,7 +129,7 @@ export function ProductionView() {
   // operational view). "dashboard" = analytics rollups. Two distinct mental
   // modes — coordinators bounce between them, so a tab is cheaper than a
   // separate route.
-  const [tab, setTab] = useState<"samples" | "dashboard">("samples");
+  const [tab, setTab] = useState<"samples" | "pending" | "dashboard">("samples");
 
   // ── Sample filters ──
   const [customerSearch, setCustomerSearch] = useState("");
@@ -135,6 +139,9 @@ export function ProductionView() {
     () => ({
       customerName: customerSearch.trim() || undefined,
       status: statusFilter === "all" ? undefined : statusFilter,
+      // "Completed Samples" tab hides pending task-samples — they appear here
+      // only after a coordinator processes (saves) them from the Pending tab.
+      excludePendingTaskSamples: true,
     }),
     [customerSearch, statusFilter]
   );
@@ -156,6 +163,26 @@ export function ProductionView() {
 
   const visibleSamples = samples.slice(samplePg.from, samplePg.to + 1);
 
+  // Pending samples (auto-created from task completion or Sales ERP, awaiting processing).
+  // Runs regardless of the active tab so the tab badge count stays live.
+  const pendingFilters: SampleFilters = useMemo(
+    () => ({ source: ["task_completion", "sales_erp"], sampleStatus: "pending" }),
+    []
+  );
+  const pending = useSamples(pendingFilters);
+
+  // Linked-task drawer (opened from a pending sample's UID).
+  const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
+
+  function handleProcessPending(sample: SampleWithTask) {
+    // Just open the pre-filled form — the sample STAYS 'pending' (and in this
+    // tab) until the coordinator actually SAVES it. Saving advances it to
+    // in_progress/completed (see SamplingFormDialog). Cancelling leaves it
+    // pending, so opening + closing the form no longer removes it.
+    setEditSample(sample);
+    setFormOpen(true);
+  }
+
   // ── State ──
   const navigate = useNavigate();
   const [formOpen, setFormOpen] = useState(false);
@@ -163,6 +190,9 @@ export function ProductionView() {
   const [editSample, setEditSample] = useState<SampleWithTask | Sample | null>(null);
   const [deleteSampleTarget, setDeleteSampleTarget] = useState<SampleWithTask | Sample | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Development dialog for ERP samples
+  const [devDialogSample, setDevDialogSample] = useState<SampleWithTask | null>(null);
 
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -343,9 +373,10 @@ export function ProductionView() {
             horizontally on phones instead of wrapping to a second row. */}
         <div className="no-scrollbar touch-scroll-x -mx-3 inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-card p-0.5 sm:mx-0">
           {([
-            { id: "samples" as const, label: "Samples", icon: Package },
-            { id: "dashboard" as const, label: "Sample Dashboard", icon: BarChart3 },
-          ]).map(({ id, label, icon: Icon }) => (
+            { id: "samples" as const, label: "Completed Samples", icon: Package, badge: 0 },
+            { id: "pending" as const, label: "Pending Samples", icon: Clock, badge: pending.totalCount },
+            { id: "dashboard" as const, label: "Sample Dashboard", icon: BarChart3, badge: 0 },
+          ]).map(({ id, label, icon: Icon, badge }) => (
             <button
               key={id}
               type="button"
@@ -360,6 +391,16 @@ export function ProductionView() {
             >
               <Icon className="h-3.5 w-3.5" />
               {label}
+              {badge > 0 && (
+                <span
+                  className={cn(
+                    "ml-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0.5 text-[10px] font-bold tabular-nums",
+                    tab === id ? "bg-white/25 text-white" : "bg-warning/20 text-warning"
+                  )}
+                >
+                  {badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -510,6 +551,17 @@ export function ProductionView() {
         </>
       )}
 
+      {tab === "pending" && (
+        <PendingSamplesPanel
+          samples={pending.samples}
+          isLoading={pending.isLoading}
+          nameById={profileMap}
+          onProcess={handleProcessPending}
+          onOpenTask={setDrawerTaskId}
+          onStartDevelopment={setDevDialogSample}
+        />
+      )}
+
       {tab === "dashboard" && (
         <SampleDashboard
           isAdmin={isAdmin}
@@ -532,6 +584,27 @@ export function ProductionView() {
         onUpdate={updateSample}
         onDelete={isAdmin ? deleteSample : undefined}
       />
+
+      {/* Linked-task drawer — opened from a pending sample's UID. */}
+      <TaskDetailDrawer
+        taskId={drawerTaskId}
+        open={!!drawerTaskId}
+        onOpenChange={(o) => !o && setDrawerTaskId(null)}
+        onChange={() => void refetchSamples()}
+      />
+
+      {/* Sample Development dialog for ERP samples */}
+      {devDialogSample && (
+        <SampleDevelopmentDialog
+          open={!!devDialogSample}
+          onOpenChange={(o) => { if (!o) setDevDialogSample(null); }}
+          sample={devDialogSample}
+          onSaved={() => {
+            void pending.refetch();
+            void refetchSamples();
+          }}
+        />
+      )}
 
       <BatchSampleEntry
         open={batchOpen}
@@ -755,10 +828,13 @@ function SampleRow({
 
       {/* Party — UID hidden from view; still in export + delete dialog. */}
       <td
-        className={cn(TABLE_TD, "whitespace-nowrap font-medium text-foreground")}
+        className={cn(TABLE_TD, "font-medium text-foreground")}
         title={s.uid || undefined}
       >
-        {s.party_name}
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span className="whitespace-nowrap">{s.party_name}</span>
+          <ExternalOriginBadge source={s.external_source} refId={s.external_ref_id} />
+        </span>
       </td>
 
       {/* Quality */}

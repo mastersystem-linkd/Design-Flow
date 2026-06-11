@@ -50,6 +50,9 @@ export { DeadlineCell } from "./DeadlineCell";
 // ----- ThemeToggle (light/dark/system cycle button) -----
 export { ThemeToggle } from "./ThemeToggle";
 
+// ----- Switch (two-state on/off toggle) -----
+export { Switch } from "./Switch";
+
 // ----- NotificationBell (bell icon + dropdown for TopNav) -----
 export { NotificationBell } from "./NotificationBell";
 

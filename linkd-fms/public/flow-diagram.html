@@ -87,7 +87,7 @@
 <body>
 
 <h1>LinkD <span>FMS</span> — System Flow Diagram</h1>
-<p class="subtitle">Complete architecture &middot; 24 views &middot; 32 hooks &middot; 95+ components &middot; 55 migrations &middot; 22+ tables &middot; 1 Vercel serverless route</p>
+<p class="subtitle">Complete architecture &middot; 24 views &middot; 35+ hooks &middot; 100+ components &middot; 72 migrations &middot; 25+ tables &middot; 1 Vercel serverless route &middot; 4 SECURITY DEFINER RPCs</p>
 
 <!-- SECTION 1: BOOT -->
 <div class="section">
@@ -95,7 +95,7 @@
 <div class="flow-col">
   <div class="node">
     <div class="node-label">Browser loads index.html</div>
-    <div class="node-sub">FOUC prevention script + Inter font from Google Fonts</div>
+    <div class="node-sub">FOUC prevention script + Sora font from Google Fonts</div>
   </div>
   <div class="arrow-down">&darr;</div>
   <div class="node primary">
@@ -262,8 +262,14 @@
 <div class="note">
   <strong>Stepper UI:</strong> <code>&lt;TaskPipelineStepper&gt;</code> — slim single-row glass pills mounted as the All Tasks table header. Connected: Pool &rarr; In Progress &rarr; Completed (chevrons fill once upstream has items). Full Kitting renders as a standalone <strong>side pill</strong> divided off to the right (NOT a pipeline step) via the <code>sideStage</code> prop.<br>
   <strong>done vs completed (load-bearing):</strong> <code>done</code> = design work finished, fabric not yet captured (intermediate "awaiting completion details" state). <code>completed</code> = terminal once fabric is recorded. On dashboards, "Done" merges both; on the board, <code>done</code> tasks stay in In Progress badged "Done" with a per-row "Complete" CTA.<br>
-  <strong>Pool claim flow:</strong> Designers don't browse the pool — <code>&lt;ClaimTaskModal&gt;</code> shows only the single FIFO-eligible task (urgent-first, then oldest <code>requirement_received_at</code>) with all brief details + reference files. They claim that one or cancel — no cherry-picking. Claim sets planned deadline (required), optional fabric, status=<code>in_progress</code>, designer letter on <code>task_code</code>, optimistic lock on <code>.eq('status','pool')</code>.<br>
-  <strong>Completion:</strong> Mark Done &rarr; <code>done</code> + notifies designer + admins/coordinators. "Complete" then runs immediately if fabric was set at claim time, otherwise opens <code>&lt;PostDoneModal&gt;</code> for the required fabric. <code>completeTask</code> stamps <code>completion_fabric</code>/<code>filled_by</code>/<code>filled_at</code> (migration 0040). MTR was removed.<br>
+  <strong>Pool claim flow:</strong> Designers don't browse the pool — <code>&lt;ClaimTaskModal&gt;</code> shows only the single FIFO-eligible task (urgent-first, then oldest <code>requirement_received_at</code>) with all brief details + reference files. They claim that one or cancel — no cherry-picking. Claim sets planned deadline (required), optional fabric, optional designType, status=<code>in_progress</code>, designer letter on <code>task_code</code>, optimistic lock on <code>.eq('status','pool')</code>.<br>
+  <strong>Pool skip + FK warning chain:</strong> <code>openClaimOrWarn(task)</code> &rarr; skip dialog (if not front of queue) &rarr; FK warning dialog (if FK required but missing) &rarr; ClaimTaskModal. Works from pool table, drawer, and cards.<br>
+  <strong>FK Gate:</strong> <code>isFullKittingBlocking(task)</code> blocks <code>markTaskDone()</code> and <code>completeTask()</code> when a task requires FK but the coordinator hasn't uploaded it. Task stays in_progress until FK is added via KittingStageADialog.<br>
+  <strong>FK Coordinator Workflow:</strong> On claim, <code>flagFkPendingToCoordinator()</code> auto-creates a coordinator to-do via <code>create_fk_coordinator_task</code> RPC. When coordinator adds FK, <code>completeFkCoordinatorTask()</code> auto-closes it via <code>complete_fk_coordinator_task</code> RPC.<br>
+  <strong>Completion:</strong> Mark Done (FK gate check) &rarr; <code>done</code> + notifies designer + admins/coordinators. "Complete" opens <code>&lt;PostDoneModal&gt;</code> which collects fabric (required), designType (required), and samplingRequired toggle (Switch). <code>completeTask</code> stamps <code>completion_fabric</code>/<code>filled_by</code>/<code>filled_at</code>; when samplingRequired=true, auto-calls <code>createPendingSample()</code>.<br>
+  <strong>Sampling automation:</strong> <code>createPendingSample(taskId, fabric, designType)</code> inserts a sample row (source='task_completion', sample_status='pending'). Deduped by (task_id, fabric, design_type). Appears in Sampling Hub's Pending Samples tab for coordinator processing.<br>
+  <strong>Return to Pool (3 modes):</strong> reset (wipe all), split-pool (preserve work, return remainder), split-assign (preserve work, assign remainder to specific designer).<br>
+  <strong>Handoff:</strong> <code>handoffTask()</code> transfers task between designers preserving qty_completed progress.<br>
   <strong>qty_completed may EXCEED qty:</strong> the inline column CHECK referenced two columns and Postgres auto-named it <code>tasks_check</code> (NOT <code>tasks_qty_completed_check</code>). 0043 dropped the wrong name; 0044 drops the real one and re-asserts only <code>qty_completed &gt;= 0</code>. QtyTracker clamp has no upper bound.<br>
   <strong>Realtime:</strong> <code>tasks</code> joined the <code>supabase_realtime</code> publication (0041, REPLICA IDENTITY FULL); pool claims/assignments propagate live (~1s). <code>concepts</code> followed (0054).<br>
   <strong>Task code:</strong> <code>DF NN-D{MMYY}-CONC-QM</code> (e.g. DF 01-S0526-FLOR-200M) &middot; regenerated on claim with the claiming designer's letter.<br>
@@ -354,10 +360,11 @@
 
 <!-- SECTION 7: DATABASE -->
 <div class="section">
-<h2>7. Database Schema (22+ Tables, 55 Migrations)</h2>
+<h2>7. Database Schema (25+ Tables, 72 Migrations)</h2>
 <div class="grid-4">
   <div class="node primary"><div class="node-label">profiles</div><div class="node-sub">5 roles (incl. super_admin) &middot; soft-delete (is_active)</div></div>
-  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">35+ cols &middot; 8 statuses (incl. completed) &middot; brief_type (0038)</div></div>
+  <div class="node primary"><div class="node-label">tasks</div><div class="node-sub">40+ cols &middot; 8 statuses (incl. completed) &middot; is_split + qty_remaining + sampling_required</div></div>
+  <div class="node primary"><div class="node-label">task_assignments</div><div class="node-sub">Split-task portions (0060) &middot; UNIQUE(task_id, designer_id) &middot; recalc trigger &middot; realtime</div></div>
   <div class="node primary"><div class="node-label">concepts</div><div class="node-sub">4 statuses &middot; files JSONB &middot; realtime (0054) &middot; owner CRUD (0053/0055)</div></div>
   <div class="node"><div class="node-label">clients</div><div class="node-sub">party_name + client_group (LD/Job Work, 0037/0042)</div></div>
   <div class="node"><div class="node-label">task_logs</div><div class="node-sub">append-only audit</div></div>
@@ -370,21 +377,23 @@
   <div class="node purple"><div class="node-label">assigned_by_options</div><div class="node-sub">managed "Assigned By" + per-form context (0045/0047)</div></div>
   <div class="node purple"><div class="node-label">received_by_options</div><div class="node-sub">Full Knitting "Received By" (0049)</div></div>
   <div class="node purple"><div class="node-label">sampling_dropdowns</div><div class="node-sub">field-scoped: requirement / sampling_done_by / fusing_operator (0051/0052)</div></div>
-  <div class="node teal"><div class="node-label">user_preferences</div><div class="node-sub">per-user visible_columns JSONB (0040)</div></div>
+  <div class="node teal"><div class="node-label">user_preferences</div><div class="node-sub">per-user visible_columns + table_density (0040/0047)</div></div>
   <div class="node"><div class="node-label">notifications</div><div class="node-sub">realtime bell (0013) &middot; notify_user RPC (0035)</div></div>
   <div class="node orange"><div class="node-label">full_kitting_details</div><div class="node-sub">kitting form + DEO workflow (0013/0021)</div></div>
-  <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010) &middot; admin/coord RLS (0048)</div></div>
+  <div class="node"><div class="node-label">samples</div><div class="node-sub">daily records (0010) &middot; sample_status + source + design_type (0069/0070)</div></div>
   <div class="node"><div class="node-label">salvedge_records</div><div class="node-sub">fabric distribution (0010) &middot; attachment_url (0050) &middot; admin/coord RLS (0048)</div></div>
-  <div class="node primary"><div class="node-label">coordinator_tasks</div><div class="node-sub">coordinator task tracking &middot; KPI chips &middot; CSV export</div></div>
+  <div class="node primary"><div class="node-label">coordinator_tasks</div><div class="node-sub">coordinator tracking + FK to-dos &middot; related_task_id (0072) &middot; auto-create/close RPCs</div></div>
   <div class="node muted-node"><div class="node-label">task_counters</div><div class="node-sub">internal per-year sequence</div></div>
 </div>
 <div class="note">
-  <strong>Enums:</strong> user_role (super_admin/admin/design_coordinator/designer/deo) &middot; task_status (8 values incl. <code>completed</code> from 0039) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5)<br>
+  <strong>Enums:</strong> user_role (super_admin/admin/design_coordinator/designer/deo) &middot; task_status (8 values incl. <code>completed</code> from 0039) &middot; task_priority (4) &middot; md_status (4) &middot; designer_status (2) &middot; kitting_data_entry_status (4) &middot; kitting_priority (5) &middot; assignment_status (assigned/in_progress/done/completed — CHECK on task_assignments)<br>
   <strong>Storage buckets:</strong> design-files (50 MB) &middot; sample-files (100 MB) &middot; proof-photos (10 MB) &middot; task-files &middot; avatars &mdash; all private with RLS<br>
   <strong>RLS:</strong> 50+ policies &middot; <code>auth_role()</code> + <code>is_admin()</code> + <code>is_admin_or_coordinator()</code> + <code>is_deo()</code> helpers. Coordinator write access widened on concept_categories / fabrics / assigned_by_options (0046) and salvedge_records / samples (0048).<br>
+  <strong>Key triggers:</strong> <code>recalc_task_from_assignments()</code> (rolls up split portions → parent task) &middot; <code>enforce_assignment_constraints()</code> (over-assign guard, relaxed by 0068 to allow extra qty_completed) &middot; <code>tasks_before_save_trg</code> &middot; <code>tasks_log_change_trg</code> &middot; <code>concepts_before_insert/update</code> &middot; <code>touch_updated_at</code><br>
+  <strong>RPCs (SECURITY DEFINER):</strong> <code>notify_user</code> / <code>notify_users_batch</code> (0034/0035) &middot; <code>create_fk_coordinator_task</code> (0071) &middot; <code>complete_fk_coordinator_task</code> (0072)<br>
   <strong>Views:</strong> <code>deo_kitting_queue</code> (joins kitting + tasks + clients) &middot; <code>active_profiles</code> (is_active=true)<br>
-  <strong>Realtime publication:</strong> notifications, task_comments, <code>tasks</code> (0041 + REPLICA IDENTITY FULL), <code>concepts</code> (0054).<br>
-  <strong>Migrations:</strong> 0001, 0003&ndash;0055 (0002 / 0015 merged into earlier files; numbering gaps intentional). Latest cluster: 0036 (whatsapp_received), 0037-0038/0042 (clients_group + brief_type LD/Job Work), 0039-0044 (pool/completed/qty_completed CHECK fix), 0045-0049/0051-0052 (managed dropdowns), 0048 (salvedge/samples coord RLS), 0050 (salvedge attachment_url), 0053-0055 (concept owner CRUD + realtime).
+  <strong>Realtime publication:</strong> notifications, task_comments, <code>tasks</code> (0041 + REPLICA IDENTITY FULL), <code>concepts</code> (0054), <code>task_assignments</code> (0060).<br>
+  <strong>Migrations:</strong> 0001, 0003&ndash;0072 (some numbers skipped/reserved). Key clusters: 0036 (whatsapp_received), 0037-0042 (clients_group + brief_type), 0039-0044 (pool/completed/qty fixes), 0045-0052 (managed dropdowns), 0053-0055 (concept owner CRUD + realtime), 0056 (coordinator_tasks), 0059 (pool_sequence), 0060 (task_assignments + recalc trigger), 0062/0068 (assignment guards), 0069-0070 (sampling_required + per-design sampling), 0071-0072 (FK coordinator RPCs + link).
 </div>
 </div>
 
@@ -430,6 +439,16 @@
   <div class="node warning"><div class="node-label">Held Concept Alerts</div><div class="node-sub"><code style="font-size:9px">useHeldConceptAlerts</code> &middot; 4-day threshold notification for concepts stuck on hold</div></div>
   <div class="node"><div class="node-label">Unified MetricCard</div><div class="node-sub">Single KPI component across all dashboards &middot; trend pill + sparkline &middot; consistent visual vocabulary</div></div>
   <div class="node success"><div class="node-label">Mobile Responsive</div><div class="node-sub">Full sweep &middot; grids collapse &middot; filters wrap &middot; dialogs fit &middot; tab bars + safe-area on all surfaces</div></div>
+  <div class="node danger"><div class="node-label">Task Split System</div><div class="node-sub"><code style="font-size:9px">task_assignments</code> table &middot; SplitTaskDialog + ClaimTaskModal portions &middot; AssignmentsPanel in drawer &middot; <code style="font-size:9px">recalc_task_from_assignments()</code> trigger</div></div>
+  <div class="node warning"><div class="node-label">FK Gate</div><div class="node-sub"><code style="font-size:9px">isFullKittingBlocking()</code> blocks markTaskDone + completeTask &middot; unblocked when coordinator adds FK via KittingStageADialog</div></div>
+  <div class="node teal"><div class="node-label">Sampling Automation</div><div class="node-sub">PostDoneModal: fabric + designType + samplingRequired toggle &middot; <code style="font-size:9px">createPendingSample()</code> &middot; PendingSamplesPanel tab</div></div>
+  <div class="node primary"><div class="node-label">FK Coordinator Workflow</div><div class="node-sub">Auto-create coordinator to-do on claim (<code style="font-size:9px">create_fk_coordinator_task</code> RPC) &middot; auto-close on FK upload (<code style="font-size:9px">complete_fk_coordinator_task</code>)</div></div>
+  <div class="node orange"><div class="node-label">Pool Skip + FK Warnings</div><div class="node-sub"><code style="font-size:9px">openClaimOrWarn()</code> chain: skip dialog &rarr; FK dialog &rarr; ClaimTaskModal &middot; works from table, drawer, cards</div></div>
+  <div class="node purple"><div class="node-label">Return to Pool (3 modes)</div><div class="node-sub">reset (wipe all) &middot; split-pool (preserve work, return rest) &middot; split-assign (assign rest to specific designer)</div></div>
+  <div class="node success"><div class="node-label">Task Handoff</div><div class="node-sub"><code style="font-size:9px">handoffTask()</code> transfers between designers &middot; preserves qty_completed &middot; notifies both</div></div>
+  <div class="node"><div class="node-label">Switch Component</div><div class="node-sub"><code style="font-size:9px">&lt;Switch&gt;</code> toggle in UI barrel &middot; <code style="font-size:9px">role="switch"</code> + aria-checked &middot; used for samplingRequired</div></div>
+  <div class="node teal"><div class="node-label">Assignment Guards</div><div class="node-sub"><code style="font-size:9px">enforce_assignment_constraints()</code> trigger &middot; blocks over-assign &middot; allows extra qty_completed (0062/0068)</div></div>
+  <div class="node warning"><div class="node-label">Table Density Toggle</div><div class="node-sub">Comfortable / Compact per-user &middot; DB-backed via user_preferences &middot; .table-compact CSS class</div></div>
 </div>
 </div>
 
@@ -450,14 +469,15 @@
     <div class="node success"><div class="node-label">Supabase</div><div class="node-sub">PostgreSQL + Auth + Realtime</div></div>
     <div class="node success"><div class="node-label">PostgREST API</div><div class="node-sub">Auto-generated, typed client (SDK 2.45.4 pinned, sb_publishable_* key)</div></div>
     <div class="node success"><div class="node-label">Storage</div><div class="node-sub">5 buckets &middot; design-files 50 MB &middot; sample-files 100 MB</div></div>
-    <div class="node success"><div class="node-label">RLS + Triggers + RPC</div><div class="node-sub">40+ policies &middot; auto-timestamps &middot; <code style="font-size:9px">notify_user</code> SECURITY DEFINER</div></div>
+    <div class="node success"><div class="node-label">RLS + Triggers + RPC</div><div class="node-sub">50+ policies &middot; auto-timestamps &middot; <code style="font-size:9px">notify_user</code> + <code style="font-size:9px">create_fk_coordinator_task</code> + <code style="font-size:9px">complete_fk_coordinator_task</code> SECURITY DEFINER RPCs &middot; <code style="font-size:9px">recalc_task_from_assignments</code> + <code style="font-size:9px">enforce_assignment_constraints</code> triggers</div></div>
     <div class="node success"><div class="node-label">Realtime Channels</div><div class="node-sub">Postgres Changes (INSERT) for notifications + comments</div></div>
   </div>
 </div>
 <div class="note">
-  <strong>Additional frontend libs:</strong> Radix UI (Dialog, Avatar, Dropdown, Label, Slot) &middot; Lucide icons &middot; date-fns &middot; canvas-confetti &middot; class-variance-authority &middot; tailwind-merge &middot; clsx<br>
+  <strong>Additional frontend libs:</strong> Radix UI (Dialog, Avatar, Dropdown, Label, Slot) &middot; Lucide icons &middot; date-fns &middot; canvas-confetti &middot; class-variance-authority &middot; tailwind-merge &middot; clsx &middot; exceljs (CSV export)<br>
   <strong>Bundle:</strong> ~572 KB production (no route-level code splitting yet)<br>
-  <strong>Font:</strong> Inter (400/500/600/700) from Google Fonts &middot; system-ui fallback
+  <strong>Fonts:</strong> <strong>Sora — ONE family app-wide</strong> (body + h1-h4 + display, Google Fonts) &middot; JetBrains Mono 700 (data numerals, opt-in <code>.font-mono-data</code>, self-hosted @fontsource) &middot; Bricolage Grotesque + Hanken Grotesk (login page only) &middot; all font-display: swap &middot; Manrope/Fraunces removed<br>
+  <strong>Design language:</strong> Selvedge (woven cloth) &middot; CSS tokens in index.css &middot; .nav-selvedge-active, .swatch-edge, .row-selvedge, .shuttle-dot, .dialog-panel, .metric-value, .greeting-gradient, .warp-draw, .weft-in, .table-compact, .font-mono-data, .font-serif-accent
 </div>
 </div>
 
@@ -487,10 +507,82 @@
 </div>
 </div>
 
+<!-- SECTION 11: TASK SPLIT SYSTEM -->
+<div class="section">
+<h2>11. Task Split System</h2>
+<div class="flow-col">
+  <div class="flow-row">
+    <div class="node primary"><div class="node-label">Admin Pre-Split</div><div class="node-sub">SplitTaskDialog &middot; dynamic designer/qty/deadline rows &middot; live &Sigma; counter &middot; &ge;2 rows required</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="node success"><div class="node-label">N Assignment Rows Created</div><div class="node-sub">task_assignments: one row per designer portion &middot; UNIQUE(task_id, designer_id)</div></div>
+  </div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node teal"><div class="node-label">recalc_task_from_assignments() Trigger</div><div class="node-sub">DB rolls up: tasks.qty_completed = &Sigma; portions &middot; qty_remaining = task.qty &minus; &Sigma; assigned &middot; is_split = true &middot; status from portions</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="flow-row">
+    <div class="node"><div class="node-label">Designer Claims Portion</div><div class="node-sub">ClaimTaskModal: "How many designs?" input &middot; Available X of Y hint &middot; claimPortion() &middot; partial = split</div></div>
+    <div class="node warning"><div class="node-label">Per-Portion Lifecycle</div><div class="node-sub">assigned &rarr; done &rarr; completed &middot; InlineQtyStepper &middot; Mark Done &middot; Complete (fabric select)</div></div>
+    <div class="node success"><div class="node-label">AssignmentsPanel</div><div class="node-sub">TaskDetailDrawer section &middot; progress bars &middot; status badges &middot; admin remove &middot; footer total</div></div>
+  </div>
+</div>
+<div class="note">
+  <strong>Pool table:</strong> split rows show remaining/total; "Fully Assigned" ghost row when qty_remaining=0.<br>
+  <strong>My Tasks:</strong> fetches task_assignments where designer_id=me into myAssignmentTaskIds; portion-tasks appear even if tasks.assigned_to &ne; me.<br>
+  <strong>Guard trigger:</strong> <code>enforce_assignment_constraints()</code> (0062/0068) blocks &Sigma; qty_assigned &gt; task.qty; allows qty_completed &gt; qty_assigned (extra work OK).<br>
+  <strong>Known gap:</strong> Dashboard designer leaderboard does not yet credit split-task portions.
+</div>
+</div>
+
+<!-- SECTION 12: SAMPLING AUTOMATION -->
+<div class="section">
+<h2>12. Sampling Automation Flow</h2>
+<div class="flow-col">
+  <div class="node warning"><div class="node-label">Designer completes task</div><div class="node-sub">PostDoneModal: fabric (required) + designType (required) + samplingRequired toggle (Switch)</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node primary"><div class="node-label">completeTask()</div><div class="node-sub">FK gate check &rarr; status=completed &rarr; stamps completion fields &rarr; if samplingRequired: createPendingSample()</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node teal"><div class="node-label">createPendingSample()</div><div class="node-sub">Dedup: unique index (task_id, fabric, design_type) &middot; source='task_completion' &middot; sample_status='pending' &middot; party via 2 queries (LD briefs &rarr; default LD party from clients, never hardcoded) &middot; toasts on real failure</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node success"><div class="node-label">Pending Samples Tab</div><div class="node-sub">PendingSamplesPanel in Sampling Hub &middot; coordinator clicks "Process" &rarr; pre-filled SamplingFormDialog &middot; or "Delete"</div></div>
+</div>
+<div class="note">
+  <strong>DB columns (0069-0070):</strong> tasks: sampling_required, sampling_flagged_at, sampling_flagged_by. samples: sample_status, source, design_type.<br>
+  <strong>Party resolution:</strong> two plain queries (task &rarr; client), NOT a nested embed (the embed returns a null client &rarr; blank party). <strong>LD briefs</strong> (no client_id) resolve their party from the clients table (LD group "LD Silk Mills") via <code>resolveDefaultLdParty()</code> — backend-driven, never a hardcoded string.<br>
+  <strong>Schema-cache gotcha:</strong> 0069/0070 add the samples columns but don't <code>NOTIFY pgrst, 'reload schema'</code>. If pending samples silently stop appearing, reload the cache — the insert was failing on an unknown column (now surfaced via toast).<br>
+  <strong>Flag-later (role-safe):</strong> a completed task's ⋮ menu "Mark Sampling Required" sets the flags + creates the sample. The resulting "Sampling Flagged &#10003;" item navigates to /sampling for admin/coord, but is a non-clickable confirmation for designers (they can't open /sampling).<br>
+  <strong>Main samples tab:</strong> uses excludePendingTaskSamples=true to hide pending auto-created samples (they live only in the Pending tab).<br>
+  <strong>Split tasks:</strong> each portion can trigger its own pending sample with different fabric/designType combinations.
+</div>
+</div>
+
+<!-- SECTION 13: FK COORDINATOR WORKFLOW -->
+<div class="section">
+<h2>13. FK Coordinator Workflow</h2>
+<div class="flow-col">
+  <div class="node primary"><div class="node-label">Designer ACTUALLY claims FK-required task</div><div class="node-sub">Fires from ClaimTaskModal <code>onClaimed</code> (real claim only) &middot; gated on isFullKittingBlocking()</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node warning"><div class="node-label">flagFkPendingToCoordinator(taskId, code, designer)</div><div class="node-sub">create_fk_coordinator_task RPC (SECURITY DEFINER) &middot; deduped one per task &middot; NEVER on the "Continue Without FK" intent — backing out of the form sends nothing</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node purple"><div class="node-label">Coordinator to-do + "Add FK &#8599;" redirect</div><div class="node-sub">coordinator_tasks row w/ related_task_id &middot; row button &rarr; <code>/dashboard?status=in_progress&amp;focus=&lt;id&gt;</code> &middot; KanbanView hard-filters to that task + focus banner</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node orange"><div class="node-label">Coordinator uploads FK</div><div class="node-sub">KittingStageADialog &rarr; full_kitting_details row created &rarr; isFullKittingBlocking() = false</div></div>
+  <div class="arrow-down">&darr;</div>
+  <div class="node success"><div class="node-label">completeFkCoordinatorTask()</div><div class="node-sub">complete_fk_coordinator_task RPC &middot; auto-closes the to-do (Pending &rarr; Done) &middot; designer notified, can now complete</div></div>
+</div>
+<div class="note">
+  <strong>Timing (load-bearing):</strong> the to-do fires ONLY from the claim's <code>onClaimed</code> (a committed claim), never on the "Continue Without Full Knitting" click — so a designer who opens then closes the form spams nobody, and the to-do names whoever <em>actually</em> claimed (designer A starts, designer B claims &rarr; coordinator hears about B).<br>
+  <strong>Add FK redirect:</strong> the to-do row's "Add FK &#8599;" button (shown when <code>related_task_id && !is_completed</code>) &rarr; <code>/dashboard?status=in_progress&amp;focus=&lt;related_task_id&gt;</code>. KanbanView hard-filters the visible rows to that one task at the <em>render</em> level (stepper counts stay the true totals) + a focus banner with "Add Full Knitting" + "Clear focus".<br>
+  <strong>FK Gate:</strong> <code>isFullKittingBlocking(task)</code> blocks both markTaskDone() and completeTask() until FK details are added.<br>
+  <strong>ClaimTaskModal:</strong> shows yellow FK warning banner when task needs FK but doesn't have it (non-blocking — designer can still claim).<br>
+  <strong>DB (0071-0072):</strong> coordinator_tasks.related_task_id FK (ON DELETE SET NULL) &middot; create_fk_coordinator_task() (0072 = 3-arg) + complete_fk_coordinator_task() RPCs.
+</div>
+</div>
+
 <div class="divider"></div>
 <p style="text-align:center;color:var(--muted);font-size:12px">
   LinkD FMS &mdash; Design Flow System<br>
-  22+ tables &middot; 5 roles &middot; 24 views &middot; 32 hooks &middot; 95+ components &middot; 55 migrations &middot; 1 Vercel serverless route<br>
+  25+ tables &middot; 5 roles &middot; 24 views &middot; 35+ hooks &middot; 100+ components &middot; 72 migrations &middot; 4 SECURITY DEFINER RPCs &middot; 1 Vercel serverless route<br>
+  Companion docs: <code>PROJECT_FLOW.md</code> (end-to-end flow) &middot; <code>database.md</code> (full schema brain)<br>
   Updated: June 2026
 </p>
 

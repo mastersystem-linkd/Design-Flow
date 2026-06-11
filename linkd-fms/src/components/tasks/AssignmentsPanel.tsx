@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  AlertTriangle,
   Loader2,
   X,
   Users,
@@ -23,13 +24,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
-import { ConfirmDialog, toast } from "@/components/ui";
+import { ConfirmDialog, Switch, toast } from "@/components/ui";
 import { Combobox } from "@/components/ui/Combobox";
 import { useTaskAssignments } from "@/hooks/useTaskAssignments";
 import { useFabrics } from "@/hooks/useFabrics";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
 import { useAuth } from "@/hooks/useAuth";
 import { isAdminOrCoordinator } from "@/lib/permissions";
+import { isFullKittingBlocking } from "@/lib/taskHelpers";
 import { cn, formatDate } from "@/lib/utils";
 import type {
   TaskWithRelations,
@@ -101,6 +103,7 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
   const overallPct =
     task.qty > 0 ? Math.min(100, (totalCompleted / task.qty) * 100) : 0;
   const poolRemaining = Math.max(0, task.qty - totalAssigned);
+  const fkBlocking = isFullKittingBlocking(task);
 
   async function handleRemove() {
     if (!removeTarget) return;
@@ -139,8 +142,10 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
           const isMine = user?.id === a.designer_id;
           const canAct = isMine || isAdmin;
           const isCompleted = a.status === "completed";
+          // Can complete once they've done AT LEAST their assigned qty — extra
+          // is allowed; less than assigned is NOT (stays locked until met).
           const canComplete =
-            a.qty_completed === a.qty_assigned && !isCompleted;
+            a.qty_completed >= a.qty_assigned && !isCompleted;
           const isHighlight =
             !isCompleted &&
             a.qty_completed > 0 &&
@@ -158,6 +163,7 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
               isCompleted={isCompleted}
               canComplete={canComplete}
               isHighlight={isHighlight}
+              fkBlocking={fkBlocking}
               isEditing={editingId === a.id}
               isResizing={resizingId === a.id}
               poolRemaining={poolRemaining}
@@ -233,6 +239,19 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
         );
       })()}
 
+      {/* FK blocking banner */}
+      {fkBlocking && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Waiting for Full Knitting details</p>
+              <p className="text-xs text-muted-foreground">The coordinator needs to add Full Knitting details before portions can be completed. Designers can keep updating progress.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Remove confirmation */}
       <ConfirmDialog
         open={!!removeTarget}
@@ -261,6 +280,7 @@ function AssignmentCard({
   isAdmin,
   isCompleted,
   canComplete,
+  fkBlocking,
   isHighlight,
   isEditing,
   isResizing,
@@ -280,6 +300,7 @@ function AssignmentCard({
   isAdmin: boolean;
   isCompleted: boolean;
   canComplete: boolean;
+  fkBlocking: boolean;
   isHighlight: boolean;
   isEditing: boolean;
   isResizing: boolean;
@@ -289,7 +310,8 @@ function AssignmentCard({
   onCompletePortion: (
     id: string,
     fabricOverride?: string,
-    designTypeOverride?: string
+    designTypeOverride?: string,
+    samplingRequired?: boolean
   ) => Promise<{ error: string | null }>;
   onRemove: () => void;
   onUpdateQty: (
@@ -311,6 +333,7 @@ function AssignmentCard({
   const [showCompletionPrompt, setShowCompletionPrompt] = useState(false);
   const [completionFabric, setCompletionFabric] = useState(a.completion_fabric ?? "");
   const [completionDesignType, setCompletionDesignType] = useState(a.design_type ?? "");
+  const [completionSampling, setCompletionSampling] = useState(false);
 
   const pct =
     a.qty_assigned > 0
@@ -318,24 +341,18 @@ function AssignmentCard({
       : 0;
   const badge = STATUS_BADGE[a.status] ?? STATUS_BADGE.assigned;
 
-  async function handleComplete() {
-    const hasFabric = !!(a.completion_fabric?.trim());
-    const hasDesignType = !!(a.design_type?.trim());
-    if (!hasFabric || !hasDesignType) {
-      setShowCompletionPrompt(true);
-      return;
-    }
-    setCompleting(true);
-    const { error } = await onCompletePortion(a.id);
-    setCompleting(false);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    toast.success("Sub-task completed!");
+  // Always open the prompt so the designer confirms fabric + design and can
+  // flag "Sampling Required?" for THIS portion — each portion may use a
+  // different fabric/design and get its own sample.
+  function handleComplete() {
+    setShowCompletionPrompt(true);
   }
 
   async function handleCompleteWithDetails() {
+    if (fkBlocking) {
+      toast.error("Full Knitting details must be added before completing");
+      return;
+    }
     if (!completionFabric.trim()) {
       toast.error("Fabric is required to complete");
       return;
@@ -345,14 +362,22 @@ function AssignmentCard({
       return;
     }
     setCompleting(true);
-    const { error } = await onCompletePortion(a.id, completionFabric.trim(), completionDesignType.trim());
+    const { error } = await onCompletePortion(
+      a.id,
+      completionFabric.trim(),
+      completionDesignType.trim(),
+      completionSampling
+    );
     setCompleting(false);
     if (error) {
       toast.error(error);
       return;
     }
-    toast.success("Sub-task completed!");
+    toast.success(
+      completionSampling ? "Sub-task completed — added to sampling" : "Sub-task completed!"
+    );
     setShowCompletionPrompt(false);
+    setCompletionSampling(false);
   }
 
   return (
@@ -510,6 +535,8 @@ function AssignmentCard({
                 onClick={() => void handleComplete()}
                 loading={completing}
                 loadingText="…"
+                disabled={fkBlocking}
+                title={fkBlocking ? "Waiting for Full Knitting details" : undefined}
                 className="h-auto gap-1 rounded-md bg-success px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-success/30 hover:bg-success/90"
               >
                 <Check className="h-3.5 w-3.5" />
@@ -564,6 +591,23 @@ function AssignmentCard({
               />
             </div>
           </div>
+
+          {/* Sampling Required for THIS portion (its own fabric/design → its own sample) */}
+          <div className="mt-2.5 flex items-center justify-between rounded-lg border border-border bg-card/50 p-2.5">
+            <div className="flex-1 pr-2">
+              <p className="text-[11px] font-semibold text-foreground">Sampling Required?</p>
+              <p className="text-[10px] text-muted-foreground">
+                Add this portion&apos;s design to the Sampling queue.
+              </p>
+            </div>
+            <Switch
+              checked={completionSampling}
+              onCheckedChange={setCompletionSampling}
+              disabled={completing}
+              aria-label="Sampling required for this portion"
+            />
+          </div>
+
           <div className="mt-2.5 flex justify-end gap-1.5">
             <button
               type="button"
@@ -571,6 +615,7 @@ function AssignmentCard({
                 setShowCompletionPrompt(false);
                 setCompletionFabric(a.completion_fabric ?? "");
                 setCompletionDesignType(a.design_type ?? "");
+                setCompletionSampling(false);
               }}
               className="h-9 rounded-lg border border-border bg-card px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary"
             >
@@ -622,12 +667,15 @@ function ProgressTracker({
 
   function clamp(n: number) {
     if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(max, Math.round(n)));
+    // No upper cap — a designer may finish MORE than assigned (extra designs).
+    return Math.max(0, Math.round(n));
   }
 
   function step(delta: number) {
     setDraft((d) => clamp(d + delta));
   }
+
+  const extra = draft > max ? draft - max : 0;
 
   async function save() {
     if (!dirty) return;
@@ -657,6 +705,11 @@ function ProgressTracker({
           <span className="text-[10px] text-foreground/70">
             ({Math.round(pct)}%)
           </span>
+          {extra > 0 && (
+            <span className="rounded bg-primary/15 px-1 text-[9px] font-semibold text-primary">
+              +{extra} extra
+            </span>
+          )}
         </div>
       </div>
 
@@ -674,7 +727,6 @@ function ProgressTracker({
           <input
             type="number"
             min={0}
-            max={max}
             step={1}
             value={draft}
             onChange={(e) => setDraft(clamp(Number(e.target.value)))}
@@ -685,7 +737,7 @@ function ProgressTracker({
           <button
             type="button"
             onClick={() => step(1)}
-            disabled={saving || draft >= max}
+            disabled={saving}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
           >
             <Plus className="h-3.5 w-3.5" />

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import ReactDOM from "react-dom";
 import confetti from "canvas-confetti";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Paperclip,
@@ -15,6 +16,7 @@ import {
   ChevronDown,
   Inbox,
   MoreVertical,
+  FlaskConical,
   Pencil,
   Trash2,
   Eye,
@@ -28,9 +30,10 @@ import {
   Rows3,
   Scissors,
   Users,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useTasks } from "@/hooks/useTasks";
+import { useTasks, usePoolWithGhosts, getMonday } from "@/hooks/useTasks";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useTaskMutations, type TaskMutationOp } from "@/hooks/useTaskMutations";
 import { TaskDetailDrawer } from "@/components/tasks/TaskDetailDrawer";
@@ -69,6 +72,11 @@ import {
   EmptyState,
   ConfirmDialog,
   ExportDialog,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
   toast,
   Avatar,
   AvatarFallback,
@@ -89,6 +97,10 @@ import { ROUTES, kittingDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { daysUntil, daysSeverity, DAYS_DOT_CLASS, DAYS_TEXT_CLASS } from "@/lib/days";
 import { isAdminOrCoordinator, canCreateBriefs } from "@/lib/permissions";
+import { isFullKittingAdded, isFullKittingBlocking } from "@/lib/taskHelpers";
+import { flagFkPendingToCoordinator } from "@/lib/fkCoordinatorTask";
+import { sendNotificationToRole } from "@/lib/notifications";
+import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 
 /** Compact creation timestamp for the Date/Time column (Indian locale). */
 function formatDateTime(iso: string | null | undefined): string {
@@ -246,6 +258,7 @@ interface TeamInfo {
 export function KanbanView() {
   const { profile, user } = useAuth();
   const { tasks, isLoading, error, refetch } = useTasks();
+  const queryClient = useQueryClient();
 
   // IDs of tasks where the current user has a split assignment
   const [myAssignmentTaskIds, setMyAssignmentTaskIds] = useState<Set<string>>(new Set());
@@ -371,16 +384,117 @@ export function KanbanView() {
    *  ID here so ClaimTaskModal loads that task instead of the FIFO top-1. */
   const [claimPreselectedId, setClaimPreselectedId] = useState<string | undefined>();
 
-  // Live pool stats for the designer summary card + busy gating.
+  // Pre-claim warning chain: skip warning → FK warning → claim modal.
+  // Both warnings are centralized here so every entry point (pool table,
+  // drawer, summary card) goes through the same checks.
+  const [fkWarningTaskId, setFkWarningTaskId] = useState<string | null>(null);
+  const [fkNotifying, setFkNotifying] = useState(false);
+  const [skipWarningTaskId, setSkipWarningTaskId] = useState<string | null>(null);
+  const [skipCount, setSkipCount] = useState(0);
+
+  function openClaimOrWarn(taskId: string, tableQueuePos?: number) {
+    const task = tasks.find((t) => t.id === taskId) ??
+      poolLive?.find((t) => t.id === taskId);
+
+    // Step 1: skip-ahead check — is the designer bypassing earlier pool tasks?
+    // If the PoolQueueTable passed its pre-computed position, use it (most
+    // accurate — same data + same ghost logic as the visual rows). Otherwise
+    // compute from poolLive (for drawer / card entry points).
+    let ahead = tableQueuePos ?? -1;
+    if (ahead < 0 && poolLive.length > 0) {
+      const monday = getMonday(new Date()).toISOString().split("T")[0]!;
+      const briefedWeek = (d: string | null | undefined) =>
+        d ? getMonday(new Date(d)).toISOString().split("T")[0]! : "";
+      const claimable = poolLive.filter(
+        (t) => !poolGhosts.has(t.id) && (t.qty_remaining == null || t.qty_remaining > 0)
+      );
+      // Match visual order: this-week first, carry-over second.
+      const thisWeek = claimable.filter((t) => briefedWeek(t.created_at) >= monday);
+      const carryOver = claimable.filter((t) => {
+        const w = briefedWeek(t.created_at);
+        return w !== "" && w < monday;
+      });
+      const ordered = [...thisWeek, ...carryOver];
+      ahead = ordered.findIndex((t) => t.id === taskId);
+    }
+
+    if (ahead > 0) {
+      setSkipWarningTaskId(taskId);
+      setSkipCount(ahead);
+      return;
+    }
+
+    // Step 2: check FK blocking.
+    if (task && isFullKittingBlocking(task)) {
+      setFkWarningTaskId(taskId);
+      return;
+    }
+
+    setClaimPreselectedId(taskId);
+    setClaimModalOpen(true);
+  }
+
+  function handleSkipConfirm() {
+    if (!skipWarningTaskId) return;
+    const taskId = skipWarningTaskId;
+    setSkipWarningTaskId(null);
+    setSkipCount(0);
+
+    // After skip is confirmed, check FK next.
+    const task = tasks.find((t) => t.id === taskId) ??
+      poolLive?.find((t) => t.id === taskId);
+    if (task && isFullKittingBlocking(task)) {
+      setFkWarningTaskId(taskId);
+      return;
+    }
+    setClaimPreselectedId(taskId);
+    setClaimModalOpen(true);
+  }
+
+  async function handleFkAskCoordinator() {
+    if (!fkWarningTaskId) return;
+    const task = tasks.find((t) => t.id === fkWarningTaskId);
+    setFkNotifying(true);
+    try {
+      await sendNotificationToRole(
+        ["admin", "design_coordinator"],
+        "Full Knitting Needed",
+        `${profile?.full_name ?? "A designer"} is waiting on Full Knitting details for ${task?.task_code ?? "a task"}`,
+        "warning",
+        "/dashboard"
+      );
+      toast.info("Coordinator notified");
+    } catch {
+      toast.error("Failed to notify coordinator");
+    }
+    setFkNotifying(false);
+    setFkWarningTaskId(null);
+  }
+
+  function handleFkContinue() {
+    if (!fkWarningTaskId) return;
+    const taskId = fkWarningTaskId;
+    setFkWarningTaskId(null);
+    // Just open the claim form — the coordinator notification + to-do only fire
+    // when the designer ACTUALLY claims (onClaimed), not on this intent.
+    setClaimPreselectedId(taskId);
+    setClaimModalOpen(true);
+  }
+
+  // Live pool count from the SAME source as the pool table (usePoolWithGhosts),
+  // so partially-claimed split tasks (status != 'pool' but still claimable with
+  // qty_remaining > 0) are counted — not just status === 'pool' rows. Claimable
+  // = the active/pool set minus fully-assigned ghost rows.
+  const { tasks: poolLive, ghostIds: poolGhosts } = usePoolWithGhosts();
   const poolStats = useMemo(() => {
-    const poolTasks = tasks.filter((t) => t.status === "pool");
-    const urgentCount = poolTasks.filter((t) => t.priority === "urgent").length;
+    const claimable = poolLive.filter((t) => !poolGhosts.has(t.id));
+    const urgentCount = claimable.filter((t) => t.priority === "urgent").length;
     return {
-      poolCount: poolTasks.length,
+      poolCount: claimable.length,
       urgentCount,
-      normalCount: poolTasks.length - urgentCount,
+      normalCount: claimable.length - urgentCount,
     };
-  }, [tasks]);
+  }, [poolLive, poolGhosts]);
 
   // URL params support deep-linking from dashboard KPI cards. We read once on
   // mount (or whenever the search-string changes) and seed the filter/state.
@@ -394,6 +508,7 @@ export function KanbanView() {
   const urlFrom = searchParams.get("from"); // ISO yyyy-mm-dd
   const urlTo = searchParams.get("to");
   const urlDesigner = searchParams.get("designer"); // profile id
+  const urlFocus = searchParams.get("focus"); // single task id — coordinator FK redirect
 
   const [filter, setFilter] = useState<FilterTab>(
     urlFilter ?? defaultFilterForRole(role)
@@ -407,6 +522,9 @@ export function KanbanView() {
   // URL via ?tab=kitting so /kitting/:id can navigate back to the right tab.
   const [kittingView, setKittingView] = useState(urlTab === "kitting");
   const [designerFilter, setDesignerFilter] = useState<string>(urlDesigner ?? "");
+  // Single-task focus (coordinator jumps here from an FK to-do). Hard-filters
+  // the list to just that task so FK can be added fast. Cleared via the banner.
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(urlFocus);
   const [search, setSearch] = useState("");
   const [overdueOnly, setOverdueOnly] = useState<boolean>(urlOverdue);
   const [dateRange, setDateRange] = useState<{ from: string | null; to: string | null }>({
@@ -422,8 +540,9 @@ export function KanbanView() {
     setOverdueOnly(urlOverdue);
     setDateRange({ from: urlFrom, to: urlTo });
     if (urlDesigner !== null) setDesignerFilter(urlDesigner);
+    setFocusTaskId(urlFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlStatus, urlFilter, urlOverdue, urlFrom, urlTo, urlDesigner]);
+  }, [urlStatus, urlFilter, urlOverdue, urlFrom, urlTo, urlDesigner, urlFocus]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [kittingTask, setKittingTask] = useState<TaskWithRelations | null>(null);
   // Task awaiting fabric+mtr completion details (opens PostDoneModal). Set
@@ -631,10 +750,11 @@ export function KanbanView() {
    * `TaskTableSection` renders. Used by keyboard shortcuts (J/K/Enter) to
    * map `activeRowIndex` back to a real task.
    */
-  const visibleTasks = useMemo(
-    () => sortTasks(grouped[statusTab] ?? [], sorts[statusTab]),
-    [grouped, statusTab, sorts]
-  );
+  const visibleTasks = useMemo(() => {
+    const base = grouped[statusTab] ?? [];
+    const focused = focusTaskId ? base.filter((t) => t.id === focusTaskId) : base;
+    return sortTasks(focused, sorts[statusTab]);
+  }, [grouped, statusTab, sorts, focusTaskId]);
 
   const myStats = useMemo(() => {
     if (!user?.id) return { active: 0, completed: 0, total: 0 };
@@ -680,10 +800,10 @@ export function KanbanView() {
   }
 
   /** Designer picks a pool task to claim — opens the ClaimTaskModal with
-   *  that task pre-selected so the designer can set deadline + fabric. */
+   *  that task pre-selected so the designer can set deadline + fabric.
+   *  If FK is required but not added, shows a warning dialog first. */
   function handleSelfAssign(task: TaskWithRelations) {
-    setClaimPreselectedId(task.id);
-    setClaimModalOpen(true);
+    openClaimOrWarn(task.id);
   }
 
   async function handleAdvance(task: TaskWithRelations, next: TaskStatus) {
@@ -692,6 +812,14 @@ export function KanbanView() {
     // designer captures fabric (if not already chosen at claim time) when they
     // click "Complete", which moves it to the terminal 'completed' state.
     if (next === "done") {
+      // Hard FK gate — can't complete a task that needs Full Knitting until the
+      // coordinator adds the details.
+      if (isFullKittingBlocking(task)) {
+        toast.error(
+          "Full Knitting details are required before completing this task. Ask the coordinator to add them."
+        );
+        return;
+      }
       const { error } = await markTaskDone(task.id);
       if (error) {
         toast.error(error);
@@ -716,6 +844,11 @@ export function KanbanView() {
   }
 
   function handleSubmitForReview(task: TaskWithRelations) {
+    // FK gate: block moving to done when FK is required but missing.
+    if (isFullKittingBlocking(task)) {
+      toast.error("Full Knitting details must be added by the coordinator before you can complete this task.");
+      return;
+    }
     // Designers must finish every unit before completing. Admins/coordinators
     // can override (e.g. to close a cancelled or paused task).
     const elevated = isAdminRole(role);
@@ -735,23 +868,16 @@ export function KanbanView() {
   // time (task.fabric), finish straight away — no popup. Otherwise open the
   // PostDoneModal to capture the missing field(s) first. Completion requires
   // BOTH fabric AND design type — if either is missing, open the modal.
-  async function handleComplete(task: TaskWithRelations) {
-    if (task.fabric?.trim() && task.concept?.trim()) {
-      const { error } = await completeTask(task.id, task.fabric, null);
-      if (error) {
-        toast.error(error);
-        return;
-      }
-      toast.success("Task completed! 🎉");
-      try {
-        void confetti({ particleCount: 80, spread: 70, origin: { y: 0.7 } });
-      } catch {
-        // decorative only
-      }
-      markEntering(task.id);
-      await refetch();
+  // Full Knitting gate: block if FK is required but not yet added.
+  function handleComplete(task: TaskWithRelations) {
+    if (isFullKittingBlocking(task)) {
+      toast.error(
+        "Full Knitting details are required before completing this task. Ask the coordinator to add them."
+      );
       return;
     }
+    // Completion details (Design Type + Fabric + Sampling Required) are
+    // MANDATORY for every task — always open the modal, never auto-complete.
     setPostDoneTask(task);
   }
 
@@ -1050,7 +1176,13 @@ export function KanbanView() {
         key={status}
         status={status}
         headerSlot={headerSlot}
-        tasks={grouped[status]}
+        // Coordinator FK redirect narrows the *visible rows* to one task while
+        // the stepper counts above stay the true pipeline totals.
+        tasks={
+          focusTaskId
+            ? (grouped[status] ?? []).filter((t) => t.id === focusTaskId)
+            : grouped[status]
+        }
         sort={sorts[status]}
         onSortChange={(k) => updateSort(status, k)}
         search={search}
@@ -1138,6 +1270,17 @@ export function KanbanView() {
     />
   );
 
+  // Single-task focus (coordinator FK redirect) — resolve the task + a clearer.
+  const focusedTask = focusTaskId
+    ? tasks.find((t) => t.id === focusTaskId) ?? null
+    : null;
+  function clearFocus() {
+    setFocusTaskId(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete("focus");
+    setSearchParams(next, { replace: true });
+  }
+
   return (
     <div className="space-y-4">
       <TopBar
@@ -1215,6 +1358,38 @@ export function KanbanView() {
         </div>
       )}
 
+      {focusTaskId && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/[0.07] px-3 py-2 text-xs">
+          <Layers className="h-3.5 w-3.5 shrink-0 text-warning" />
+          <span className="font-medium text-warning">
+            Focused on {focusedTask?.task_code ?? "this task"}
+            {focusedTask && isFullKittingBlocking(focusedTask)
+              ? " — add Full Knitting to clear the coordinator to-do"
+              : focusedTask
+                ? " — Full Knitting already added ✓"
+                : " — not on this tab"}
+          </span>
+          {focusedTask && isFullKittingBlocking(focusedTask) && (
+            <button
+              type="button"
+              onClick={() => setFkDrawerTask(focusedTask)}
+              className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/20"
+            >
+              <ArrowDownToLine className="h-3 w-3" />
+              Add Full Knitting
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={clearFocus}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <FilterX className="h-3 w-3" />
+            Clear focus
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           Failed to load tasks: {error}
@@ -1254,9 +1429,8 @@ export function KanbanView() {
             </div>
           ) : statusTab === "pool" ? (
             <PoolQueueTable
-              onClaimTask={(taskId) => {
-                setClaimPreselectedId(taskId);
-                setClaimModalOpen(true);
+              onClaimTask={(taskId, queuePosition) => {
+                openClaimOrWarn(taskId, queuePosition);
               }}
               onViewTask={(task) => setSelectedTaskId(task.id)}
               onEditTask={isAdmin ? setEditTask : undefined}
@@ -1276,6 +1450,10 @@ export function KanbanView() {
         open={!!selectedTaskId}
         onOpenChange={(o) => !o && setSelectedTaskId(null)}
         onChange={() => void refetch()}
+        onClaimTask={(tid) => {
+          setSelectedTaskId(null);
+          openClaimOrWarn(tid);
+        }}
       />
 
       <KeyboardShortcutsDialog
@@ -1360,6 +1538,64 @@ export function KanbanView() {
         onCreated={() => void refetch()}
       />
 
+      {/* Skip warning — shown when designer picks a non-first pool task */}
+      <ConfirmDialog
+        open={!!skipWarningTaskId}
+        title="Skipping ahead in the queue"
+        description={`${skipCount} task${skipCount !== 1 ? "s" : ""} ahead of this one in the pool ${skipCount !== 1 ? "are" : "is"} still unclaimed. Claim this one anyway?`}
+        variant="warning"
+        confirmLabel="Claim Anyway"
+        cancelLabel="Cancel"
+        onConfirm={handleSkipConfirm}
+        onCancel={() => { setSkipWarningTaskId(null); setSkipCount(0); }}
+      />
+
+      {/* FK warning — shown before claim modal when FK is required but not added */}
+      <Dialog open={!!fkWarningTaskId} onOpenChange={(o) => !o && setFkWarningTaskId(null)}>
+        <DialogContent className="max-w-sm" srTitle="Full Knitting warning">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Full Knitting Not Added Yet
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 px-6 pb-2">
+            <p className="text-sm text-muted-foreground">
+              This task requires Full Knitting details, but the coordinator
+              hasn&apos;t added them yet.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              You can claim and start working, but you won&apos;t be able to
+              mark it complete until the coordinator adds the Full Knitting
+              details.
+            </p>
+          </div>
+          <DialogFooter className="flex-col gap-2 px-6 pb-6 sm:flex-col">
+            <Button
+              onClick={handleFkContinue}
+              className="w-full"
+            >
+              Continue Without Full Knitting
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleFkAskCoordinator}
+              disabled={fkNotifying}
+              className="w-full"
+            >
+              {fkNotifying ? "Notifying…" : "Ask Coordinator to Add"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setFkWarningTaskId(null)}
+              className="w-full text-muted-foreground"
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ClaimTaskModal
         open={claimModalOpen}
         onOpenChange={(o) => {
@@ -1367,9 +1603,23 @@ export function KanbanView() {
           if (!o) setClaimPreselectedId(undefined);
         }}
         onClaimed={() => {
+          // FK coordinator notification + to-do fire ONLY here — on a REAL
+          // claim — with the actual claimer, never on "Continue Without FK"
+          // intent (a designer who backs out spams nobody).
+          const claimedTask = claimPreselectedId
+            ? tasks.find((t) => t.id === claimPreselectedId)
+            : null;
+          if (claimedTask && isFullKittingBlocking(claimedTask)) {
+            void flagFkPendingToCoordinator(
+              claimedTask.id,
+              claimedTask.task_code ?? "a task",
+              profile?.full_name ?? "A designer"
+            );
+          }
           setClaimModalOpen(false);
           setClaimPreselectedId(undefined);
           void refetch();
+          void queryClient.invalidateQueries({ queryKey: ["pool-with-ghosts"] });
         }}
         preselectedTaskId={claimPreselectedId}
       />
@@ -2916,6 +3166,7 @@ function TaskRow({
       <td className="px-3 py-1.5 text-left align-middle">
         <div className="flex items-center gap-2 whitespace-nowrap">
           <span className="font-medium text-foreground">{task.concept}</span>
+          <ExternalOriginBadge source={task.external_source} refId={task.external_ref_id} />
           {teamInfo && teamInfo.designTypes.length > 0 && (
             <span
               className="text-[11px] text-muted-foreground"
@@ -3087,17 +3338,24 @@ function TaskRow({
       </td>
       )}
 
-      {/* 18. Full Kitting — FK status badge (DEO workflow color) / No */}
+      {/* 18. Full Kitting — 3-state badge: green (added), amber (pending), or "No" */}
       {showCol("full_kitting") && (() => {
-        const hasFK = task.requires_full_kitting ||
-          !!task.full_kitting_image_url ||
-          kittingStatus != null;
-        const isCompleted = kittingStatus === "completed";
+        const fkAdded = isFullKittingAdded(task);
+        const fkRequired = task.requires_full_kitting;
         const fkPath = kittingImageUrl ?? task.full_kitting_image_url;
+        const isCompleted = kittingStatus === "completed";
 
-        return (
-          <td className="px-3 py-1.5 text-left align-middle">
-            {hasFK ? (
+        if (!fkRequired && !fkAdded && kittingStatus == null) {
+          return (
+            <td className="px-3 py-1.5 text-left align-middle">
+              <span className="text-[11px] text-muted-foreground">No</span>
+            </td>
+          );
+        }
+
+        if (fkAdded) {
+          return (
+            <td className="px-3 py-1.5 text-left align-middle">
               <button
                 type="button"
                 onClick={(e) => {
@@ -3111,22 +3369,32 @@ function TaskRow({
                   "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold transition-colors",
                   isCompleted
                     ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-                    : "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
+                    : "border-success/30 bg-success/10 text-success hover:bg-success/20"
                 )}
                 title={
                   isCompleted
                     ? "DEO digitized — click to open form"
                     : fkPath
-                      ? "Pending DEO — click to open image"
-                      : "Full kitting required — form not uploaded yet"
+                      ? "Full Knitting added — click to open"
+                      : "Full Knitting added"
                 }
               >
                 <Layers className="h-3 w-3" />
-                FK
+                FK ✓
               </button>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">No</span>
-            )}
+            </td>
+          );
+        }
+
+        return (
+          <td className="px-3 py-1.5 text-left align-middle">
+            <span
+              className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning"
+              title="Full Knitting required — not yet added"
+            >
+              <Layers className="h-3 w-3" />
+              FK pending
+            </span>
           </td>
         );
       })()}
@@ -3313,6 +3581,25 @@ function RowActionMenu({
   const canEdit = isAdmin || isMine;
   const canDelete = isAdmin || isMine;
 
+  // Flag-sampling-later (completed tasks). flagSamplingRequired self-invalidates
+  // the tasks + samples queries, so the row + Pending Samples badge refresh.
+  const navigate = useNavigate();
+  const { flagSamplingRequired } = useTaskMutations();
+  const [samplingConfirmOpen, setSamplingConfirmOpen] = useState(false);
+  const [flaggingSampling, setFlaggingSampling] = useState(false);
+
+  async function handleConfirmSampling() {
+    setFlaggingSampling(true);
+    const { error } = await flagSamplingRequired(task.id);
+    setFlaggingSampling(false);
+    setSamplingConfirmOpen(false);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    toast.success("Added to sampling queue");
+  }
+
   // Close on outside click
   useEffect(() => {
     if (!open) return;
@@ -3438,6 +3725,49 @@ function RowActionMenu({
               Full Knitting
             </button>
           )}
+          {/* Flag sampling later — completed, not-yet-flagged, NON-split tasks.
+              Gated on canEdit (owner designer or admin/coordinator) so a
+              non-permitted viewer doesn't hit an RLS denial. Split tasks are
+              sampled per-portion (each portion's own fabric/design), so the
+              parent-level flag is hidden for them. */}
+          {canEdit && task.status === "completed" && !task.sampling_required && !task.is_split && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                setSamplingConfirmOpen(true);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <FlaskConical className="h-3.5 w-3.5 text-muted-foreground" />
+              Mark Sampling Required
+            </button>
+          )}
+          {task.status === "completed" && task.sampling_required && (
+            // Coordinators/admins can jump to the Sampling queue; designers
+            // can't open /sampling (admin/coord-only route → "Access restricted"),
+            // so for them this is a non-clickable "already flagged" confirmation.
+            isAdmin ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  navigate("/sampling");
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-success transition-colors hover:bg-success/10"
+              >
+                <FlaskConical className="h-3.5 w-3.5" />
+                Sampling Flagged ✓
+              </button>
+            ) : (
+              <div className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-success">
+                <FlaskConical className="h-3.5 w-3.5" />
+                Sampling Flagged ✓
+              </div>
+            )
+          )}
           {canDelete && (
             <button
               type="button"
@@ -3455,6 +3785,15 @@ function RowActionMenu({
           </div>,
           document.body
         )}
+
+      <ConfirmDialog
+        open={samplingConfirmOpen}
+        title="Add this task to the sampling queue?"
+        description={`"${task.concept || task.task_code || "This task"}" will be flagged for sampling and added to the Sampling queue. The task stays completed.`}
+        confirmLabel={flaggingSampling ? "Adding…" : "Add to Sampling"}
+        onConfirm={() => void handleConfirmSampling()}
+        onCancel={() => setSamplingConfirmOpen(false)}
+      />
     </>
   );
 }

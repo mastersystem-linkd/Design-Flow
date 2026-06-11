@@ -47,7 +47,8 @@ const SELECT_FRAGMENT = `
   assignee:profiles!tasks_assigned_to_fkey(id, full_name, role, avatar_url),
   creator:profiles!tasks_created_by_fkey(id, full_name, role, avatar_url),
   carry_forwarder:profiles!tasks_carry_forward_from_fkey(id, full_name),
-  files(id, file_name, file_size, storage_url)
+  files(id, file_name, file_size, storage_url),
+  full_kitting_details!full_kitting_details_task_id_fkey(id)
 `;
 
 /** Strip out characters that would break PostgREST's `.or()` syntax. */
@@ -120,7 +121,12 @@ async function fetchTasks(
     console.error("[useTasks] query error", error);
     throw error;
   }
-  return (data ?? []) as unknown as TaskWithRelations[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((row) => ({
+    ...row,
+    full_kitting_details_added: Boolean(row.full_kitting_details),
+    full_kitting_details: undefined,
+  })) as TaskWithRelations[];
 }
 
 // ============================================================================
@@ -247,10 +253,17 @@ export function usePoolWithGhosts(): PoolWithGhostsResult {
         (t: { id: string }) => !activeIds.has(t.id)
       );
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toRelations = (row: any) => ({
+        ...row,
+        full_kitting_details_added: Boolean(row.full_kitting_details),
+        full_kitting_details: undefined,
+      });
       const all = [...(active ?? []), ...uniqueGhosts]
         .sort(
           (a, b) => (a.pool_sequence ?? 999) - (b.pool_sequence ?? 999)
-        ) as unknown as TaskWithRelations[];
+        )
+        .map(toRelations) as TaskWithRelations[];
 
       // Ghost = not in the active set (already excluded above)
       const ghostIdSet = new Set(

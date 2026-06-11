@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { Combobox } from "@/components/ui/Combobox";
+import { Switch } from "@/components/ui/Switch";
 import { toast } from "@/components/ui/Toaster";
 import { useFabrics } from "@/hooks/useFabrics";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
 import { useTaskMutations } from "@/hooks/useTaskMutations";
-import { supabase } from "@/lib/supabase";
+import { isFullKittingBlocking } from "@/lib/taskHelpers";
 import type { TaskWithRelations } from "@/types/database";
 
 // ============================================================================
@@ -47,17 +48,25 @@ export function PostDoneModal({
 
   const [fabric, setFabric] = useState("");
   const [designType, setDesignType] = useState("");
+  const [samplingRequired, setSamplingRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open && task) {
       setFabric(task.fabric?.trim() ? task.fabric : "");
       setDesignType(task.concept?.trim() ? task.concept : "");
+      setSamplingRequired(task.sampling_required ?? false);
     }
   }, [open, task]);
 
   async function handleComplete() {
     if (!task) return;
+    if (isFullKittingBlocking(task)) {
+      toast.error(
+        "Full Knitting details are required before completing. Ask the coordinator to add them."
+      );
+      return;
+    }
     if (!fabric.trim()) {
       toast.error("Fabric is required to complete this task.");
       return;
@@ -66,11 +75,14 @@ export function PostDoneModal({
       toast.error("Design type is required to complete this task.");
       return;
     }
-    if (designType.trim() !== (task.concept ?? "").trim()) {
-      await supabase.from("tasks").update({ concept: designType.trim() }).eq("id", task.id);
-    }
+    // completeTask persists `concept` (design type) atomically with the
+    // status change — no separate pre-update needed.
     setSubmitting(true);
-    const { error } = await completeTask(task.id, fabric, null);
+    const { error } = await completeTask(task.id, {
+      fabric,
+      designType: designType.trim(),
+      samplingRequired,
+    });
     setSubmitting(false);
     if (error) {
       toast.error(error);
@@ -154,6 +166,22 @@ export function PostDoneModal({
                 searchPlaceholder="Search fabric…"
                 disabled={submitting}
                 clearable
+              />
+            </div>
+
+            {/* Sampling Required toggle — optional, defaults OFF */}
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-secondary/30 p-3">
+              <div className="flex-1 pr-3">
+                <p className="text-sm font-medium text-foreground">Sampling Required?</p>
+                <p className="text-xs text-muted-foreground">
+                  Turn on if this design needs sampling. It&apos;ll be added to the Sampling queue.
+                </p>
+              </div>
+              <Switch
+                checked={samplingRequired}
+                onCheckedChange={setSamplingRequired}
+                disabled={submitting}
+                aria-label="Sampling required"
               />
             </div>
           </div>

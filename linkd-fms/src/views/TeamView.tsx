@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import {
   RefreshCw,
   Plus,
   X,
+  Search,
   BarChart3,
   UserPlus,
   Pencil,
@@ -91,6 +92,8 @@ export function TeamView() {
   const [removingUser, setRemovingUser] = useState(false);
   const [permDeleteUser, setPermDeleteUser] = useState<Profile | null>(null);
   const [permDeleting, setPermDeleting] = useState(false);
+
+  const [search, setSearch] = useState("");
 
   // Email map (user_id → email) — auth.users isn't in profiles, so we fetch
   // via the admin-update-user edge function in list_emails mode. Only admins
@@ -254,6 +257,18 @@ export function TeamView() {
   const adminCount = profiles.filter((p) => p.role === "admin" || p.role === "super_admin").length;
   const isLoading = profilesLoading || codesLoading;
 
+  // Filter the user list by name / email / role (label or raw).
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return profiles;
+    return profiles.filter((p) => {
+      const name = (p.full_name ?? "").toLowerCase();
+      const email = (emailsById[p.id] ?? "").toLowerCase();
+      const role = (ROLE_LABELS[p.role] ?? p.role ?? "").toLowerCase();
+      return name.includes(q) || email.includes(q) || role.includes(q);
+    });
+  }, [profiles, search, emailsById]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -314,21 +329,46 @@ export function TeamView() {
       )}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">All users</CardTitle>
+          <div className="relative w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, email, or role…"
+              className="h-9 pl-8 pr-8"
+              aria-label="Search team members"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-4"><SkeletonTable rows={4} cols={5} /></div>
           ) : profiles.length === 0 ? (
             <div className="p-6"><EmptyState icon="👥" title="No members yet" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No members match “{search.trim()}”.
+            </div>
           ) : (
             <>
               {/* ── Mobile: card list (the 6-column table is unusable on a
                    phone — horizontal scroll + cut-off actions). Same handlers,
                    stacked per user. ── */}
               <ul className="divide-y divide-border md:hidden">
-                {profiles.map((p) => {
+                {filtered.map((p) => {
                   const userCodes = codesByProfile.get(p.id) ?? [];
                   const isSelf = p.id === myProfile?.id;
                   return (
@@ -464,7 +504,7 @@ export function TeamView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {profiles.map((p) => {
+                  {filtered.map((p) => {
                     const userCodes = codesByProfile.get(p.id) ?? [];
                     const isSelf = p.id === myProfile?.id;
                     return (

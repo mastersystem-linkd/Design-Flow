@@ -27,7 +27,8 @@ import {
   initiateKitting,
   getKittingByTask,
 } from "@/lib/kittingQueries";
-import { sendNotificationToRole } from "@/lib/notifications";
+import { sendNotification, sendNotificationToMany, sendNotificationToRole } from "@/lib/notifications";
+import { completeFkCoordinatorTask } from "@/lib/fkCoordinatorTask";
 import { kittingDetailPath, ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import type { TaskWithRelations } from "@/types/database";
@@ -239,6 +240,29 @@ export function KittingStageADialog({
           "info",
           ROUTES.kitting
         );
+
+        // Notify assigned designer(s) that FK was added — they can now complete.
+        if (task.requires_full_kitting) {
+          const code = task.task_code ?? task.id;
+          const fkMsg = `Full Knitting added for ${code} — you can now complete this task`;
+          if (task.is_split) {
+            void supabase
+              .from("task_assignments")
+              .select("designer_id")
+              .eq("task_id", task.id)
+              .then(({ data: rows }) => {
+                const ids = (rows ?? []).map((r) => r.designer_id).filter(Boolean);
+                if (ids.length) void sendNotificationToMany(ids, "Full Knitting Added", fkMsg, "success", "/dashboard");
+              });
+          } else if (task.assigned_to) {
+            void sendNotification(task.assigned_to, "Full Knitting Added", fkMsg, "success", "/dashboard");
+          }
+        }
+
+        // Auto-close the coordinator's "Add Full Knitting details for …" to-do
+        // (Pending → Done) now that FK is added — keeps the list honest without
+        // a manual tick. Best-effort; the FK record is already saved.
+        void completeFkCoordinatorTask(task.id, task.task_code ?? task.id);
 
         toast.success("Sent to DEO queue");
       }

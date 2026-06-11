@@ -65,4 +65,10 @@ export const queryKeys = {
     all: ["taskAssignments"] as const,
     detail: (taskId: string) => ["taskAssignments", taskId] as const,
   },
+  integration: {
+    all: ["integration"] as const,
+    config: ["integration", "config"] as const,
+    events: ["integration", "events"] as const,
+    queueStats: ["integration", "queueStats"] as const,
+  },
 } as const;
