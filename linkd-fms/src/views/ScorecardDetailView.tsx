@@ -3141,8 +3141,11 @@ function PriorityBreakdown({
   }
 
   return (
-    <div className="mt-3 flex flex-col items-center gap-5">
-      {/* Donut hero — large, centered, with two lines of text inside. */}
+    <div className="mt-3 flex flex-col items-center gap-4">
+      {/* Donut hero — big number + label sit in the ring hole; the "mostly X"
+          caption goes BELOW the donut so it gets the full width and never
+          overlaps the stroke (inside the hole it had to wrap and collided). */}
+      <div className="flex flex-col items-center gap-2">
       <div className="relative h-[180px] w-[180px] shrink-0">
         <svg
           viewBox="0 0 180 180"
@@ -3184,16 +3187,17 @@ function PriorityBreakdown({
           <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             tasks
           </p>
-          {dominant && (
-            <p className="mt-2 max-w-[120px] text-center text-[10px] text-muted-foreground">
-              mostly{" "}
-              <span className="font-semibold text-foreground">
-                {dominant.label.toLowerCase()}
-              </span>{" "}
-              ({dominant.pct}%)
-            </p>
-          )}
         </div>
+      </div>
+        {dominant && (
+          <p className="text-center text-xs text-muted-foreground">
+            mostly{" "}
+            <span className="font-semibold text-foreground">
+              {dominant.label.toLowerCase()}
+            </span>{" "}
+            ({dominant.pct}%)
+          </p>
+        )}
       </div>
 
       {/* Legend — only priorities that actually have tasks. High/Low are
