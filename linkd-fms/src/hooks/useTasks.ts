@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { queryKeys } from "@/lib/queryKeys";
+import { comparePoolFifo } from "@/lib/poolOrder";
 import type {
   TaskPriority,
   TaskStatus,
@@ -259,10 +260,13 @@ export function usePoolWithGhosts(): PoolWithGhostsResult {
         full_kitting_details_added: Boolean(row.full_kitting_details),
         full_kitting_details: undefined,
       });
+      // Order the pool the SAME way it's claimed — URGENT first, then strict
+      // FIFO by timestamp (comparePoolFifo). Both internal briefs and external
+      // (Sales ERP) tasks rank purely by priority + time, no source partiality.
+      // (The raw `pool_sequence` was insertion-order only, so an urgent task
+      // briefed/synced later sank to the bottom instead of jumping to #1.)
       const all = [...(active ?? []), ...uniqueGhosts]
-        .sort(
-          (a, b) => (a.pool_sequence ?? 999) - (b.pool_sequence ?? 999)
-        )
+        .sort(comparePoolFifo)
         .map(toRelations) as TaskWithRelations[];
 
       // Ghost = not in the active set (already excluded above)

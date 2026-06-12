@@ -526,7 +526,7 @@ export function ScorecardsView() {
            empty full-width strip; the at-risk list on the right replaces the
            old generic banner with an actionable, clickable shortlist. */}
       {!isLoading && rows.some((r) => r.hasActivity) && (
-        <div className="grid items-stretch gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <ScoreBars data={rows.map((r) => ({ name: r.firstName, score: r.compositeScore }))} />
           </div>

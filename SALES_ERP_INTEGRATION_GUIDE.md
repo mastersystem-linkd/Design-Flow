@@ -37,6 +37,10 @@ The `apikey` header is required by the Supabase gateway for routing. The `Author
 
 > **Important:** Keep your API key secret. If compromised, contact the Design Flow admin to regenerate it (the old key stops working immediately).
 
+> **Two secrets, two purposes — don't interchange them:**
+> - **API key** (`sk_live_…`, above) authenticates **your** calls **to us** (the `ext-*` endpoints).
+> - **Webhook secret** (a *separate* value, provided separately) is used **only** to verify the `X-Signature` on the callbacks **we** send **to you** (see §6 Webhooks). It is **not** the API key.
+
 ---
 
 ## Base URL
@@ -452,7 +456,22 @@ X-Signature: <HMAC-SHA256 hex signature>
 | Header | Description |
 |--------|-------------|
 | `X-Event` | Event type (see table below) |
-| `X-Signature` | HMAC-SHA256 signature of the request body, using the shared webhook secret. Use this to verify the request is genuinely from Design Flow. |
+| `X-Signature` | HMAC-SHA256 signature of the request body, using the **webhook secret** (see the callout below — this is a *separate* secret from your API key). Use it to verify the request is genuinely from Design Flow. |
+
+> **🔑 The webhook secret is a SEPARATE secret — not your API key.**
+>
+> The value used to compute `X-Signature` is **NOT** your `sk_live_…` API key. It is a
+> **distinct shared webhook secret**, provided to you separately by the Design Flow admin.
+> Point your verification variable (e.g. `DESIGNFLOW_WEBHOOK_SECRET`) at **that** value.
+> Using the API key here makes every signature mismatch → your endpoint returns 401 →
+> Design Flow retries with backoff and **dead-letters after 6 attempts** (the callbacks
+> silently stop). Specifically:
+>
+> - **Algorithm:** HMAC-SHA256
+> - **Signed over:** the **raw request body bytes** — HMAC the exact bytes you receive;
+>   do **not** re-parse and re-serialize the JSON first (key order/whitespace would change the digest).
+> - **Encoding:** lowercase **hex**
+> - **Header:** `X-Signature` (event type in `X-Signature`'s sibling header `X-Event`)
 
 **Task Webhook Events:**
 

@@ -273,6 +273,20 @@ export function ProductionView() {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
+    // Throughput by operator — who processed each COMPLETED sample
+    // (`sampling_done_by`), so credit is attributed like the rest of the system.
+    const byOperator = new Map<string, number>();
+    for (const s of samples) {
+      if (!(s.is_completed || s.sample_status === "completed")) continue;
+      const op = s.sampling_done_by?.trim();
+      if (!op) continue;
+      byOperator.set(op, (byOperator.get(op) ?? 0) + 1);
+    }
+    const topOperators = Array.from(byOperator.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
     return {
       total,
       completed,
@@ -286,6 +300,7 @@ export function ProductionView() {
       samplesOnly,
       untagged,
       topCustomers,
+      topOperators,
     };
   }, [samples]);
 
@@ -304,6 +319,36 @@ export function ProductionView() {
     }
     return Object.entries(days).map(([date, count]) => ({ date, count }));
   }, [samples]);
+
+  // ── Queue health (COMPLETE set, both sources) ──
+  // The main `samples` array hides pending non-manual rows (excludePendingTaskSamples),
+  // so merge the dedicated `pending` fetch (task_completion + sales_erp) back in
+  // for an accurate pending/in-progress/completed picture + aging.
+  const queueHealth = useMemo(() => {
+    const byId = new Map<string, SampleWithTask>();
+    for (const s of samples) byId.set(s.id, s);
+    for (const s of pending.samples) if (!byId.has(s.id)) byId.set(s.id, s);
+    const all = Array.from(byId.values());
+
+    const isDone = (s: SampleWithTask) => s.is_completed || s.sample_status === "completed";
+    const isInProg = (s: SampleWithTask) => !isDone(s) && s.sample_status === "in_progress";
+
+    let pendingN = 0, inProgressN = 0, completedN = 0;
+    let oldestPending: string | null = null;
+    const bySource = { manual: 0, task_completion: 0, sales_erp: 0 };
+    for (const s of all) {
+      if (isDone(s)) { completedN++; continue; }
+      if (isInProg(s)) { inProgressN++; continue; }
+      pendingN++;
+      if (!oldestPending || s.created_at < oldestPending) oldestPending = s.created_at;
+      const src = (s.source ?? "manual") as keyof typeof bySource;
+      if (src in bySource) bySource[src]++;
+    }
+    const oldestPendingDays = oldestPending
+      ? Math.floor((Date.now() - new Date(oldestPending).getTime()) / 86_400_000)
+      : null;
+    return { pending: pendingN, inProgress: inProgressN, completed: completedN, oldestPendingDays, bySource };
+  }, [samples, pending.samples]);
 
   return (
     <div className="space-y-4">
@@ -569,6 +614,7 @@ export function ProductionView() {
           stats={stats}
           chartData={chartData}
           aggregates={dashboardAggregates}
+          queueHealth={queueHealth}
         />
       )}
 
@@ -1068,6 +1114,14 @@ interface SampleDashboardProps {
     samplesOnly: number;
     untagged: number;
     topCustomers: { party_name: string; count: number }[];
+    topOperators: { name: string; count: number }[];
+  };
+  queueHealth: {
+    pending: number;
+    inProgress: number;
+    completed: number;
+    oldestPendingDays: number | null;
+    bySource: { manual: number; task_completion: number; sales_erp: number };
   };
 }
 
@@ -1077,6 +1131,7 @@ function SampleDashboard({
   stats,
   chartData,
   aggregates,
+  queueHealth,
 }: SampleDashboardProps) {
   const chartAnimate = useChartAnimation();
   // Designer view: hide most rollups (RLS already trims to their data, but
@@ -1186,18 +1241,79 @@ function SampleDashboard({
         />
       </div>
 
+      {/* ── Queue Health — complete set, both task & ERP origins ── */}
+      <div className="rounded-xl border border-border bg-card p-3 shadow-card sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Sampling Queue Health
+          </h3>
+          {queueHealth.oldestPendingDays != null && (
+            <span className="text-[11px] text-muted-foreground">
+              Oldest pending:{" "}
+              <span className={cn("font-semibold tabular-nums", queueHealth.oldestPendingDays > 3 ? "text-destructive" : "text-warning")}>
+                {queueHealth.oldestPendingDays}d
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="mt-2.5 grid grid-cols-3 gap-2.5">
+          {([
+            ["Pending", queueHealth.pending, "text-warning", "bg-warning/10"],
+            ["In Progress", queueHealth.inProgress, "text-primary", "bg-primary/10"],
+            ["Completed", queueHealth.completed, "text-success", "bg-success/10"],
+          ] as const).map(([label, value, color, tint]) => (
+            <div key={label} className={cn("rounded-lg px-3 py-2.5 text-center", tint)}>
+              <p className={cn("text-xl font-bold tabular-nums leading-none", color)}>{value}</p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+            </div>
+          ))}
+        </div>
+        {queueHealth.pending > 0 && (
+          <p className="mt-2.5 text-[10px] text-muted-foreground">
+            Pending origin: <span className="font-medium text-foreground">{queueHealth.bySource.task_completion}</span> from task completion ·{" "}
+            <span className="font-medium text-foreground">{queueHealth.bySource.sales_erp}</span> from Sales ERP ·{" "}
+            <span className="font-medium text-foreground">{queueHealth.bySource.manual}</span> manual
+          </p>
+        )}
+      </div>
+
       {/* Alert when the pending-sample pile starts stacking up. */}
-      {aggregates.pending > 5 && (
+      {queueHealth.pending > 5 && (
         <AlertBanner
           variant="warning"
           title="Pending Samples"
-          count={aggregates.pending}
-          description={`${aggregates.totalPendingMtr}m of fabric still to print across pending samples.`}
+          count={queueHealth.pending}
+          description={`${queueHealth.pending} samples awaiting processing across task & ERP origins.`}
         />
       )}
 
+      {/* ── Throughput by operator — who processed completed samples ── */}
+      {aggregates.topOperators.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-3 shadow-card sm:p-4">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Throughput by Operator
+          </h3>
+          <p className="text-[10px] text-muted-foreground">Completed samples processed</p>
+          <div className="mt-2.5 space-y-1.5">
+            {aggregates.topOperators.map((op, i) => {
+              const max = aggregates.topOperators[0]?.count || 1;
+              return (
+                <div key={op.name} className="flex items-center gap-2">
+                  <span className="w-4 text-[10px] font-semibold tabular-nums text-muted-foreground">{i + 1}</span>
+                  <span className="w-24 shrink-0 truncate text-xs font-medium text-foreground sm:w-32" title={op.name}>{op.name}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${(op.count / max) * 100}%` }} />
+                  </div>
+                  <span className="w-8 text-right text-xs font-bold tabular-nums text-foreground">{op.count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Volume chart (span 2) + Completion donut ── */}
-      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
         <Card className="h-full lg:col-span-2">
           <CardContent className="py-4">
             <div className="mb-3 flex items-center gap-2">
@@ -1269,7 +1385,7 @@ function SampleDashboard({
       </div>
 
       {/* ── Top customers + Order/Sample mix ── */}
-      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
         <Card className="h-full lg:col-span-2">
           <CardContent className="py-4">
             <div className="mb-3 flex items-center gap-2">

@@ -7,8 +7,16 @@ import {
   format, isWithinInterval, parseISO,
 } from "date-fns";
 import { useTasks } from "@/hooks/useTasks";
+import { useAllTaskAssignments } from "@/hooks/useTaskAssignments";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
+import {
+  assignmentCompleted,
+  assignmentActive,
+  assignmentOnTime,
+  assignmentCycleDays,
+} from "@/lib/designerCredit";
+import { isFullKittingBlocking } from "@/lib/taskHelpers";
 import type { TaskWithRelations } from "@/types/database";
 
 // ============================================================================
@@ -114,6 +122,11 @@ export interface TaskDashboardMetrics {
     activePipeline: number;
     urgentCount: number;
     overdueCount: number;
+    /** Active tasks flagged "sampling required" (a pending sample to process). */
+    samplingFlagged: number;
+    /** Active tasks that require Full Knitting but the coordinator hasn't added
+     *  it yet — completion is blocked until FK is uploaded. */
+    fkBlocked: number;
   };
   pipeline: PipelineItem[];
   volumeData: VolumePoint[];
@@ -263,13 +276,33 @@ function safeAvg(nums: number[]): number {
 // Hook
 // ============================================================================
 
+/** Optional Internal-vs-ERP lens. Default 'all' = combined (ERP counts fully). */
+export type SourceLens = "all" | "internal" | "erp";
+
 export function useTaskAnalytics(
   period: Period = "month",
-  customRange?: { from: Date; to: Date } | null
+  customRange?: { from: Date; to: Date } | null,
+  source: SourceLens = "all"
 ): TaskDashboardMetrics {
-  const { tasks, isLoading, error: tasksError } = useTasks();
+  const { tasks: allTasks, isLoading, error: tasksError } = useTasks();
+  const { assignments: allAssignments } = useAllTaskAssignments();
   const { profiles } = useProfiles({ roles: ["designer"] });
   const { codesByProfile } = useDesignerCodes();
+
+  // Source lens — applied ONCE at the data source so every metric respects it.
+  // 'all' (default) is the combined picture; ERP work is NEVER dropped from the
+  // headline numbers, only optionally isolated as a lens.
+  const tasks = useMemo(() => {
+    if (source === "all") return allTasks;
+    return allTasks.filter((t) =>
+      source === "erp" ? !!t.external_source : !t.external_source
+    );
+  }, [allTasks, source]);
+  const assignments = useMemo(() => {
+    if (source === "all") return allAssignments;
+    const ids = new Set(tasks.map((t) => t.id));
+    return allAssignments.filter((a) => ids.has(a.task_id));
+  }, [allAssignments, tasks, source]);
 
   const error = tasksError || null;
   const now = useMemo(() => new Date(), []);
@@ -325,6 +358,9 @@ export function useTaskAnalytics(
       activePipeline: tasks.filter((t) => !isFinished(t)).length,
       urgentCount: tasks.filter((t) => t.priority === "urgent" && !isFinished(t)).length,
       overdueCount: tasks.filter((t) => !isFinished(t) && t.planned_deadline && new Date(t.planned_deadline) < new Date()).length,
+      // Supporting visibility for the new flows (small stats, not headline KPIs).
+      samplingFlagged: tasks.filter((t) => t.sampling_required).length,
+      fkBlocked: tasks.filter((t) => !isFinished(t) && isFullKittingBlocking(t)).length,
     };
   }, [tasks, start, end, prevStart, prevEnd]);
 
@@ -405,25 +441,59 @@ export function useTaskAnalytics(
     return points;
   }, [tasks, period, start, end]);
 
-  // ── Designer stats ────────────────────────────────────────────────
+  // ── Designer stats (SPLIT-AWARE) ──────────────────────────────────
+  // Credit a designer for the work they actually did:
+  //   • SOLO tasks (`!is_split`)  → task-level, by `assigned_to`.
+  //   • SPLIT tasks (`is_split`)  → portion-level, from `task_assignments`.
+  // The `!is_split` guard means a split parent is NEVER also counted as a solo
+  // task → no double counting. Per-portion on-time uses the portion's own
+  // deadline. ERP work is credited identically (no source check here).
   const designerStats = useMemo(() => {
+    // A task with ANY assignment row is credited per-portion, never as solo —
+    // robust regardless of the `is_split` flag (the recalc trigger only sets
+    // is_split when COUNT>1, so a single-portion task is is_split=false).
+    const splitTaskIds = new Set(assignments.map((a) => a.task_id));
     const stats: DesignerTaskStat[] = profiles.map((p) => {
-      const myTasks = tasks.filter((t) => t.assigned_to === p.id);
-      const assigned = myTasks.filter((t) => inRange(t.created_at, start, end) || inRange(completionDate(t), start, end)).length;
-      const completed = myTasks.filter((t) => inRange(completionDate(t), start, end));
-      // On-time = finished on/before the planned deadline (deadline-based).
-      const onTime = completed.filter((t) => !isLateCompletion(t)).length;
-      const avgCycleDays = safeAvg(
-        completed.map(cycleDays).filter((n): n is number => n !== null)
+      // SOLO — tasks with no assignment rows, owned by this designer.
+      const myTasks = tasks.filter((t) => !splitTaskIds.has(t.id) && t.assigned_to === p.id);
+      // SPLIT — this designer's portions.
+      const myPortions = assignments.filter((a) => a.designer_id === p.id);
+
+      const soloAssigned = myTasks.filter(
+        (t) => inRange(t.created_at, start, end) || inRange(completionDate(t), start, end)
       );
-      // "Avg Days" now reflects the real cycle time (assigned → completed).
+      const portionAssigned = myPortions.filter(
+        (a) => inRange(a.created_at, start, end) || inRange(a.completed_at, start, end)
+      );
+      const assigned = soloAssigned.length + portionAssigned.length;
+
+      const soloCompleted = myTasks.filter((t) => inRange(completionDate(t), start, end));
+      const portionCompleted = myPortions.filter(
+        (a) => assignmentCompleted(a) && inRange(a.completed_at, start, end)
+      );
+      const completed = soloCompleted.length + portionCompleted.length;
+
+      // On-time = finished on/before the relevant deadline (task for solo,
+      // the portion's own deadline for split).
+      const onTime =
+        soloCompleted.filter((t) => !isLateCompletion(t)).length +
+        portionCompleted.filter((a) => assignmentOnTime(a)).length;
+
+      const avgCycleDays = safeAvg([
+        ...soloCompleted.map(cycleDays).filter((n): n is number => n !== null),
+        ...portionCompleted.map(assignmentCycleDays).filter((n): n is number => n !== null),
+      ]);
+      // "Avg Days" now reflects the real cycle time (assigned/started → completed).
       const avgDays = avgCycleDays;
-      const inProgress = myTasks.filter((t) => t.status === "in_progress").length;
+
+      const inProgress =
+        myTasks.filter((t) => t.status === "in_progress").length +
+        myPortions.filter((a) => assignmentActive(a)).length;
 
       const codes = codesByProfile.get(p.id);
       const designerCode = codes?.[0]?.code?.slice(0, 1) ?? "—";
 
-      return { id: p.id, full_name: p.full_name, avatar_url: p.avatar_url, designerCode, assigned, completed: completed.length, onTime, avgDays, avgCycleDays, inProgress, score: 0 };
+      return { id: p.id, full_name: p.full_name, avatar_url: p.avatar_url, designerCode, assigned, completed, onTime, avgDays, avgCycleDays, inProgress, score: 0 };
     });
 
     const maxCompleted = Math.max(1, ...stats.map((s) => s.completed));
@@ -437,7 +507,7 @@ export function useTaskAnalytics(
     }
     stats.sort((a, b) => b.score - a.score);
     return stats;
-  }, [tasks, profiles, codesByProfile, start, end]);
+  }, [tasks, assignments, profiles, codesByProfile, start, end]);
 
   // ── Kitting mix ─────────────────────────────────────────────────────
   // Window = tasks created in the current period. The dashboard shows what

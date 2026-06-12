@@ -49,6 +49,8 @@ export interface PoolQueueTableProps {
   headerSlot?: React.ReactNode;
   /** Table density class — "compact" or "comfortable". */
   tableDensity?: string;
+  /** When the "Urgent Only" filter is active, show only urgent-priority rows. */
+  urgentOnly?: boolean;
 }
 
 // ============================================================================
@@ -103,6 +105,7 @@ export function PoolQueueTable({
   onSplitTask,
   headerSlot,
   tableDensity,
+  urgentOnly = false,
 }: PoolQueueTableProps) {
   const { profile, user } = useAuth();
   const role: UserRole = profile?.role ?? "designer";
@@ -151,13 +154,17 @@ export function PoolQueueTable({
     const thisWeek: TaskWithRelations[] = [];
     const briefedWeek = (d: string | null | undefined) =>
       d ? getMonday(new Date(d)).toISOString().split("T")[0]! : "";
-    for (const task of tasks) {
+    // "Urgent Only" filter → only urgent-priority pool rows.
+    const source = urgentOnly
+      ? tasks.filter((t) => t.priority === "urgent")
+      : tasks;
+    for (const task of source) {
       const ws = briefedWeek(task.created_at);
       if (ws && ws < currentMondayStr!) carry.push(task);
       else thisWeek.push(task);
     }
     return { carryOverTasks: carry, thisWeekTasks: thisWeek };
-  }, [tasks, currentMondayStr]);
+  }, [tasks, currentMondayStr, urgentOnly]);
 
   // Effective remaining: prefer live assignment data over potentially-stale qty_remaining.
   function effectiveRemaining(t: TaskWithRelations): number {

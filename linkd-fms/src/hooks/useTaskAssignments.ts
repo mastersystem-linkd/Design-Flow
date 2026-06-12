@@ -9,7 +9,29 @@ import {
   sendNotificationToRole,
 } from "@/lib/notifications";
 import { createPendingSample } from "@/lib/createPendingSample";
+import type { AssignmentCredit } from "@/lib/designerCredit";
 import type { TaskAssignmentWithDesigner, TaskStatus } from "@/types/database";
+
+/**
+ * All task_assignments (lightweight projection) for the analytics layer —
+ * Task Dashboard + Scorecard credit split-task portions per designer from this.
+ */
+export function useAllTaskAssignments() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["task-assignments", "all-analytics"],
+    queryFn: async () => {
+      const { data: rows, error: err } = await supabase
+        .from("task_assignments")
+        .select(
+          "task_id, designer_id, status, qty_assigned, qty_completed, planned_deadline, started_at, completed_at, created_at"
+        );
+      if (err) throw err;
+      return (rows ?? []) as AssignmentCredit[];
+    },
+    staleTime: 60_000,
+  });
+  return { assignments: data ?? [], isLoading, error: error instanceof Error ? error.message : null };
+}
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ import {
   CheckCircle2, Clock, Timer, PlusCircle, AlertTriangle,
   LayoutGrid, Trophy, ChevronUp, ChevronDown, ChevronRight,
   Package, Flame, Zap, Building2, Lightbulb, Activity,
+  FlaskConical, Layers,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
@@ -16,6 +17,7 @@ import { useClients } from "@/hooks/useClients";
 import {
   useTaskAnalytics,
   type Period,
+  type SourceLens,
   type DesignerTaskStat,
   type KittingMix,
   type PriorityMix,
@@ -97,7 +99,9 @@ export function TaskDashboardView() {
 
   const [period, setPeriod] = useState<Period>("month");
   const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | null>(null);
-  const a = useTaskAnalytics(period, customRange);
+  // Optional Internal-vs-ERP lens — default 'all' (combined; ERP counts fully).
+  const [source, setSource] = useState<SourceLens>("all");
+  const a = useTaskAnalytics(period, customRange, source);
   const { tasks } = useTasks();
 
   // Scorecard drawer state (admin-only opens; for designer self-view this
@@ -178,6 +182,23 @@ export function TaskDashboardView() {
             )}
           >
             {p.label}
+          </button>
+        ))}
+      </div>
+      {/* Internal-vs-ERP lens — combined ("All") is the default; ERP is never
+          dropped from the numbers, only optionally isolated. */}
+      <div className="inline-flex rounded-lg bg-secondary p-1">
+        {([["all", "All"], ["internal", "Internal"], ["erp", "ERP"]] as const).map(([val, label]) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => setSource(val)}
+            className={cn(
+              "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:py-1",
+              source === val ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
           </button>
         ))}
       </div>
@@ -312,7 +333,7 @@ export function TaskDashboardView() {
           <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
-          <div className="grid gap-3 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <div className="lg:col-span-2"><SkeletonCard /></div>
             <SkeletonCard />
           </div>
@@ -380,7 +401,7 @@ export function TaskDashboardView() {
                   icon={Zap}
                   count={a.kpis.urgentCount}
                   label="urgent"
-                  onClick={() => navigate(dashLink({ status: "in_progress" }))}
+                  onClick={() => navigate(dashLink({ filter: "urgent" }))}
                 />
               )}
               {a.kpis.activePipeline > 0 && (
@@ -389,6 +410,25 @@ export function TaskDashboardView() {
                   icon={Activity}
                   count={a.kpis.activePipeline}
                   label="in flight"
+                  onClick={() => navigate(dashLink({ status: "in_progress" }))}
+                />
+              )}
+              {/* Supporting visibility for the new flows (subtle, not headline). */}
+              {a.kpis.samplingFlagged > 0 && (
+                <StatusChip
+                  tone="warning"
+                  icon={FlaskConical}
+                  count={a.kpis.samplingFlagged}
+                  label="sampling"
+                  onClick={() => navigate("/sampling")}
+                />
+              )}
+              {a.kpis.fkBlocked > 0 && (
+                <StatusChip
+                  tone="warning"
+                  icon={Layers}
+                  count={a.kpis.fkBlocked}
+                  label="FK blocked"
                   onClick={() => navigate(dashLink({ status: "in_progress" }))}
                 />
               )}
@@ -615,7 +655,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Charts */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {/* Volume chart */}
             <Card className={cn(CARD, "lg:col-span-2")}>
               <CardContent className="p-5">
@@ -676,7 +716,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Workload + At-risk */}
-          <div className="grid items-stretch gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
             <WorkloadDistribution
               data={a.designerStats}
               onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
@@ -687,7 +727,7 @@ export function TaskDashboardView() {
           {/* Visual charts — priority donut (pie) + cycle-time column chart.
               Replaces the old compact priority/cycle rollups with real charts
               so the effort + priority load reads at a glance. */}
-          <div className="grid items-stretch gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
             <PriorityDonut data={a.priorityMix} />
             <CycleTimeChart data={a.cycleTimeDist} />
           </div>

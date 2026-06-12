@@ -9,6 +9,11 @@ build/
 .env*.local
 .env
 
+# integration secrets — API keys / webhook secret (NEVER commit)
+Integration API Keys.txt
+*API Keys*.txt
+*api-keys*
+
 # misc
 .DS_Store
 *.pem

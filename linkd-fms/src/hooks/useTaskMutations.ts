@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 import { sendNotification, sendNotificationToRole } from "@/lib/notifications";
 import { createPendingSample } from "@/lib/createPendingSample";
+import { comparePoolFifo } from "@/lib/poolOrder";
 import type {
   Task,
   TaskInsert,
@@ -192,30 +193,6 @@ export type TaskMutationOp =
  *  We only pull `party_name` from the client (no id) — keep it narrow. */
 export interface PoolTaskPreview extends Task {
   client: { party_name: string } | null;
-}
-
-/** Priority sort weight for FIFO claim ordering (lower = claimed first).
- *  Defined once so claimPoolTask and getNextPoolTasks sort identically. */
-const POOL_PRIORITY_ORDER: Record<string, number> = {
-  urgent: 0,
-  high: 1,
-  normal: 2,
-  low: 3,
-};
-
-/** FIFO comparator: urgent-first, then oldest requirement_received_at, then
- *  oldest created_at. Shared by the claim + preview paths. */
-function comparePoolFifo(
-  a: { priority: string; requirement_received_at: string | null; created_at: string },
-  b: { priority: string; requirement_received_at: string | null; created_at: string }
-): number {
-  const pa = POOL_PRIORITY_ORDER[a.priority] ?? 2;
-  const pb = POOL_PRIORITY_ORDER[b.priority] ?? 2;
-  if (pa !== pb) return pa - pb;
-  const ra = new Date(a.requirement_received_at || a.created_at).getTime();
-  const rb = new Date(b.requirement_received_at || b.created_at).getTime();
-  if (ra !== rb) return ra - rb;
-  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
 }
 
 // ============================================================================

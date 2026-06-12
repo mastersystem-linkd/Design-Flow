@@ -19,6 +19,7 @@ import {
   Clock,
   Users,
   Flame,
+  FlaskConical,
   X,
   RotateCcw,
   Layers,
@@ -679,7 +680,7 @@ export function ScorecardDetailView() {
             <SkeletonCard key={i} />
           ))}
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <SkeletonCard />
           <div className="lg:col-span-2">
             <SkeletonCard />
@@ -881,7 +882,7 @@ export function ScorecardDetailView() {
       </Card>
 
       {/* ── KPI strip — MetricCard matching Task/Concept dashboards ── */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-6">
         <MetricCard
           icon={CalendarIcon}
           label="Scheduled"
@@ -917,6 +918,14 @@ export function ScorecardDetailView() {
           tone={bestStreak.best > 0 ? "primary" : "muted"}
           value={bestStreak.best}
           sub={bestStreak.current > 0 ? `Current: ${bestStreak.current}` : "no streak"}
+        />
+        {/* Samples — supporting visibility only (NOT part of the composite score). */}
+        <MetricCard
+          icon={FlaskConical}
+          label="Samples"
+          tone={data.sampleStat.processedTotal > 0 ? "primary" : "muted"}
+          value={data.sampleStat.processedPeriod}
+          sub={data.sampleStat.processedTotal > 0 ? `${data.sampleStat.processedTotal} all-time` : "none"}
         />
       </div>
 
@@ -1314,7 +1323,7 @@ export function ScorecardDetailView() {
           `items-stretch` + `h-full` on every card so the priority donut
           (now substantially taller after the redesign) doesn't leave gaps
           next to its row-mates. */}
-      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
         <Card className="h-full border border-border">
           <div className="flex h-full flex-col p-4">
             <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

@@ -21,6 +21,15 @@ import {
 } from "date-fns";
 import { useConcepts } from "@/hooks/useConcepts";
 import { useTasks } from "@/hooks/useTasks";
+import { useSamples } from "@/hooks/useSamples";
+import { useAllTaskAssignments } from "@/hooks/useTaskAssignments";
+import {
+  assignmentCompleted,
+  assignmentActive,
+  assignmentOnTime,
+  assignmentLateDays,
+  assignmentCycleDays,
+} from "@/lib/designerCredit";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
 import {
@@ -159,6 +168,9 @@ export interface DesignerScorecardData {
     breakdown: TaskScoreBreakdown;
     teamAvgDays: number;
   };
+
+  /** Sample work (supporting visibility only — NOT part of the composite). */
+  sampleStat: { processedTotal: number; processedPeriod: number };
 
   compositeScore: number;
 
@@ -436,6 +448,8 @@ export function useDesignerScorecard(
 ): DesignerScorecardData {
   const { concepts, isLoading: cLoading, error: cError } = useConcepts();
   const { tasks, isLoading: tLoading, error: tError } = useTasks();
+  const { assignments } = useAllTaskAssignments();
+  const { samples } = useSamples();
   const { profiles, isLoading: pLoading, error: pError } = useProfiles({
     roles: ["designer"],
   });
@@ -479,6 +493,9 @@ export function useDesignerScorecard(
       }
     >();
 
+    // Tasks that have any assignment row → credited per-portion, not as solo.
+    const teamSplitTaskIds = new Set(assignments.map((a) => a.task_id));
+
     for (const p of profiles) {
       const mine = concepts.filter(
         (c) =>
@@ -499,21 +516,35 @@ export function useDesignerScorecard(
         finalApproved,
       });
 
-      const myTasks = tasks.filter((t) => t.assigned_to === p.id);
-      const assigned = myTasks.filter(
-        (t) =>
-          inRange(t.created_at, start, end) ||
-          inRange(completionDate(t), start, end)
-      ).length;
-      const completed = myTasks.filter((t) =>
-        inRange(completionDate(t), start, end)
+      // Split-aware (same partition as the per-designer taskBlock) so the team
+      // max/avg used to normalise scores include split-portion output. A task
+      // with any assignment row is credited per-portion, never as solo.
+      const myTasks = tasks.filter((t) => !teamSplitTaskIds.has(t.id) && t.assigned_to === p.id);
+      const myPortions = assignments.filter((a) => a.designer_id === p.id);
+      const assigned =
+        myTasks.filter(
+          (t) => inRange(t.created_at, start, end) || inRange(completionDate(t), start, end)
+        ).length +
+        myPortions.filter(
+          (a) => inRange(a.created_at, start, end) || inRange(a.completed_at, start, end)
+        ).length;
+      const soloCompleted = myTasks.filter((t) => inRange(completionDate(t), start, end));
+      const portionCompleted = myPortions.filter(
+        (a) => assignmentCompleted(a) && inRange(a.completed_at, start, end)
       );
-      const onTime = completed.filter((t) => (t.delay_days ?? 999) <= 1).length;
-      const avgDays = safeAvg(completed.map((t) => t.delay_days ?? 0));
-      const inProgress = myTasks.filter((t) => t.status === "in_progress").length;
+      const onTime =
+        soloCompleted.filter((t) => (t.delay_days ?? 999) <= 1).length +
+        portionCompleted.filter((a) => assignmentOnTime(a)).length;
+      const avgDays = safeAvg([
+        ...soloCompleted.map((t) => t.delay_days ?? 0),
+        ...portionCompleted.map((a) => assignmentLateDays(a) ?? 0),
+      ]);
+      const inProgress =
+        myTasks.filter((t) => t.status === "in_progress").length +
+        myPortions.filter((a) => assignmentActive(a)).length;
       taskByDesigner.set(p.id, {
         assigned,
-        completed: completed.length,
+        completed: soloCompleted.length + portionCompleted.length,
         onTime,
         avgDays,
         inProgress,
@@ -561,7 +592,7 @@ export function useDesignerScorecard(
       maxCompleted,
       teamAvgDays,
     };
-  }, [profiles, concepts, tasks, start, end]);
+  }, [profiles, concepts, tasks, assignments, start, end]);
 
   // ── Target designer profile ──
   const profile = useMemo(
@@ -742,26 +773,48 @@ export function useDesignerScorecard(
         teamAvgDays: teamStats.teamAvgDays,
       };
     }
-    const myTasks = tasks.filter((t) => t.assigned_to === designerId);
-    const assigned = myTasks.filter(
-      (t) =>
-        inRange(t.created_at, start, end) ||
-        inRange(completionDate(t), start, end)
-    ).length;
-    const completed = myTasks.filter((t) =>
-      inRange(completionDate(t), start, end)
+    // SPLIT-AWARE credit: a task with ANY assignment row is credited per-portion
+    // (never as solo), so the partition is robust regardless of `is_split`. SOLO
+    // = no assignment rows, by assigned_to. ERP credited identically; per-portion
+    // timeliness uses the portion's own deadline.
+    const splitTaskIds = new Set(assignments.map((a) => a.task_id));
+    const myTasks = tasks.filter((t) => !splitTaskIds.has(t.id) && t.assigned_to === designerId);
+    const myPortions = assignments.filter((a) => a.designer_id === designerId);
+
+    const assigned =
+      myTasks.filter(
+        (t) => inRange(t.created_at, start, end) || inRange(completionDate(t), start, end)
+      ).length +
+      myPortions.filter(
+        (a) => inRange(a.created_at, start, end) || inRange(a.completed_at, start, end)
+      ).length;
+
+    const soloCompleted = myTasks.filter((t) => inRange(completionDate(t), start, end));
+    const portionCompleted = myPortions.filter(
+      (a) => assignmentCompleted(a) && inRange(a.completed_at, start, end)
     );
-    const onTime = completed.filter((t) => (t.delay_days ?? 999) <= 1).length;
-    const late = completed.length - onTime;
-    const avgDays = safeAvg(completed.map((t) => t.delay_days ?? 0));
-    const avgCycleDays = safeAvg(
-      completed.map(cycleDays).filter((n): n is number => n !== null)
-    );
-    const inProgress = myTasks.filter((t) => t.status === "in_progress").length;
+    const completedCount = soloCompleted.length + portionCompleted.length;
+
+    const onTime =
+      soloCompleted.filter((t) => (t.delay_days ?? 999) <= 1).length +
+      portionCompleted.filter((a) => assignmentOnTime(a)).length;
+    const late = completedCount - onTime;
+
+    const avgDays = safeAvg([
+      ...soloCompleted.map((t) => t.delay_days ?? 0),
+      ...portionCompleted.map((a) => assignmentLateDays(a) ?? 0),
+    ]);
+    const avgCycleDays = safeAvg([
+      ...soloCompleted.map(cycleDays).filter((n): n is number => n !== null),
+      ...portionCompleted.map(assignmentCycleDays).filter((n): n is number => n !== null),
+    ]);
+    const inProgress =
+      myTasks.filter((t) => t.status === "in_progress").length +
+      myPortions.filter((a) => assignmentActive(a)).length;
 
     const breakdown = computeTaskBreakdown(
       assigned,
-      completed.length,
+      completedCount,
       onTime,
       avgDays,
       inProgress,
@@ -771,7 +824,7 @@ export function useDesignerScorecard(
 
     return {
       assigned,
-      completed: completed.length,
+      completed: completedCount,
       onTime,
       late,
       inProgress,
@@ -781,7 +834,7 @@ export function useDesignerScorecard(
       breakdown,
       teamAvgDays: teamStats.teamAvgDays,
     };
-  }, [tasks, designerId, start, end, teamStats]);
+  }, [tasks, assignments, designerId, start, end, teamStats]);
 
   const compositeScore = useMemo(
     () => Math.round((conceptBlock.score + taskBlock.score) / 2),
@@ -815,9 +868,11 @@ export function useDesignerScorecard(
     };
   }, [teamStats, designerId]);
 
-  // ── Trend (last 6 months) ──
+  // ── Trend (last 6 months) ── (split-aware: solo + portion completions)
   const trend = useMemo(() => {
     if (!designerId) return [];
+    const splitTaskIds = new Set(assignments.map((a) => a.task_id));
+    const myPortions = assignments.filter((a) => a.designer_id === designerId);
     const points: ScorecardTrendPoint[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = subMonths(now, i);
@@ -829,10 +884,11 @@ export function useDesignerScorecard(
           c.md_status === "approved" &&
           inRange(c.md_actual_date ?? c.md_reviewed_at ?? c.created_at, ms, me)
       ).length;
-      const tasksCompleted = tasks.filter(
-        (t) =>
-          t.assigned_to === designerId && inRange(completionDate(t), ms, me)
-      ).length;
+      const tasksCompleted =
+        tasks.filter(
+          (t) => !splitTaskIds.has(t.id) && t.assigned_to === designerId && inRange(completionDate(t), ms, me)
+        ).length +
+        myPortions.filter((a) => assignmentCompleted(a) && inRange(a.completed_at, ms, me)).length;
       points.push({
         month: format(d, "MMM"),
         conceptsApproved,
@@ -840,7 +896,7 @@ export function useDesignerScorecard(
       });
     }
     return points;
-  }, [concepts, tasks, designerId, now]);
+  }, [concepts, tasks, assignments, designerId, now]);
 
   // ── Activity feed ──
   const activity = useMemo(() => {
@@ -916,8 +972,11 @@ export function useDesignerScorecard(
       }
     }
 
+    // Split-aware: SOLO tasks here, SPLIT portions in the loop below.
+    const splitTaskIds = new Set(assignments.map((a) => a.task_id));
+    const taskById = new Map(tasks.map((t) => [t.id, t]));
     for (const t of tasks) {
-      if (t.assigned_to !== designerId) continue;
+      if (t.assigned_to !== designerId || splitTaskIds.has(t.id)) continue;
       const party =
         t.client?.party_name ?? (t.brief_type === "ld" ? "LD" : null);
       const type = t.concept?.trim() || null; // design type
@@ -949,11 +1008,46 @@ export function useDesignerScorecard(
       }
     }
 
+    // Split portions this designer completed (their slice of a shared task).
+    for (const a of assignments) {
+      if (a.designer_id !== designerId || !assignmentCompleted(a) || !a.completed_at) continue;
+      const t = taskById.get(a.task_id);
+      const party = t?.client?.party_name ?? (t?.brief_type === "ld" ? "LD" : null);
+      const type = t?.concept?.trim() || null;
+      const lateD = assignmentLateDays(a) ?? 0;
+      events.push({
+        type: "task_completed",
+        title: type
+          ? `Completed "${type}" portion (${t?.task_code ?? "split task"})`
+          : `Completed split portion`,
+        status: lateD > 0 ? "late" : "on_time",
+        sub: join(party && `for ${party}`, `${a.qty_completed} designs`, lateD > 0 ? `${lateD}d late` : "on time"),
+        at: a.completed_at,
+      });
+    }
+
+    // Samples this designer processed (sampling_done_by) or originated (created_by).
+    const sampleName = (profile?.full_name ?? "").trim().toLowerCase();
+    for (const s of samples) {
+      if (!(s.is_completed || s.sample_status === "completed")) continue;
+      const mine =
+        s.created_by === designerId ||
+        (!!sampleName && (s.sampling_done_by ?? "").trim().toLowerCase() === sampleName);
+      if (!mine) continue;
+      events.push({
+        type: "task_completed",
+        title: `Processed sample${s.party_name ? ` — ${s.party_name}` : ""}`,
+        status: "on_time",
+        sub: join(s.quality || null, s.design_type || null),
+        at: s.completion_timestamp ?? s.updated_at ?? s.created_at,
+      });
+    }
+
     events.sort(
       (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
     );
     return events.slice(0, 10);
-  }, [concepts, tasks, designerId]);
+  }, [concepts, tasks, assignments, samples, profile, designerId]);
 
   // ── Daily activity (last 365 days for heatmap) ──
   const dailyActivity = useMemo<ScorecardDailyActivity[]>(() => {
@@ -995,27 +1089,29 @@ export function useDesignerScorecard(
       }
     }
 
-    // Tasks: count assignments + completions per day
-    for (const t of tasks) {
-      if (t.assigned_to !== designerId) continue;
-      const assignedKey = t.assigned_at ?? t.created_at;
+    // Tasks: count assignments + completions per day (SOLO only — split tasks
+    // counted via portions below so split work shows on the heatmap too).
+    const splitTaskIds = new Set(assignments.map((a) => a.task_id));
+    const bump = (dateStr: string | null | undefined) => {
+      if (!dateStr) return;
       try {
-        const ak = format(parseISO(assignedKey), "yyyy-MM-dd");
-        const ex = map.get(ak);
+        const k = format(parseISO(dateStr), "yyyy-MM-dd");
+        const ex = map.get(k);
         if (ex) ex.tasks++;
       } catch {
-        // ignore
+        // ignore bad dates
       }
-      const done = completionDate(t);
-      if (done) {
-        try {
-          const dk = format(parseISO(done), "yyyy-MM-dd");
-          const ex = map.get(dk);
-          if (ex) ex.tasks++;
-        } catch {
-          // ignore
-        }
-      }
+    };
+    for (const t of tasks) {
+      if (t.assigned_to !== designerId || splitTaskIds.has(t.id)) continue;
+      bump(t.assigned_at ?? t.created_at);
+      bump(completionDate(t));
+    }
+    // Split portions: count this designer's portion start + completion days.
+    for (const a of assignments) {
+      if (a.designer_id !== designerId) continue;
+      bump(a.started_at ?? a.created_at);
+      if (assignmentCompleted(a)) bump(a.completed_at);
     }
 
     // Map → array, oldest to newest
@@ -1027,7 +1123,28 @@ export function useDesignerScorecard(
         total: c.concepts + c.tasks,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [concepts, tasks, designerId]);
+  }, [concepts, tasks, assignments, designerId]);
+
+  // ── Sample work (SUPPORTING visibility only — NOT in the composite score, so
+  //    existing concept+task scoring is untouched) ──
+  // Credited if the designer PROCESSED it (sampling_done_by matches their name)
+  // OR ORIGINATED it (created_by = them). Completed samples only.
+  const sampleStat = useMemo(() => {
+    if (!designerId) return { processedTotal: 0, processedPeriod: 0 };
+    const name = (profile?.full_name ?? "").trim().toLowerCase();
+    const mine = samples.filter((s) => {
+      if (!(s.is_completed || s.sample_status === "completed")) return false;
+      const byCreator = s.created_by === designerId;
+      const byProcessor = !!name && (s.sampling_done_by ?? "").trim().toLowerCase() === name;
+      return byCreator || byProcessor;
+    });
+    return {
+      processedTotal: mine.length,
+      processedPeriod: mine.filter((s) =>
+        inRange(s.completion_timestamp ?? s.updated_at ?? s.created_at, start, end)
+      ).length,
+    };
+  }, [samples, designerId, profile, start, end]);
 
   // ── Insights ──
   const insights = useMemo(
@@ -1047,6 +1164,7 @@ export function useDesignerScorecard(
     joinedDate: profile?.created_at ?? "",
     concept: conceptBlock,
     task: taskBlock,
+    sampleStat,
     compositeScore,
     rank,
     trend,

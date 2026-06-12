@@ -734,16 +734,17 @@ export function KanbanView() {
     return map;
   }, [scoped]);
 
-  // When overdueOnly is active without an explicit status URL param,
-  // auto-jump to the first tab that has overdue tasks so the user
-  // doesn't land on an empty Pool tab.
+  // When a CROSS-STATUS filter is active (overdue-only, or the Urgent-Only tab)
+  // without an explicit status URL param, auto-jump to the first tab that has
+  // matching tasks so the user doesn't land on an empty Pool tab. This is what
+  // makes the dashboard's "N urgent / N overdue" chips land on the real rows.
   useEffect(() => {
-    if (!overdueOnly || urlStatus) return;
+    if ((!overdueOnly && filter !== "urgent") || urlStatus) return;
     const current = grouped[statusTab] ?? [];
     if (current.length > 0) return;
     const firstNonEmpty = DASHBOARD_STATUSES.find((s) => (grouped[s]?.length ?? 0) > 0);
     if (firstNonEmpty) setStatusTab(firstNonEmpty);
-  }, [overdueOnly, grouped, statusTab, urlStatus]);
+  }, [overdueOnly, filter, grouped, statusTab, urlStatus]);
 
   /**
    * Sorted tasks for the currently visible tab, mirroring what
@@ -1438,6 +1439,7 @@ export function KanbanView() {
               onSplitTask={isAdmin ? setSplitTask : undefined}
               headerSlot={pipelineStepper}
               tableDensity={tableDensity}
+              urgentOnly={filter === "urgent"}
             />
           ) : (
             renderStageSection(statusTab, activeRowIndex, pipelineStepper)
@@ -3076,6 +3078,9 @@ function TaskRow({
         "group cursor-pointer border-b border-border/40 transition-colors [&>td]:border-r [&>td]:border-border/20 [&>td:last-child]:border-r-0",
         rowIndex % 2 === 1 && "bg-background/40",
         "hover:bg-primary/[0.04] focus-within:bg-primary/[0.05] focus:outline-none",
+        // Urgent rows get a red left edge + faint wash so they stand out at a
+        // glance (inset shadows — don't fight the zebra/hover backgrounds).
+        isUrgent && "row-urgent",
         entering && "animate-highlight-pulse",
         active && "ring-2 ring-inset ring-primary",
         selected && "bg-primary/[0.06]",

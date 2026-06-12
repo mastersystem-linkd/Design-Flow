@@ -727,6 +727,20 @@
   .row-selvedge:hover {
     box-shadow: inset 2px 0 0 rgb(var(--primary));
   }
+
+  /* ── Urgent task rows — recognisable at a glance ─────────────── */
+  /* A 3px red left edge + a faint full-row wash, both as inset shadows so
+     they never fight Tailwind bg utilities (zebra / hover) on the row. */
+  .row-urgent {
+    box-shadow:
+      inset 3px 0 0 0 rgb(var(--destructive)),
+      inset 0 0 0 9999px rgb(var(--destructive) / 0.05);
+  }
+  .dark .row-urgent {
+    box-shadow:
+      inset 3px 0 0 0 rgb(var(--destructive)),
+      inset 0 0 0 9999px rgb(var(--destructive) / 0.08);
+  }
   .thead-selvedge {
     background-image: var(--selvedge);
     background-size: 100% 2px;
