@@ -27,7 +27,6 @@ import {
   useChartAnimation,
 } from "@/lib/chartConfig";
 import { ChartGradients, CHART_GRAD } from "@/lib/chartGradients";
-import { cn } from "@/lib/utils";
 
 function ChartShell({
   title,
@@ -115,20 +114,17 @@ export function PriorityDonut({
             </div>
           </div>
 
-          {/* Full legend — every priority with its count + share */}
+          {/* Legend — only priorities that actually have tasks. High/Low are
+              unused in this workflow, so listing them just adds dead 0% rows. */}
           <ul className="flex w-full flex-col gap-2.5">
-            {segments.map((s) => {
+            {shown.map((s) => {
               const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
               return (
                 <li key={s.name} className="flex items-center gap-2.5">
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
-                  <span className={cn("text-sm font-medium", s.value > 0 ? "text-foreground" : "text-muted-foreground")}>
-                    {s.name}
-                  </span>
+                  <span className="text-sm font-medium text-foreground">{s.name}</span>
                   <span className="ml-auto flex items-baseline gap-2 tabular-nums">
-                    <span className={cn("text-sm font-bold", s.value > 0 ? "text-foreground" : "text-muted-foreground")}>
-                      {s.value}
-                    </span>
+                    <span className="text-sm font-bold text-foreground">{s.value}</span>
                     <span className="w-9 text-right text-xs text-muted-foreground">{pct}%</span>
                   </span>
                 </li>

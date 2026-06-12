@@ -1714,7 +1714,7 @@ function PriorityMixCard({ data }: { data: PriorityMix }) {
               })}
             </div>
             <ul className="mt-3 flex-1 space-y-1.5 text-xs">
-              {rows.map((r) => {
+              {rows.filter((r) => r.value > 0).map((r) => {
                 const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
                 return (
                   <li key={r.label} className="flex items-center justify-between gap-2">

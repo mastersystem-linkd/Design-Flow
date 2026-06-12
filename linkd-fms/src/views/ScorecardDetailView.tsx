@@ -3196,19 +3196,16 @@ function PriorityBreakdown({
         </div>
       </div>
 
-      {/* Legend — each row has dot · label · proportion bar · count/% */}
+      {/* Legend — only priorities that actually have tasks. High/Low are
+          unused in this workflow, so they'd otherwise read as dead 0% rows. */}
       <ul className="w-full space-y-2">
-        {data.map((d) => {
+        {data.filter((d) => d.value > 0).map((d) => {
           const pct = total > 0 ? (d.value / total) * 100 : 0;
           const tone = meta[d.label];
-          const isZero = d.value === 0;
           return (
             <li
               key={d.label}
-              className={cn(
-                "grid grid-cols-[auto_64px_1fr_auto] items-center gap-2 text-xs",
-                isZero && "opacity-50"
-              )}
+              className="grid grid-cols-[auto_64px_1fr_auto] items-center gap-2 text-xs"
             >
               <span
                 className={cn(
