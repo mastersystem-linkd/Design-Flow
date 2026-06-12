@@ -260,7 +260,12 @@ Deno.serve(async (req) => {
   const concept = (brief?.concept as string) || (body.customer_name as string) || "Sales ERP Brief";
 
   const fkData = body.full_kitting as Record<string, unknown> | undefined;
-  const requiresFk = fkData ? true : body.requires_full_kitting === true;
+  // Full Kitting is REQUIRED BY DEFAULT for Sales ERP tasks — they're external
+  // job-work briefs, mirroring admin/coordinator-created internal briefs (which
+  // also default to requiring FK). This is what makes the claim-time FK warning
+  // and the coordinator FK to-do fire for ERP tasks. The ERP opts OUT explicitly
+  // by sending `requires_full_kitting: false`.
+  const requiresFk = fkData ? true : body.requires_full_kitting !== false;
 
   const insertPayload: Record<string, unknown> = {
     brief_type: briefType,
@@ -337,7 +342,7 @@ Deno.serve(async (req) => {
       .in("role", ["admin", "design_coordinator"]);
     const fkNote = fkData
       ? fkResult?.storagePath ? " (with Full Kitting)" : " (FK flagged, image pending)"
-      : "";
+      : requiresFk ? " (Full Kitting required — please add details)" : "";
     for (const a of admins || []) {
       await supabase.rpc("notify_user", {
         p_user_id: a.id,

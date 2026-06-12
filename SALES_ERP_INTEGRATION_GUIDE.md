@@ -66,7 +66,7 @@ Content-Type: application/json
 | `description` | string | No | Design description or instructions. |
 | `priority` | string | No | `"normal"` (default) or `"urgent"`. |
 | `brief_type` | string | No | `"job_work"` (default) or `"ld"`. Use `"job_work"` for external client orders. |
-| `requires_full_kitting` | boolean | No | `true` to flag that Full Kitting is needed. Auto-set to `true` when `full_kitting` object is provided. |
+| `requires_full_kitting` | boolean | No | **Defaults to `true`** — every ERP task requires Full Kitting unless you explicitly send `false`. Also auto-set to `true` when a `full_kitting` object is provided. |
 | `full_kitting` | object | No | Full Kitting details (see below). If provided, FK is pre-populated and the designer can complete immediately. |
 | `callback_url` | string | No | Your webhook URL. Design Flow will POST status updates here when the task progresses. |
 | `brief` | object | No | Any additional fields from your system. Stored as-is and visible to coordinators in the task detail drawer. |
@@ -86,9 +86,10 @@ Content-Type: application/json
 | `form_date` | string | No | Date of the FK form (ISO format, e.g. `"2026-06-11"`) |
 
 > **How Full Kitting works in Design Flow:**
-> - If you send `full_kitting` with the task → FK is pre-populated, designer can complete without waiting
-> - If you send `requires_full_kitting: true` WITHOUT `full_kitting` → task enters pool, but designer cannot complete until a Design Flow coordinator uploads FK details. The coordinator gets an automatic to-do notification.
-> - If you omit both → task has no FK requirement (standard flow)
+> - **By default every ERP task requires Full Kitting** (mirroring internal admin/coordinator briefs). The designer can claim and start work, but **cannot complete** until FK details exist — and a Design Flow coordinator gets an automatic to-do to add them.
+> - If you send `full_kitting` with the task → FK is pre-populated, designer can complete without waiting.
+> - If you send neither `full_kitting` nor the flag → FK is **still required**; a coordinator uploads the FK details in Design Flow.
+> - To create a task that does **not** need FK, send `requires_full_kitting: false` explicitly.
 
 **Example — Task with Full Kitting:**
 
@@ -610,13 +611,13 @@ Creating a task?
 │   ├── YES → Send full_kitting object with ext-create-task
 │   │         → FK is pre-populated, designer can complete immediately
 │   │
-│   └── NO → Will FK be needed?
-│       ├── YES → Send requires_full_kitting: true
-│       │         → Designer claims task, gets FK warning
-│       │         → Coordinator gets auto-notification to add FK
-│       │         → Designer CANNOT complete until FK is added
+│   └── NO → FK is required BY DEFAULT — just omit both fields
+│       │   → Designer claims task, gets FK warning
+│       │   → Coordinator gets auto-notification to add FK
+│       │   → Designer CANNOT complete until FK is added
 │       │
-│       └── NO → Omit both fields (standard task)
+│       └── Task genuinely does NOT need FK?
+│           → Send requires_full_kitting: false (opt out)
 │
 ├── FK details arrive LATER (after task created)?
 │   └── Call PUT /ext-update-task with full_kitting object
