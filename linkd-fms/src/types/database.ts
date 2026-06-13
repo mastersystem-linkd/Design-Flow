@@ -1205,7 +1205,7 @@ export type Database = {
           task_id: string | null;
           /** Sample lifecycle + provenance (migration 0069). Pending Samples
            *  sub-tab filters source='task_completion'. */
-          sample_status: "pending" | "in_progress" | "completed";
+          sample_status: "pending" | "in_progress" | "completed" | "dropped";
           source: "manual" | "task_completion" | "sales_erp";
           /** Design type captured at completion (migration 0070). */
           design_type: string | null;
@@ -1214,6 +1214,14 @@ export type Database = {
           external_ref_id: string | null;
           external_callback_url: string | null;
           external_brief: Record<string, unknown> | null;
+          // Review/approval + audit log (migration 0081)
+          approved_by: string | null;
+          approved_at: string | null;
+          sample_history: Record<string, unknown>[];
+          // QC completion (migration 0082)
+          drop_reason: string | null;
+          drop_notes: string | null;
+          qc_summary: Record<string, unknown> | null;
         };
         Insert: {
           id?: string;
@@ -1243,7 +1251,7 @@ export type Database = {
           full_kitting_image_url?: string | null;
           created_by?: string | null;
           task_id?: string | null;
-          sample_status?: "pending" | "in_progress" | "completed";
+          sample_status?: "pending" | "in_progress" | "completed" | "dropped";
           source?: "manual" | "task_completion" | "sales_erp";
           design_type?: string | null;
           // External integration (migration 0073)
@@ -1251,6 +1259,14 @@ export type Database = {
           external_ref_id?: string | null;
           external_callback_url?: string | null;
           external_brief?: Record<string, unknown> | null;
+          // Review/approval + audit log (migration 0081)
+          approved_by?: string | null;
+          approved_at?: string | null;
+          sample_history?: Record<string, unknown>[];
+          // QC completion (migration 0082)
+          drop_reason?: string | null;
+          drop_notes?: string | null;
+          qc_summary?: Record<string, unknown> | null;
         };
         Update: {
           id?: string;
@@ -1280,7 +1296,7 @@ export type Database = {
           full_kitting_image_url?: string | null;
           created_by?: string | null;
           task_id?: string | null;
-          sample_status?: "pending" | "in_progress" | "completed";
+          sample_status?: "pending" | "in_progress" | "completed" | "dropped";
           source?: "manual" | "task_completion" | "sales_erp";
           design_type?: string | null;
           // External integration (migration 0073)
@@ -1288,6 +1304,68 @@ export type Database = {
           external_ref_id?: string | null;
           external_callback_url?: string | null;
           external_brief?: Record<string, unknown> | null;
+          // Review/approval + audit log (migration 0081)
+          approved_by?: string | null;
+          approved_at?: string | null;
+          sample_history?: Record<string, unknown>[];
+          // QC completion (migration 0082)
+          drop_reason?: string | null;
+          drop_notes?: string | null;
+          qc_summary?: Record<string, unknown> | null;
+        };
+        Relationships: [];
+      };
+      sample_qc_rounds: {
+        Row: {
+          id: string;
+          sample_id: string;
+          attempt_no: number;
+          passed: boolean;
+          print_quality: "good" | "bad" | null;
+          fusing_quality: "good" | "bad" | null;
+          done_date: string | null;
+          printing_operator: string | null;
+          fusing_operator: string | null;
+          outcome: "pass" | "resample" | "discard" | "drop";
+          failure_reasons: string[];
+          reinspect_date: string | null;
+          notes: string | null;
+          inspected_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          sample_id: string;
+          attempt_no: number;
+          passed: boolean;
+          print_quality?: "good" | "bad" | null;
+          fusing_quality?: "good" | "bad" | null;
+          done_date?: string | null;
+          printing_operator?: string | null;
+          fusing_operator?: string | null;
+          outcome: "pass" | "resample" | "discard" | "drop";
+          failure_reasons?: string[];
+          reinspect_date?: string | null;
+          notes?: string | null;
+          inspected_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          sample_id?: string;
+          attempt_no?: number;
+          passed?: boolean;
+          print_quality?: "good" | "bad" | null;
+          fusing_quality?: "good" | "bad" | null;
+          done_date?: string | null;
+          printing_operator?: string | null;
+          fusing_operator?: string | null;
+          outcome?: "pass" | "resample" | "discard" | "drop";
+          failure_reasons?: string[];
+          reinspect_date?: string | null;
+          notes?: string | null;
+          inspected_by?: string | null;
+          created_at?: string;
         };
         Relationships: [];
       };

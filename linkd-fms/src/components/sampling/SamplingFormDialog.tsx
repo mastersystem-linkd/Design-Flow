@@ -100,6 +100,9 @@ export function SamplingFormDialog({
   const { profiles: allProfiles } = useProfiles({ roles: ["admin", "design_coordinator"] });
   const { categories: concepts } = useConceptCategories();
   const isEdit = !!editSample;
+  // ERP samples complete ONLY through the QC form (Run QC) — this dialog must
+  // never flip their completion/status. Manual + task samples are unchanged.
+  const isErp = editSample?.source === "sales_erp";
 
   // ── Form state ─────────────────────────────────────────────────────────
   const [partyName, setPartyName] = useState("");
@@ -215,7 +218,7 @@ export function SamplingFormDialog({
       sampling_done_by: samplingDoneBy.trim() || null,
       sr_no: srNo.trim() === "" ? null : Number(srNo),
       order_or_sample: orderOrSample,
-      is_completed: isCompleted,
+      is_completed: isErp ? (editSample?.is_completed ?? false) : isCompleted,
       fusing_operator: fusingOperator.trim() || null,
       neatly_prepared: neatlyPrepared,
       additional_comments: additionalComments.trim() || null,
@@ -224,22 +227,25 @@ export function SamplingFormDialog({
       signature_url: signatureUrl,
       requires_full_kitting: requiresFullKitting,
       full_kitting_image_url: fkImageUrl,
-      ...(completionTimestamp !== undefined
+      ...(!isErp && completionTimestamp !== undefined
         ? { completion_timestamp: completionTimestamp }
         : {}),
       // Advance the sampling lifecycle ON SAVE. A task-sourced sample (from the
       // Pending tab) leaves Pending only when the coordinator saves it:
       // in_progress while being worked, completed when marked done. Manual
-      // samples only flip to completed (they never sit in the Pending tab).
-      ...(editSample?.source === "task_completion" || editSample?.source === "sales_erp"
-        ? {
-            sample_status: (isCompleted ? "completed" : "in_progress") as
-              | "completed"
-              | "in_progress",
-          }
-        : isCompleted
-          ? { sample_status: "completed" as const }
-          : {}),
+      // samples only flip to completed. ERP samples are GATED — their
+      // completion/status is owned by the QC flow (Run QC), never this form.
+      ...(isErp
+        ? {}
+        : editSample?.source === "task_completion"
+          ? {
+              sample_status: (isCompleted ? "completed" : "in_progress") as
+                | "completed"
+                | "in_progress",
+            }
+          : isCompleted
+            ? { sample_status: "completed" as const }
+            : {}),
     };
 
     if (isEdit && editSample) {
@@ -443,7 +449,13 @@ export function SamplingFormDialog({
           <section className="rounded-lg border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/30">
             <SectionHeader icon={CheckSquare} title="Status" />
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 mb-2">
-              <ToggleRow label="Completed" checked={isCompleted} onChange={setIsCompleted} disabled={saving} />
+              {isErp ? (
+                <div className="flex items-center rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-[11px] text-blue-700 dark:text-blue-300">
+                  ERP samples complete via the QC form — use “Run QC” from the row menu.
+                </div>
+              ) : (
+                <ToggleRow label="Completed" checked={isCompleted} onChange={setIsCompleted} disabled={saving} />
+              )}
               <ToggleRow label="Neatly Prepared" checked={neatlyPrepared} onChange={setNeatlyPrepared} disabled={saving} />
             </div>
             <Field label="Comments">

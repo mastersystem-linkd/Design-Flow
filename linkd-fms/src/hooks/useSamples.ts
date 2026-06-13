@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { queryKeys } from "@/lib/queryKeys";
+import { sendNotificationToRole } from "@/lib/notifications";
 import type {
   Sample,
   SampleInsert,
@@ -16,6 +17,21 @@ import type {
 // ============================================================================
 
 export type MutationResult<T> = { data: T | null; error: string | null };
+
+/** Input for a single QC inspection round on an ERP sample (recordQc). */
+export interface QcInput {
+  outcome: "pass" | "resample" | "discard" | "drop";
+  printQuality?: "good" | "bad" | null;
+  fusingQuality?: "good" | "bad" | null;
+  doneDate?: string | null;
+  printingOperator?: string | null;
+  fusingOperator?: string | null;
+  failureReasons?: string[];
+  reinspectDate?: string | null;
+  notes?: string | null;
+  /** Label captured on discard/drop (the abandon reason). */
+  reason?: string | null;
+}
 
 /**
  * The linked-task summary embedded on each Sample. Kept tiny on purpose —
@@ -42,6 +58,7 @@ export interface SampleLinkedTask {
   started_at: string | null;
   planned_deadline: string | null;
   started_late: boolean | null;
+  external_source: string | null;
   client: { party_name: string } | null;
   assignee: { full_name: string; avatar_url: string | null } | null;
 }
@@ -62,7 +79,7 @@ export interface SampleFilters {
   /** ILIKE search on party_name. */
   customerName?: string;
   /** Filter by is_completed. */
-  status?: "pending" | "completed" | "all";
+  status?: "pending" | "completed" | "all" | "dropped";
   /** Provenance filter — single value or array for the Pending Samples tab. */
   source?: "manual" | "task_completion" | "sales_erp" | ("task_completion" | "sales_erp")[];
   /** Lifecycle status filter (pending / in_progress / completed). */
@@ -82,6 +99,16 @@ export interface UseSamples {
   updateSample: (
     id: string,
     data: SampleUpdate
+  ) => Promise<MutationResult<Sample>>;
+  /** ERP review→approve: advances pending→in_progress, stamps approval, logs history. */
+  approveSample: (
+    id: string,
+    patch?: SampleUpdate
+  ) => Promise<MutationResult<Sample>>;
+  /** ERP QC round: pass→completed · resample→loop · discard/drop→dropped. */
+  recordQc: (
+    sampleId: string,
+    input: QcInput
   ) => Promise<MutationResult<Sample>>;
   deleteSample: (id: string) => Promise<MutationResult<{ id: string }>>;
 }
@@ -123,6 +150,7 @@ const FULL_SAMPLE_SELECT = `
     started_at,
     planned_deadline,
     started_late,
+    external_source,
     client:clients!tasks_client_id_fkey(party_name),
     assignee:profiles!tasks_assigned_to_fkey(full_name, avatar_url)
   )
@@ -156,9 +184,11 @@ async function fetchSamples(
       q = q.ilike("party_name", `%${filters.customerName}%`);
     }
     if (filters?.status === "pending") {
-      q = q.eq("is_completed", false);
+      q = q.eq("is_completed", false).neq("sample_status", "dropped");
     } else if (filters?.status === "completed") {
       q = q.eq("is_completed", true);
+    } else if (filters?.status === "dropped") {
+      q = q.eq("sample_status", "dropped");
     }
     if (filters?.source) {
       if (Array.isArray(filters.source)) {
@@ -388,6 +418,194 @@ export function useSamples(
     [user, invalidateAll]
   );
 
+  // ── Approve (ERP review→approve intake gate) ─────────────────────────
+  // The reviewer verifies the ERP-supplied (pre-filled) details, edits any
+  // wrong fields (passed in `patch`), then approves: the sample advances
+  // pending → in_progress, approval is stamped, and an entry is appended to
+  // the sample_history audit log (the same log the deferred QC flow reuses).
+  const approveSample = useCallback(
+    async (
+      id: string,
+      patch: SampleUpdate = {}
+    ): Promise<MutationResult<Sample>> => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      // Read current history to append to (reviewer-driven, low concurrency).
+      const { data: current, error: readErr } = await supabase
+        .from("samples")
+        .select("sample_history")
+        .eq("id", id)
+        .single();
+      if (readErr) return { data: null, error: readErr.message };
+
+      const history = Array.isArray(current?.sample_history)
+        ? (current.sample_history as Record<string, unknown>[])
+        : [];
+      const at = new Date().toISOString();
+      const entry: Record<string, unknown> = { event: "approved", by: user.id, at };
+
+      const normalised: SampleUpdate = { ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, "task_id")) {
+        normalised.task_id = patch.task_id?.toString().trim() || null;
+      }
+
+      const { data: row, error: err } = await supabase
+        .from("samples")
+        .update({
+          ...normalised,
+          sample_status: "in_progress",
+          // Approving an ERP sample sends it INTO development — it is not done.
+          // Force is_completed false so a stale flag can't read as "completed";
+          // only recordQc (QC pass) ever completes an ERP sample.
+          is_completed: false,
+          approved_by: user.id,
+          approved_at: at,
+          sample_history: [...history, entry],
+        })
+        .eq("id", id)
+        .select("*")
+        .single();
+
+      if (err) return { data: null, error: err.message };
+      invalidateAll();
+      return { data: row, error: null };
+    },
+    [user, invalidateAll]
+  );
+
+  // ── Record a QC round (ERP samples only) ─────────────────────────────
+  // Inserts a sample_qc_rounds row, appends to sample_history, and advances the
+  // sample per outcome. The DB webhook trigger emits sample.completed (pass) or
+  // sample.dropped (discard/drop). Resample loops back to in_progress.
+  const recordQc = useCallback(
+    async (sampleId: string, input: QcInput): Promise<MutationResult<Sample>> => {
+      if (!user) return { data: null, error: "Not authenticated" };
+
+      // Hard interlock (mirrors the form): can't pass with a Bad reading.
+      if (
+        input.outcome === "pass" &&
+        (input.printQuality === "bad" || input.fusingQuality === "bad")
+      ) {
+        return { data: null, error: "Cannot pass QC with a Bad quality reading." };
+      }
+
+      // Read current history + the latest attempt number.
+      const { data: sample, error: readErr } = await supabase
+        .from("samples")
+        .select("sample_history, party_name, uid")
+        .eq("id", sampleId)
+        .single();
+      if (readErr) return { data: null, error: readErr.message };
+
+      const { data: rounds, error: roundsErr } = await supabase
+        .from("sample_qc_rounds")
+        .select("attempt_no")
+        .eq("sample_id", sampleId)
+        .order("attempt_no", { ascending: false })
+        .limit(1);
+      if (roundsErr) return { data: null, error: roundsErr.message };
+      const attemptNo = (rounds?.[0]?.attempt_no ?? 0) + 1;
+
+      // 1. Insert the QC round.
+      const { error: insErr } = await supabase.from("sample_qc_rounds").insert({
+        sample_id: sampleId,
+        attempt_no: attemptNo,
+        passed: input.outcome === "pass",
+        print_quality: input.printQuality ?? null,
+        fusing_quality: input.fusingQuality ?? null,
+        done_date: input.doneDate ?? null,
+        printing_operator: input.printingOperator ?? null,
+        fusing_operator: input.fusingOperator ?? null,
+        outcome: input.outcome,
+        failure_reasons: input.failureReasons ?? [],
+        reinspect_date: input.reinspectDate ?? null,
+        notes: input.notes ?? null,
+        inspected_by: user.id,
+      });
+      if (insErr) return { data: null, error: insErr.message };
+
+      // 2. Advance the sample per outcome.
+      const at = new Date().toISOString();
+      const history = Array.isArray(sample?.sample_history)
+        ? (sample.sample_history as Record<string, unknown>[])
+        : [];
+      const historyEntry: Record<string, unknown> = {
+        event: `qc_${input.outcome}`,
+        by: user.id,
+        at,
+        attempt_no: attemptNo,
+      };
+
+      let patch: SampleUpdate;
+      if (input.outcome === "pass") {
+        patch = {
+          sample_status: "completed",
+          is_completed: true,
+          completion_timestamp: at,
+          qc_summary: {
+            attempt_no: attemptNo,
+            print_quality: input.printQuality ?? null,
+            fusing_quality: input.fusingQuality ?? null,
+            printing_operator: input.printingOperator ?? null,
+            fusing_operator: input.fusingOperator ?? null,
+            done_date: input.doneDate ?? null,
+          },
+          sample_history: [...history, historyEntry],
+        };
+      } else if (input.outcome === "resample") {
+        patch = {
+          sample_status: "in_progress",
+          sample_history: [...history, historyEntry],
+        };
+      } else {
+        // discard | drop → terminal 'dropped' (fires the sample.dropped webhook)
+        patch = {
+          sample_status: "dropped",
+          drop_reason: input.reason?.trim() || input.outcome,
+          drop_notes: input.notes?.trim() || null,
+          sample_history: [...history, historyEntry],
+        };
+      }
+
+      const { data: row, error: updErr } = await supabase
+        .from("samples")
+        .update(patch)
+        .eq("id", sampleId)
+        .select("*")
+        .single();
+      if (updErr) return { data: null, error: updErr.message };
+
+      // 3. Notify admins/coordinators (best-effort, fire-and-forget).
+      const label = sample?.uid || sample?.party_name || "sample";
+      if (input.outcome === "pass") {
+        void sendNotificationToRole(
+          ["admin", "design_coordinator"],
+          "QC Passed",
+          `Sample ${label} passed QC and is completed.`,
+          "success"
+        );
+      } else if (input.outcome === "resample") {
+        void sendNotificationToRole(
+          ["admin", "design_coordinator"],
+          "QC Failed — Resampling",
+          `Sample ${label} failed QC (attempt ${attemptNo}); resampling.`,
+          "warning"
+        );
+      } else {
+        void sendNotificationToRole(
+          ["admin", "design_coordinator"],
+          "Sample Dropped",
+          `Sample ${label} was ${input.outcome === "discard" ? "discarded" : "dropped"} after QC.`,
+          "warning"
+        );
+      }
+
+      invalidateAll();
+      return { data: row, error: null };
+    },
+    [user, invalidateAll]
+  );
+
   // ── Delete ──────────────────────────────────────────────────────────
   const deleteSample = useCallback(
     async (id: string): Promise<MutationResult<{ id: string }>> => {
@@ -410,6 +628,8 @@ export function useSamples(
     refetch,
     createSample,
     updateSample,
+    approveSample,
+    recordQc,
     deleteSample,
   };
 }

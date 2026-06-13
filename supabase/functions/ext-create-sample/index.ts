@@ -174,10 +174,18 @@ Deno.serve(async (req) => {
     external_callback_url:
       body.callback_url || integration.webhook_url || null,
     external_brief: {
-      fabric_source: body.fabric_source ?? null,
+      // Fabric NAME — prefer an explicit fabric_source, else the dev block's
+      // fabric_type, else the top-level fabric. (Dialog reads fabric_source,
+      // falling back to samples.quality.)
+      fabric_source:
+        body.fabric_source ?? (devData?.fabric_type as string) ?? body.fabric ?? null,
       design_count: body.design_count ?? devData?.design_count ?? null,
       widths: body.widths ?? devData?.fabric_widths ?? null,
-      sample_types: body.sample_types ?? devData?.sample_types ?? null,
+      // Sample FORMATS — must come from sample_development.sample_types. The
+      // top-level body.sample_types is DESIGN types (CRR §2 naming gotcha) and
+      // is captured separately as design_type, so it must NOT win here or the
+      // format chips pre-fill with the wrong values.
+      sample_types: (devData?.sample_types as unknown) ?? body.sample_types ?? null,
       erp_sample_id: body.erp_sample_id ?? null,
       estimated_meters: body.estimated_meters ?? devData?.estimated_meters ?? null,
       actual_meters: body.actual_meters ?? devData?.actual_meters ?? null,

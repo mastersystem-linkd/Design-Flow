@@ -38,9 +38,31 @@ Deno.serve(async () => {
     .from("external_integrations")
     .select("webhook_secret")
     .eq("is_active", true)
+    .not("webhook_secret", "is", null)
+    .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
-  const secret = integration?.webhook_secret || "";
+  const secret = integration?.webhook_secret ?? "";
+
+  if (!secret) {
+    // No signing secret → every delivery would be unsigned, the receiver 401s,
+    // and the row burns all retries until it dead-letters. Skip the run loudly
+    // instead of shipping an empty X-Signature; leave pending rows untouched.
+    await supabase.from("integration_events").insert({
+      direction: "outbound",
+      event: "webhook.dispatch_skipped",
+      status: "error",
+      detail: { reason: "no active integration with a webhook_secret" },
+    });
+    return new Response(
+      JSON.stringify({
+        processed: 0,
+        skipped: pending.length,
+        reason: "no webhook secret",
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   let sent = 0;
   let failed = 0;
@@ -51,7 +73,7 @@ Deno.serve(async () => {
     let errMsg = "";
 
     try {
-      const signature = secret ? await hmacSign(secret, body) : "";
+      const signature = await hmacSign(secret, body);
       const res = await fetch(row.target_url, {
         method: "POST",
         headers: {

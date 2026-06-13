@@ -540,9 +540,12 @@ X-Signature: <HMAC-SHA256 hex signature>
 
 | Event | When it fires |
 |-------|---------------|
-| `sample.in_progress` | Coordinator started working on the sample |
-| `sample.completed` | Sample completed |
+| `sample.in_progress` | Coordinator started working on the sample (also fired on QC review→approve) |
+| `sample.completed` | Sample **passed QC** and is completed (carries a `qc` summary) |
+| `sample.dropped` | Sample **discarded or dropped** during QC — abandoned in Design Flow (carries `reason` + `notes`) |
 | `sample.development_saved` | Development details saved or updated in Design Flow |
+
+> **QC-resample loop is internal to Design Flow** and is **not** signalled as a terminal event — a failed-then-resampling sample stays open (you may see a `sample.in_progress` ping). You'll only get a terminal `sample.completed` (QC pass) or `sample.dropped` (discard/drop). Customer-requested changes after a pass are a **new** request from you (new `ref_id`).
 
 **Sample Webhook Payload (status events):**
 
@@ -551,11 +554,28 @@ X-Signature: <HMAC-SHA256 hex signature>
   "event": "sample.completed",
   "ref_id": "ERP-SAMP-2026-0089",
   "design_flow_id": "e5f6g7h8-...",
-  "uid": "SMP-2026-0042",
+  "uid": "ESMP-2026-0042",
   "status": "completed",
   "party_name": "Sarthi Fashion",
   "fabric": "Georgette 40gm",
-  "is_completed": true
+  "is_completed": true,
+  "qc": { "attempt_no": 2, "print_quality": "good", "fusing_quality": "good", "printing_operator": "…", "fusing_operator": "…", "done_date": "2026-06-13" }
+}
+```
+
+**Sample Webhook Payload (`sample.dropped`):**
+
+```json
+{
+  "event": "sample.dropped",
+  "ref_id": "ERP-SAMP-2026-0089",
+  "design_flow_id": "e5f6g7h8-...",
+  "uid": "ESMP-2026-0042",
+  "status": "dropped",
+  "party_name": "Sarthi Fashion",
+  "fabric": "Georgette 40gm",
+  "reason": "discard",
+  "notes": "Colour mismatch unrecoverable after 3 attempts"
 }
 ```
 

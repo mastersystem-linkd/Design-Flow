@@ -1,15 +1,14 @@
 import { useState, useMemo } from "react";
-import { Package, ArrowRight, ExternalLink, Clock, Layers } from "lucide-react";
+import { Package, ArrowRight, ExternalLink, Clock, Layers, ChevronRight } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { EmptyState } from "@/components/ui";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/button";
-import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 import {
   TABLE_HEAD,
   TABLE_TH,
   TABLE_TH_STICKY_RIGHT,
-  TABLE_ROW,
+  TABLE_ROW_CLICKABLE,
   TABLE_TD,
   TABLE_TD_STICKY_RIGHT,
 } from "@/lib/tableStyles";
@@ -25,7 +24,7 @@ type SourceFilter = "all" | "task_completion" | "sales_erp";
 function flaggedAgo(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
-    return `flagged ${formatDistanceToNow(new Date(iso))} ago`;
+    return formatDistanceToNow(new Date(iso), { addSuffix: true });
   } catch {
     return "—";
   }
@@ -33,9 +32,13 @@ function flaggedAgo(iso: string | null | undefined): string {
 
 const dt = (iso: string | null | undefined) => (iso ? formatDate(iso) : "—");
 
+function isErpOrigin(s: SampleWithTask): boolean {
+  return s.source === "sales_erp" || !!s.external_source || !!s.task?.external_source;
+}
+
 function rowView(s: SampleWithTask, nameById: Map<string, string>) {
   const t = s.task;
-  const isErp = s.source === "sales_erp";
+  const isErp = isErpOrigin(s);
   const storedParty = s.party_name && s.party_name !== "—" ? s.party_name : null;
   const completedByName = s.created_by ? nameById.get(s.created_by) : undefined;
   const qty = t?.qty ?? null;
@@ -82,6 +85,27 @@ const SOURCE_CHIPS: { key: SourceFilter; label: string }[] = [
   { key: "sales_erp", label: "From Sales ERP" },
 ];
 
+// ─── Cell value: real data rendered, empty cells blank ──────────────────────
+function V({ v, className }: { v: string | number | null | undefined; className?: string }) {
+  if (v == null || v === "—" || v === "") return null;
+  return <span className={cn("text-foreground", className)}>{String(v)}</span>;
+}
+
+// ─── Source pill ─────────────────────────────────────────────────────────────
+function SourcePill({ isErp }: { isErp: boolean }) {
+  return isErp ? (
+    <span className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
+      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+      ERP
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary/50 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+      Task
+    </span>
+  );
+}
+
 export function PendingSamplesPanel({
   samples,
   isLoading,
@@ -96,16 +120,18 @@ export function PendingSamplesPanel({
     () =>
       sourceFilter === "all"
         ? samples
-        : samples.filter((s) => s.source === sourceFilter),
+        : sourceFilter === "sales_erp"
+          ? samples.filter((s) => isErpOrigin(s))
+          : samples.filter((s) => !isErpOrigin(s)),
     [samples, sourceFilter]
   );
 
   const erpCount = useMemo(
-    () => samples.filter((s) => s.source === "sales_erp").length,
+    () => samples.filter((s) => isErpOrigin(s)).length,
     [samples]
   );
   const taskCount = useMemo(
-    () => samples.filter((s) => s.source === "task_completion").length,
+    () => samples.filter((s) => !isErpOrigin(s)).length,
     [samples]
   );
 
@@ -139,7 +165,7 @@ export function PendingSamplesPanel({
     <section className="overflow-hidden rounded-xl border border-border bg-card">
       {/* Sub-filter chips — only when both sources have items */}
       {showChips && (
-        <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+        <div className="flex items-center gap-1 border-b border-border px-3 py-2">
           {SOURCE_CHIPS.map((chip) => {
             const count =
               chip.key === "all"
@@ -147,20 +173,28 @@ export function PendingSamplesPanel({
                 : chip.key === "sales_erp"
                   ? erpCount
                   : taskCount;
+            const active = sourceFilter === chip.key;
             return (
               <button
                 key={chip.key}
                 type="button"
                 onClick={() => setSourceFilter(chip.key)}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
-                  sourceFilter === chip.key
-                    ? "bg-primary/10 text-primary"
+                  "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all",
+                  active
+                    ? "bg-primary/10 text-primary shadow-sm ring-1 ring-primary/20"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 )}
               >
                 {chip.label}
-                <span className="tabular-nums text-[10px] opacity-70">
+                <span
+                  className={cn(
+                    "inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums",
+                    active
+                      ? "bg-primary/15 text-primary"
+                      : "bg-secondary text-muted-foreground"
+                  )}
+                >
                   {count}
                 </span>
               </button>
@@ -183,56 +217,65 @@ export function PendingSamplesPanel({
           <div className="space-y-2 p-3 sm:hidden">
             {filtered.map((s) => {
               const v = rowView(s, nameById);
+              const erp = isErpOrigin(s);
               return (
-                <div key={s.id} className="rounded-xl border border-border bg-card p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => s.task_id && onOpenTask(s.task_id)}
-                        disabled={!s.task_id}
-                        className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary hover:underline disabled:no-underline disabled:opacity-60"
-                        title="Open linked task"
-                      >
-                        {v.uid}
-                        {s.task_id && <ExternalLink className="h-3 w-3" />}
-                      </button>
-                      <ExternalOriginBadge source={s.source} refId={s.external_ref_id} />
+                <div
+                  key={s.id}
+                  className="rounded-xl border border-border bg-card p-3 transition-shadow hover:shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => s.task_id && onOpenTask(s.task_id)}
+                          disabled={!s.task_id}
+                          className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary hover:underline disabled:no-underline disabled:opacity-60"
+                          title="Open linked task"
+                        >
+                          {v.uid}
+                          {s.task_id && <ExternalLink className="h-3 w-3" />}
+                        </button>
+                        <SourcePill isErp={erp} />
+                      </div>
+                      <p className="mt-1.5 text-sm font-semibold text-foreground">{v.party}</p>
                     </div>
-                    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <Clock className="h-3 w-3" /> {flaggedAgo(s.created_at)}
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {flaggedAgo(s.created_at)}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{v.party}</p>
+
                   {v.description !== "—" && (
-                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{v.description}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{v.description}</p>
                   )}
-                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                     <span>{v.designType}</span>
                     {v.fabric !== "—" && <span>· {v.fabric}</span>}
                     {v.qty != null && <span>· Qty {v.qty}</span>}
                     {v.meters != null && <span>· {v.meters}m</span>}
                     {v.designer !== "—" && <span>· {v.designer}</span>}
-                    {v.whatsappGroup !== "—" && <span>· {v.whatsappGroup}</span>}
-                    {v.assignedBy !== "—" && <span>· by {v.assignedBy}</span>}
-                    {v.deadline !== "—" && <span>· due {v.deadline}</span>}
                   </div>
-                  <div className="mt-2 flex gap-2">
-                    {s.source === "sales_erp" && onStartDevelopment && (
+                  <div className="mt-3">
+                    {erp && onStartDevelopment ? (
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+                        className="w-full gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
                         onClick={() => onStartDevelopment(s)}
                       >
                         <Layers className="h-3.5 w-3.5" />
-                        Development
+                        Review &amp; Approve
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="w-full gap-1.5"
+                        onClick={() => onProcess(s)}
+                      >
+                        <ArrowRight className="h-3.5 w-3.5" />
+                        Start Sampling
                       </Button>
                     )}
-                    <Button size="sm" className="flex-1 gap-1.5" onClick={() => onProcess(s)}>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                      Start Sampling
-                    </Button>
                   </div>
                 </div>
               );
@@ -268,9 +311,10 @@ export function PendingSamplesPanel({
               </thead>
               <tbody>
                 {filtered.map((s) => {
-                  const v = rowView(s, nameById);
+                  const r = rowView(s, nameById);
+                  const erp = isErpOrigin(s);
                   return (
-                    <tr key={s.id} className={TABLE_ROW}>
+                    <tr key={s.id} className={TABLE_ROW_CLICKABLE}>
                       <td className={TABLE_TD}>
                         <button
                           type="button"
@@ -279,55 +323,56 @@ export function PendingSamplesPanel({
                           className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary hover:underline disabled:no-underline disabled:opacity-60"
                           title="Open linked task"
                         >
-                          {v.uid}
+                          {r.uid}
                           {s.task_id && <ExternalLink className="h-3 w-3" />}
                         </button>
                       </td>
                       <td className={TABLE_TD}>
-                        <ExternalOriginBadge source={s.source} refId={s.external_ref_id} />
-                        {s.source === "task_completion" && (
-                          <span className="text-[10px] text-muted-foreground">Task</span>
-                        )}
+                        <SourcePill isErp={erp} />
                       </td>
-                      <td className={cn(TABLE_TD, "font-medium text-foreground")}>{v.party}</td>
-                      <td className={TABLE_TD}>{v.designer}</td>
-                      <td className={TABLE_TD}>{v.designType}</td>
-                      <td className={cn(TABLE_TD, "max-w-[220px] truncate")} title={v.description}>
-                        {v.description}
+                      <td className={cn(TABLE_TD, "font-semibold text-foreground")}>{r.party}</td>
+                      <td className={TABLE_TD}><V v={r.designer} /></td>
+                      <td className={TABLE_TD}><V v={r.designType} /></td>
+                      <td className={cn(TABLE_TD, "max-w-[220px] truncate")} title={r.description}>
+                        <V v={r.description} />
                       </td>
-                      <td className={TABLE_TD}>{v.fabric}</td>
-                      <td className={cn(TABLE_TD, "tabular-nums")}>{v.qty ?? "—"}</td>
-                      <td className={cn(TABLE_TD, "tabular-nums")}>{v.completed}</td>
-                      <td className={cn(TABLE_TD, "tabular-nums")}>{v.pending ?? "—"}</td>
-                      <td className={TABLE_TD}>{v.whatsappGroup}</td>
-                      <td className={cn(TABLE_TD, "whitespace-nowrap")}>{v.messageDate}</td>
-                      <td className={cn(TABLE_TD, "whitespace-nowrap")}>{v.messageTime}</td>
-                      <td className={TABLE_TD}>{v.assignedBy}</td>
-                      <td className={cn(TABLE_TD, "whitespace-nowrap")}>{v.briefed}</td>
-                      <td className={cn(TABLE_TD, "whitespace-nowrap")}>{v.claimed}</td>
-                      <td className={cn(TABLE_TD, "whitespace-nowrap")}>{v.deadline}</td>
-                      <td className={TABLE_TD}>{v.startedLate}</td>
+                      <td className={TABLE_TD}><V v={r.fabric} /></td>
+                      <td className={cn(TABLE_TD, "tabular-nums")}><V v={r.qty} /></td>
+                      <td className={cn(TABLE_TD, "tabular-nums")}><V v={r.completed} /></td>
+                      <td className={cn(TABLE_TD, "tabular-nums")}><V v={r.pending} /></td>
+                      <td className={TABLE_TD}><V v={r.whatsappGroup} /></td>
+                      <td className={cn(TABLE_TD, "whitespace-nowrap")}><V v={r.messageDate} /></td>
+                      <td className={cn(TABLE_TD, "whitespace-nowrap")}><V v={r.messageTime} /></td>
+                      <td className={TABLE_TD}><V v={r.assignedBy} /></td>
+                      <td className={cn(TABLE_TD, "whitespace-nowrap")}><V v={r.briefed} /></td>
+                      <td className={cn(TABLE_TD, "whitespace-nowrap")}><V v={r.claimed} /></td>
+                      <td className={cn(TABLE_TD, "whitespace-nowrap")}><V v={r.deadline} /></td>
+                      <td className={TABLE_TD}><V v={r.startedLate} /></td>
                       <td className={cn(TABLE_TD, "whitespace-nowrap text-xs text-muted-foreground")}>
                         {flaggedAgo(s.created_at)}
                       </td>
                       <td className={TABLE_TD_STICKY_RIGHT}>
-                        <div className="flex items-center gap-1.5">
-                          {s.source === "sales_erp" && onStartDevelopment && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1 border-primary/30 text-primary hover:bg-primary/5"
-                              onClick={() => onStartDevelopment(s)}
-                            >
-                              <Layers className="h-3 w-3" />
-                              Development
-                            </Button>
-                          )}
-                          <Button size="sm" className="gap-1.5" onClick={() => onProcess(s)}>
-                            <ArrowRight className="h-3.5 w-3.5" />
+                        {erp && onStartDevelopment ? (
+                          <button
+                            type="button"
+                            onClick={() => onStartDevelopment(s)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow-sm"
+                          >
+                            <Layers className="h-3 w-3" />
+                            Development
+                            <ChevronRight className="h-3 w-3" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onProcess(s)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow-sm"
+                          >
+                            <ArrowRight className="h-3 w-3" />
                             Start Sampling
-                          </Button>
-                        </div>
+                            <ChevronRight className="h-3 w-3" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

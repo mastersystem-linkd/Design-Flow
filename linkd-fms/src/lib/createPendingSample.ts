@@ -54,7 +54,7 @@ export async function createPendingSample(input: PendingSampleInput): Promise<vo
     // task has one, which is why job-work party names came through as "—".)
     const { data: task } = await supabase
       .from("tasks")
-      .select("task_code, client_id, brief_type")
+      .select("task_code, client_id, brief_type, external_source")
       .eq("id", taskId)
       .maybeSingle();
     const uid = task?.task_code ?? null;
@@ -97,6 +97,7 @@ export async function createPendingSample(input: PendingSampleInput): Promise<vo
       order_or_sample: "sample",
       sample_status: "pending",
       source: "task_completion",
+      external_source: task?.external_source || null,
       created_by: createdBy,
     });
     if (insertErr) {

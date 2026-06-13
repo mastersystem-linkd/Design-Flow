@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getKittingBySample, initiateKitting } from "@/lib/kittingQueries";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import type { Sample } from "@/types/database";
+import type { Sample, SampleUpdate } from "@/types/database";
 
 // ============================================================================
 // Constants — ERP-aligned sample development options
@@ -55,6 +55,13 @@ interface Props {
   onOpenChange: (o: boolean) => void;
   sample: Sample;
   onSaved?: () => void;
+  /** ERP Reviewer→Approve gate. When provided and the sample is from the ERP,
+   *  the primary action approves it: advances pending→in_progress, stamps the
+   *  approver, and appends to sample_history. Pass useSamples().approveSample. */
+  onApprove?: (
+    id: string,
+    patch: SampleUpdate
+  ) => Promise<{ data: unknown; error: string | null }>;
 }
 
 // ============================================================================
@@ -113,9 +120,10 @@ function CheckboxGrid({
 // SampleDevelopmentDialog
 // ============================================================================
 
-export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved }: Props) {
+export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved, onApprove }: Props) {
   const { user } = useAuth();
   const { fabrics } = useFabrics();
+  const isErp = sample.source === "sales_erp";
 
   const [designCount, setDesignCount] = useState("");
   const [fabricType, setFabricType] = useState("");
@@ -260,17 +268,27 @@ export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved }:
         }
       }
 
-      // Update sample with development details
-      await supabase
-        .from("samples")
-        .update({
-          requires_full_kitting: true,
-          quality: fabricType.trim() || sample.quality,
-          printed_mtr: actualMeters ? Number(actualMeters) : sample.printed_mtr,
-        })
-        .eq("id", sample.id);
+      // Update sample with development details. For ERP requests this is the
+      // explicit Reviewer→Approve gate: advance pending→in_progress, stamp the
+      // approver, and append to the sample_history audit log (via onApprove).
+      const devPatch: SampleUpdate = {
+        requires_full_kitting: true,
+        quality: fabricType.trim() || sample.quality,
+        printed_mtr: actualMeters ? Number(actualMeters) : sample.printed_mtr,
+      };
 
-      toast.success("Sample development details saved");
+      if (isErp && onApprove) {
+        const { error: apprErr } = await onApprove(sample.id, devPatch);
+        if (apprErr) {
+          toast.error(`Failed to approve: ${apprErr}`);
+          setSaving(false);
+          return;
+        }
+        toast.success("ERP sample approved — development started");
+      } else {
+        await supabase.from("samples").update(devPatch).eq("id", sample.id);
+        toast.success("Sample development details saved");
+      }
       onSaved?.();
       onOpenChange(false);
     } catch (err) {
@@ -279,8 +297,6 @@ export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved }:
       setSaving(false);
     }
   }
-
-  const isErp = sample.source === "sales_erp";
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && !saving) onOpenChange(false); }}>
@@ -296,7 +312,7 @@ export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved }:
             </span>
             <div className="min-w-0">
               <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
-                Start Sample Development
+                {isErp ? "Review ERP Sample Request" : "Start Sample Development"}
               </h2>
               <p className="text-[10px] text-muted-foreground">
                 {sample.party_name} {sample.uid ? `· ${sample.uid}` : ""}
@@ -319,6 +335,11 @@ export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved }:
 
         {/* Body */}
         <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5">
+          {isErp && (
+            <p className="rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-[11px] text-blue-700 dark:text-blue-300">
+              Review the ERP-supplied details below, correct anything inaccurate, then approve to push this into Sample Development.
+            </p>
+          )}
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -438,7 +459,11 @@ export function SampleDevelopmentDialog({ open, onOpenChange, sample, onSaved }:
             disabled={loading}
             onClick={handleSave}
           >
-            {existingFkId ? "Update Development" : "Save Development"}
+            {existingFkId
+              ? "Update Development"
+              : isErp
+                ? "Approve & Start Development"
+                : "Save Development"}
           </LoadingButton>
         </div>
       </DialogContent>

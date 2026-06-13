@@ -26,6 +26,8 @@ import {
   ExternalLink,
   Loader2,
   LayoutGrid,
+  ShieldCheck,
+  Ban,
 } from "lucide-react";
 import {
   BarChart,
@@ -47,6 +49,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { SamplingFormDialog } from "@/components/sampling/SamplingFormDialog";
 import { PendingSamplesPanel } from "@/components/sampling/PendingSamplesPanel";
 import { SampleDevelopmentDialog } from "@/components/sampling/SampleDevelopmentDialog";
+import { SampleQcDialog } from "@/components/sampling/SampleQcDialog";
 import { TaskDetailDrawer } from "@/components/tasks/TaskDetailDrawer";
 import { BatchSampleEntry } from "@/components/sampling/BatchSampleEntry";
 import { CompletedKittingPanel } from "@/components/tasks/CompletedKittingPanel";
@@ -129,11 +132,11 @@ export function ProductionView() {
   // operational view). "dashboard" = analytics rollups. Two distinct mental
   // modes — coordinators bounce between them, so a tab is cheaper than a
   // separate route.
-  const [tab, setTab] = useState<"samples" | "pending" | "dashboard">("samples");
+  const [tab, setTab] = useState<"samples" | "pending" | "dashboard">("pending");
 
   // ── Sample filters ──
   const [customerSearch, setCustomerSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed" | "dropped">("all");
 
   const sampleFilters: SampleFilters = useMemo(
     () => ({
@@ -153,6 +156,8 @@ export function ProductionView() {
     refetch: refetchSamples,
     createSample,
     updateSample,
+    approveSample,
+    recordQc,
     deleteSample,
   } = useSamples(sampleFilters);
 
@@ -193,6 +198,8 @@ export function ProductionView() {
 
   // Development dialog for ERP samples
   const [devDialogSample, setDevDialogSample] = useState<SampleWithTask | null>(null);
+  // QC dialog for ERP samples (mandatory completion gate)
+  const [qcSample, setQcSample] = useState<SampleWithTask | Sample | null>(null);
 
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -418,8 +425,8 @@ export function ProductionView() {
             horizontally on phones instead of wrapping to a second row. */}
         <div className="no-scrollbar touch-scroll-x -mx-3 inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-card p-0.5 sm:mx-0">
           {([
-            { id: "samples" as const, label: "Completed Samples", icon: Package, badge: 0 },
             { id: "pending" as const, label: "Pending Samples", icon: Clock, badge: pending.totalCount },
+            { id: "samples" as const, label: "Completed Samples", icon: Package, badge: 0 },
             { id: "dashboard" as const, label: "Sample Dashboard", icon: BarChart3, badge: 0 },
           ]).map(({ id, label, icon: Icon, badge }) => (
             <button
@@ -477,7 +484,7 @@ export function ProductionView() {
               />
             </div>
             <div className="no-scrollbar touch-scroll-x -mx-3 flex max-w-full gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-              {(["all", "pending", "completed"] as const).map((s) => (
+              {(["all", "pending", "completed", "dropped"] as const).map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -492,7 +499,7 @@ export function ProductionView() {
                       : "text-muted-foreground hover:bg-secondary"
                   )}
                 >
-                  {s === "all" ? "All" : s === "pending" ? "Pending" : "Completed"}
+                  {s === "all" ? "All" : s === "pending" ? "Pending" : s === "completed" ? "Completed" : "Dropped"}
                 </button>
               ))}
             </div>
@@ -529,6 +536,7 @@ export function ProductionView() {
                   onOpen={() => { setEditSample(s); setFormOpen(true); }}
                   onEdit={() => { setEditSample(s); setFormOpen(true); }}
                   onDelete={() => setDeleteSampleTarget(s)}
+                  onRunQc={() => setQcSample(s)}
                 />
               ))}
             </div>
@@ -570,6 +578,7 @@ export function ProductionView() {
                       onView={() => { setEditSample(s); setFormOpen(true); }}
                       onEdit={() => { setEditSample(s); setFormOpen(true); }}
                       onDelete={() => setDeleteSampleTarget(s)}
+                      onRunQc={() => setQcSample(s)}
                     />
                   ))}
                 </tbody>
@@ -645,6 +654,21 @@ export function ProductionView() {
           open={!!devDialogSample}
           onOpenChange={(o) => { if (!o) setDevDialogSample(null); }}
           sample={devDialogSample}
+          onApprove={approveSample}
+          onSaved={() => {
+            void pending.refetch();
+            void refetchSamples();
+          }}
+        />
+      )}
+
+      {/* QC dialog — mandatory completion gate for ERP samples */}
+      {qcSample && (
+        <SampleQcDialog
+          open={!!qcSample}
+          onOpenChange={(o) => { if (!o) setQcSample(null); }}
+          sample={qcSample}
+          onRecordQc={recordQc}
           onSaved={() => {
             void pending.refetch();
             void refetchSamples();
@@ -768,12 +792,14 @@ function SampleMobileCard({
   onOpen,
   onEdit,
   onDelete,
+  onRunQc,
 }: {
   sample: SampleWithTask | Sample;
   canDelete: boolean;
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRunQc?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
@@ -834,6 +860,11 @@ function SampleMobileCard({
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />Edit sample
             </button>
+            {onRunQc && s.source === "sales_erp" && s.sample_status === "in_progress" && (
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRunQc(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-primary transition-colors hover:bg-primary/10">
+                <ShieldCheck className="h-3.5 w-3.5" />Run QC
+              </button>
+            )}
             {canDelete && (
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
                 <Trash2 className="h-3.5 w-3.5" />Delete sample
@@ -854,6 +885,7 @@ function SampleRow({
   onView,
   onEdit,
   onDelete,
+  onRunQc,
 }: {
   sample: SampleWithTask | Sample;
   profileMap: Map<string, string>;
@@ -861,6 +893,7 @@ function SampleRow({
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRunQc?: () => void;
 }) {
   const pending = s.pending_qty;
   const entryBy = s.created_by ? profileMap.get(s.created_by) ?? "—" : "—";
@@ -934,9 +967,24 @@ function SampleRow({
         {s.completion_timestamp ? formatDate(s.completion_timestamp) : "—"}
       </td>
 
-      {/* Status — read-only. Toggle lives in the dialog. */}
+      {/* Status — read-only. Toggle lives in the dialog. ERP in-progress samples
+          surface a clickable "Run QC" pill (completion is gated behind QC). */}
       <td className={TABLE_TD}>
-        {s.is_completed ? (
+        {s.sample_status === "dropped" ? (
+          <Badge className="border border-destructive/30 bg-destructive/15 px-1.5 py-0 text-[10px] text-destructive">
+            <Ban className="mr-0.5 h-3 w-3" />
+            Dropped
+          </Badge>
+        ) : onRunQc && s.source === "sales_erp" && s.sample_status === "in_progress" ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRunQc(); }}
+            className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-2 py-1 text-[10px] font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15"
+            title="Run quality control"
+          >
+            <ShieldCheck className="h-3 w-3" /> Run QC
+          </button>
+        ) : s.is_completed ? (
           <Badge className="border border-success/30 bg-success/15 px-1.5 py-0 text-[10px] text-success">
             <Check className="mr-0.5 h-3 w-3" />
             Done
@@ -977,7 +1025,7 @@ function SampleRow({
       {/* Actions — sticky right so the ⋮ menu (View / Edit / Delete) is always
           reachable without scrolling the full ~2800px-wide table. */}
       <td className={TABLE_TD_STICKY_RIGHT}>
-        <SampleActionsMenu sample={s} canDelete={canDelete} onView={onView} onEdit={onEdit} onDelete={onDelete} />
+        <SampleActionsMenu sample={s} canDelete={canDelete} onView={onView} onEdit={onEdit} onDelete={onDelete} onRunQc={onRunQc} />
       </td>
     </tr>
   );
@@ -992,12 +1040,14 @@ function SampleActionsMenu({
   onView,
   onEdit,
   onDelete,
+  onRunQc,
 }: {
   sample: SampleWithTask | Sample;
   canDelete: boolean;
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRunQc?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -1034,6 +1084,11 @@ function SampleActionsMenu({
             <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary">
               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />Edit sample
             </button>
+            {onRunQc && s.source === "sales_erp" && s.sample_status === "in_progress" && (
+              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onRunQc(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-primary transition-colors hover:bg-primary/10">
+                <ShieldCheck className="h-3.5 w-3.5" />Run QC
+              </button>
+            )}
             {canDelete && (
               <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10">
                 <Trash2 className="h-3.5 w-3.5" />Delete sample

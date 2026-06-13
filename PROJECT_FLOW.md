@@ -937,6 +937,32 @@ Sample appears in Pending Samples tab for coordinator to process
 Coordinator clicks "Process" → pre-filled SamplingFormDialog → edits/completes
 ```
 
+**ERP sample lifecycle (source='sales_erp' — distinct from manual/task samples):**
+```
+CRR Sales ERP → POST /ext-create-sample
+  ↓ inserts sample: source='sales_erp', sample_status='pending', uid='ESMP-YYYY-NNNN',
+  ↓ external_ref_id, external_callback_url, external_brief (the full ERP brief)
+  ↓
+PENDING SAMPLES tab → "Awaiting Review" → coordinator clicks "Review & Approve"
+  ↓ SampleDevelopmentDialog ("Review ERP Sample Request"), pre-filled from external_brief
+  ↓ reviewer verifies/edits → "Approve & Start Development"
+  ↓ approveSample(): sample_status='in_progress', approved_by/at, sample_history+={approved}
+  ↓ (webhook: sample.in_progress)
+  ↓
+IN DEVELOPMENT → coordinator runs production, then "Run QC" (row menu) → SampleQcDialog
+  ↓ recordQc() — writes a sample_qc_rounds row + sample_history entry:
+  ├─ PASS (Good/Good; hard interlock blocks Bad)  → sample_status='completed', qc_summary
+  │                                                 → webhook: sample.completed
+  ├─ FAIL → Resample  → stays in_progress, attempt_no++  (loop, SAME ref_id; no terminal webhook)
+  └─ FAIL → Discard/Drop → sample_status='dropped', drop_reason/notes
+                                                    → webhook: sample.dropped
+  ↓
+CRR resumes (dispatch / customer verdict). Customer-requested changes = a NEW ext-create-sample
+(new ref_id) — a fresh DF sample, never a reopen.
+```
+> ERP completion is **gated**: `SamplingFormDialog` hides the Completed toggle for ERP samples and
+> never writes their `is_completed`/`sample_status='completed'` — only `recordQc` can complete them.
+
 ---
 
 ### 6.8 Team Management (`/team` — TeamView.tsx)

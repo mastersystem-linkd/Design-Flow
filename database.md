@@ -132,7 +132,7 @@ Pipeline: **pool → in_progress → done → completed** (`full_kitting` displa
 
 | Field | Type | Notes |
 |---|---|---|
-| id | uuid PK · task_code | text **unique** `ORD-YYYY-NNNN` (`next_task_code()`); regenerated with designer letter on claim |
+| id | uuid PK · task_code | text **unique** `ORD-YYYY-NNNN` (`next_task_code(prefix)`); regenerated with designer letter on claim; **ERP tasks (`external_source='sales_erp'`) get `EORD-YYYY-NNNN`** (0080), not relettered |
 | client_id | uuid N FK→clients | **NULL for `ld`**, required for `job_work` (CHECK `tasks_brief_type_client_consistency`, 0038) |
 | brief_type | brief_type | ld \| job_work (0038) |
 | concept_id | uuid N FK→concepts · concept | text label |
@@ -230,7 +230,7 @@ Walk-in (manual) **and** auto-created on task completion (`source='task_completi
 
 | Field | Type | Notes |
 |---|---|---|
-| id · uid | uuid PK · text **unique** `SMP-YYYY-NNNN` (`next_sample_uid()`, 0032) |
+| id · uid | uuid PK · text **unique** `SMP-YYYY-NNNN` (`next_sample_uid(prefix)`, 0032); **ERP samples (`source='sales_erp'`) get `ESMP-YYYY-NNNN`** (0080) |
 | sr_no | int N | |
 | party_name | text | |
 | quality / requirement / assigned_by / sampling_done_by / fusing_operator | text N | dropdown-driven |
@@ -243,16 +243,29 @@ Walk-in (manual) **and** auto-created on task completion (`source='task_completi
 | additional_comments | text N | |
 | created_by | uuid N FK→profiles | |
 | task_id | uuid N FK→tasks | set when created from a brief (null for walk-ins) |
-| sample_status | text | pending · in_progress · completed (0069) |
-| source | text | manual · task_completion (0069) |
+| sample_status | text | pending · in_progress · completed (0069) · **dropped** (0082, ERP QC discard/drop) |
+| source | text | manual · task_completion (0069) · sales_erp (0074) |
 | design_type | text N | per-design (0070) |
+| external_source / external_ref_id / external_callback_url | text N | Sales-ERP provenance + per-request callback (0073) |
+| external_brief | jsonb N | original ERP brief; pre-fills the review/development form (0073) |
+| approved_by / approved_at | uuid N FK→auth.users · ts N | reviewer + time of the ERP review→approve gate (0081) |
+| sample_history | jsonb | append-only audit log (approved + qc events); default `[]` (0081) |
+| drop_reason / drop_notes | text N | abandon reason + notes; feed the `sample.dropped` webhook (0082) |
+| qc_summary | jsonb N | passing-round summary (quality/operators/date); feeds the `sample.completed` webhook (0082) |
 
 - **Dedup:** `unique (task_id, quality, design_type)` for `source='task_completion'` (0070) → one sample per (task, fabric, design).
-- **Triggers:** auto `uid`; auto-complete stamp on `is_completed`.
+- **Triggers:** auto `uid` (`ESMP-` prefix when `source='sales_erp'`, else `SMP-` — 0080); auto-complete stamp on `is_completed`.
+- **ERP review→approve (0081):** ERP samples land `sample_status='pending'` ("Awaiting Review" in **Pending Samples**); the reviewer opens the pre-filled `SampleDevelopmentDialog` ("Review ERP Sample Request"), edits if needed, then **Approve & Start Development** → `useSamples.approveSample` sets `in_progress`, stamps `approved_by/at`, appends `{event:'approved'}` to `sample_history`. Manual/task samples are unaffected (simple Completed toggle).
+- **ERP QC completion (0082, ERP-only):** an `in_progress` ERP sample can only be completed via **Run QC** (`SampleQcDialog`, gated in `SamplingFormDialog`). `useSamples.recordQc` writes a `sample_qc_rounds` row + appends to `sample_history`: **Pass** → `completed` + `qc_summary` (hard interlock: can't pass with a Bad reading) → existing `sample.completed` webhook; **Resample** → stays `in_progress`, attempt_no++ (loop, same ref_id); **Discard/Drop** → `dropped` + `drop_reason`/`drop_notes` → **`sample.dropped`** webhook. Manual samples keep the simple Completed toggle.
 - **RLS:** read any authed · insert self/admin-coord · update own/admin-coord · delete admin-coord (widened 0048).
 - **🖥** hook `useSamples`; auto-insert via `lib/createPendingSample.ts` (called by `completeTask`/`flagSamplingRequired`/`completePortion`). Rendered in **ProductionView** (Completed Samples + **Pending Samples** tabs via `PendingSamplesPanel`), sampling form (`SamplingFormDialog`/`BatchSampleEntry`), FilesView.
 - **`createPendingSample` (party + errors):** resolves `party_name` + `uid` via **two plain queries** (`tasks` then `clients`), NOT a nested embed (the `samples→task→client` embed returns a null client → blank party). **LD briefs** fall back to the default LD party from `clients` (`resolveDefaultLdParty()`). A real insert failure (not the 23505 dedup) is **surfaced via toast** — the task completion still succeeds.
 - **⚠ Schema-cache gotcha:** 0069/0070 add `source` / `sample_status` / `design_type` but **do not** `NOTIFY pgrst, 'reload schema'`. After applying them, reload the cache or every auto-sample insert silently fails on an "unknown column" (this is exactly what makes Pending Samples stay empty).
+
+#### `sample_qc_rounds` — ERP QC inspection rounds (0082)
+One row per QC attempt on an ERP sample: `id · sample_id FK→samples (cascade) · attempt_no (unique per sample) · passed bool · print_quality good|bad · fusing_quality good|bad · done_date · printing_operator · fusing_operator · outcome pass|resample|discard|drop · failure_reasons text[] · reinspect_date · notes · inspected_by FK→auth.users · created_at`.
+- **RLS:** read any authed · write `is_admin_or_coordinator()`.
+- **Written by** `useSamples.recordQc` (one insert per Run-QC submit). Resample loops keep the same `sample_id` and bump `attempt_no`; the parent sample's status / `qc_summary` / `drop_*` update in the same call. The `samples` webhook trigger then emits `sample.completed` (pass) or `sample.dropped` (discard/drop). **🖥** `SampleQcDialog` (Run QC, ProductionView row menu).
 
 #### `sampling_logs` — legacy per-print log
 `id · task_id FK→tasks · meters_printed · proof_url N · logged_by FK→profiles · logged_at`. Superseded by `samples`; still read in TaskDetailDrawer sampling history.
@@ -321,9 +334,9 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 
 | Function | Args | Security | Purpose |
 |---|---|---|---|
-| `next_task_code()` | — | DEFINER | `ORD-YYYY-NNNN`, per-year atomic, resets Jan 1 |
+| `next_task_code(prefix='ORD')` | — | DEFINER | `{prefix}-YYYY-NNNN`, per-year atomic, resets Jan 1; **`EORD-` for ERP tasks** (0080) |
 | `next_concept_code()` | — | DEFINER | `C-YYYYMMDD-XXXX` randomized |
-| `next_sample_uid()` | — | DEFINER | `SMP-YYYY-NNNN`, per-year (0032) |
+| `next_sample_uid(prefix='SMP')` | — | DEFINER | `{prefix}-YYYY-NNNN`, per-year (0032); **`ESMP-` for ERP samples** (0080) |
 | `notify_user` | p_user_id, p_title, p_message, p_type='info', p_link | DEFINER | insert a notification for anyone (bypasses role RLS) |
 | `notify_users_batch` | p_user_ids[], … | DEFINER | broadcast to many |
 | `update_assignment_claim` | p_id, p_new_qty | DEFINER | resize a split portion; guards: not below qty_completed, not over remaining, abandon only if 0 done (0064) |
