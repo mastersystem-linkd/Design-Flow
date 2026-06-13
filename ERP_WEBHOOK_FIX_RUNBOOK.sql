@@ -165,6 +165,38 @@ ORDER BY created_at DESC
 LIMIT 20;
 --   status='sent'   → ERP was notified. ✅  (the ERP should flip to completed)
 --   status='pending'→ wait for the next dispatcher tick.
---   status='failed' + last_error 'HTTP 401' → ERP rejected the signature: the
---      ERP's DESIGNFLOW_WEBHOOK_SECRET must equal external_integrations.webhook_secret
---      (see SALES_ERP_INTEGRATION_GUIDE §6). Fix the secret, then re-run STEP 4.
+--   status='failed' + last_error 'HTTP 401' → ERP rejected the delivery (see STEP 6).
+
+
+-- ════════════════════════════════════════════════════════════════════════
+-- STEP 6 — RE-DRIVE dead-lettered rows (HTTP 401 / failed deliveries)
+--
+--   If STEP 0c shows rows with status='failed' + last_error='HTTP 401', the
+--   webhook DID reach the ERP but was rejected. The callback URL is fine; the
+--   problem is on the ERP endpoint. Two causes, in likelihood order:
+--     1) Their callback is a Supabase Edge Function with JWT verification ON
+--        (the default) — the gateway 401s any request without a Supabase JWT
+--        BEFORE their code runs. Our webhook authenticates via the X-Signature
+--        HMAC, not a JWT. Fix (ERP side): redeploy public —
+--          supabase functions deploy <fn> --no-verify-jwt
+--        (or verify_jwt = false in config.toml). Tell-tale: no invocations in
+--        the function logs for the failed timestamps.
+--     2) Secret mismatch — their DESIGNFLOW_WEBHOOK_SECRET must equal
+--        external_integrations.webhook_secret (SALES_ERP_INTEGRATION_GUIDE §6).
+--        Tell-tale: invocations ARE logged, their own code returns 401.
+--
+--   Re-drive ONLY after the ERP confirms the endpoint is fixed (else it just
+--   401s and dead-letters again). Resets failed rows so the dispatcher retries.
+-- ════════════════════════════════════════════════════════════════════════
+
+-- Test with ONE first (the completion event), confirm it flips to 'sent':
+UPDATE webhook_outbox
+SET    status='pending', attempts=0, next_retry_at=now(), last_error=NULL
+WHERE  status='failed' AND event='task.completed'
+  AND  target_url LIKE '%external-work-callback';
+
+-- Then re-drive ALL remaining dead-letters to that endpoint:
+UPDATE webhook_outbox
+SET    status='pending', attempts=0, next_retry_at=now(), last_error=NULL
+WHERE  status='failed'
+  AND  target_url LIKE '%external-work-callback';
