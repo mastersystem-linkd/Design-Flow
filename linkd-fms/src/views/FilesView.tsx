@@ -15,6 +15,7 @@ import {
   FilterX,
   Filter as FilterIcon,
   Info,
+  X,
 } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { useFiles, BUCKET_LABELS, isImageMime } from "@/hooks/useFiles";
@@ -210,6 +211,10 @@ export function FilesView() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [deleting, setDeleting] = useState<StorageFile | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // ── Bulk selection (admin only — delete is admin-gated) ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // ── "Linked To" lookup — maps storage paths to structured source info ──
   interface LinkedInfo {
@@ -433,6 +438,58 @@ export function FilesView() {
     }
     return result;
   }, [files, bucket, typeFilter, uploaderFilter, fromDate, toDate, search, linkedToMap]);
+
+  // ── Selection derived state ──
+  // Resolve selected ids → StorageFile from the FULL set so a delete removes
+  // exactly what's checked even if the active filter hides some of them.
+  const filesById = useMemo(() => {
+    const m = new Map<string, StorageFile>();
+    for (const f of files) m.set(f.id, f);
+    return m;
+  }, [files]);
+  const selectedFiles = useMemo(
+    () =>
+      Array.from(selectedIds)
+        .map((id) => filesById.get(id))
+        .filter((f): f is StorageFile => !!f),
+    [selectedIds, filesById]
+  );
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((f) => selectedIds.has(f.id));
+  const someFilteredSelected = filtered.some((f) => selectedIds.has(f.id));
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const toggleSelectAllFiltered = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const all = filtered.length > 0 && filtered.every((f) => next.has(f.id));
+      if (all) for (const f of filtered) next.delete(f.id);
+      else for (const f of filtered) next.add(f.id);
+      return next;
+    });
+  }, [filtered]);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedFiles.length === 0) return;
+    setBulkBusy(true);
+    const { deleted, error: err } = await deleteFiles(selectedFiles);
+    setBulkBusy(false);
+    setBulkConfirm(false);
+    clearSelection();
+    if (err)
+      toast.error(
+        `Deleted ${deleted} file${deleted !== 1 ? "s" : ""}, but some failed — ${err}`
+      );
+    else toast.success(`Deleted ${deleted} file${deleted !== 1 ? "s" : ""}`);
+  }, [selectedFiles, deleteFiles, clearSelection]);
 
   // ── Bucket counts (always over the full file set, ignoring filters,
   //     so the user always sees how many files exist per bucket) ──
@@ -707,6 +764,37 @@ export function FilesView() {
         </div>
       )}
 
+      {/* ── Bulk action bar — appears once any file is selected (admins). ── */}
+      {isAdminUser && selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
+          <span className="text-sm font-semibold text-foreground tabular-nums">
+            {selectedIds.size} selected
+          </span>
+          {!allFilteredSelected && (
+            <button
+              type="button"
+              onClick={toggleSelectAllFiltered}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Select all {filtered.length}
+            </button>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={clearSelection} className="gap-1.5">
+              <X className="h-3.5 w-3.5" /> Clear
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkConfirm(true)}
+              className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Content ── */}
       {isLoading && files.length === 0 ? (
         <LoadingSkeleton viewMode={viewMode} />
@@ -730,6 +818,8 @@ export function FilesView() {
               file={f}
               uploader={f.uploaderId ? profileMap.get(f.uploaderId) ?? null : null}
               isAdmin={isAdminUser}
+              selected={selectedIds.has(f.id)}
+              onToggleSelect={() => toggleSelect(f.id)}
               onDownload={() => handleDownload(f)}
               onDelete={() => setDeleting(f)}
             />
@@ -741,12 +831,17 @@ export function FilesView() {
           profileMap={profileMap}
           linkedToMap={linkedToMap}
           isAdmin={isAdminUser}
+          selectedIds={selectedIds}
+          allSelected={allFilteredSelected}
+          someSelected={someFilteredSelected}
+          onToggleSelect={toggleSelect}
+          onToggleAll={toggleSelectAllFiltered}
           onDownload={handleDownload}
           onDelete={setDeleting}
         />
       )}
 
-      {/* ── Delete confirm ── */}
+      {/* ── Delete confirm (single) ── */}
       <ConfirmDialog
         open={!!deleting}
         onCancel={() => setDeleting(null)}
@@ -755,6 +850,17 @@ export function FilesView() {
         confirmLabel={deleteBusy ? "Deleting…" : "Delete"}
         variant="danger"
         onConfirm={handleDelete}
+      />
+
+      {/* ── Delete confirm (bulk) ── */}
+      <ConfirmDialog
+        open={bulkConfirm}
+        onCancel={() => setBulkConfirm(false)}
+        title={`Delete ${selectedFiles.length} file${selectedFiles.length !== 1 ? "s" : ""}?`}
+        description={`Permanently delete the ${selectedFiles.length} selected file${selectedFiles.length !== 1 ? "s" : ""} from storage. This cannot be undone.`}
+        confirmLabel={bulkBusy ? "Deleting…" : `Delete ${selectedFiles.length}`}
+        variant="danger"
+        onConfirm={handleBulkDelete}
       />
 
     </div>
@@ -888,6 +994,40 @@ function UploaderCell({
 }
 
 // ============================================================================
+// Select checkbox — native checkbox with indeterminate support (for "some
+// selected" in the table header). Stops click propagation so toggling never
+// triggers a row click.
+// ============================================================================
+
+function SelectCheckbox({
+  checked,
+  indeterminate,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = !!indeterminate && !checked;
+  }, [indeterminate, checked]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={label}
+      className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+    />
+  );
+}
+
+// ============================================================================
 // File card (grid view)
 // ============================================================================
 
@@ -895,12 +1035,16 @@ function FileCard({
   file,
   uploader,
   isAdmin,
+  selected,
+  onToggleSelect,
   onDownload,
   onDelete,
 }: {
   file: StorageFile;
   uploader: { full_name: string; role: string; avatar_url: string | null } | null;
   isAdmin: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   onDownload: () => void;
   onDelete: () => void;
 }) {
@@ -922,10 +1066,29 @@ function FileCard({
 
   return (
     <div
-      className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all hover:shadow-md"
+      className={cn(
+        "group flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:shadow-md",
+        selected ? "border-primary ring-2 ring-primary/40" : "border-border"
+      )}
       onMouseEnter={loadThumb}
     >
       <div className="relative flex h-32 items-center justify-center bg-secondary/40">
+        {/* Selection checkbox (admins) — top-left, always visible once any is
+            selected, otherwise reveal on hover. */}
+        {isAdmin && (
+          <div
+            className={cn(
+              "absolute left-2 top-2 z-10 rounded bg-card/90 p-0.5 shadow-sm transition-opacity",
+              selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            )}
+          >
+            <SelectCheckbox
+              checked={selected}
+              onChange={onToggleSelect}
+              label={`Select ${file.name}`}
+            />
+          </div>
+        )}
         {isImage && thumbUrl ? (
           <LazyImage src={thumbUrl} alt={file.name} className="h-full w-full" />
         ) : isImage && thumbLoading ? (
@@ -1006,6 +1169,11 @@ function FileTable({
   profileMap,
   linkedToMap,
   isAdmin,
+  selectedIds,
+  allSelected,
+  someSelected,
+  onToggleSelect,
+  onToggleAll,
   onDownload,
   onDelete,
 }: {
@@ -1016,6 +1184,11 @@ function FileTable({
   >;
   linkedToMap: Map<string, { label: string; details?: { key: string; value: string }[] }>;
   isAdmin: boolean;
+  selectedIds: Set<string>;
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggleSelect: (id: string) => void;
+  onToggleAll: () => void;
   onDownload: (f: StorageFile) => void;
   onDelete: (f: StorageFile) => void;
 }) {
@@ -1024,6 +1197,16 @@ function FileTable({
       <table className="w-full border-collapse text-[13px]">
         <thead className={TABLE_HEAD}>
           <tr className="[&>th]:border-r [&>th]:border-border/30 [&>th:last-child]:border-r-0">
+            {isAdmin && (
+              <th className={cn(TABLE_TH, "w-10 text-center")}>
+                <SelectCheckbox
+                  checked={allSelected}
+                  indeterminate={someSelected && !allSelected}
+                  onChange={onToggleAll}
+                  label="Select all files"
+                />
+              </th>
+            )}
             <th className={TABLE_TH}>Name</th>
             <th className={TABLE_TH}>Type</th>
             <th className={TABLE_TH}>Size</th>
@@ -1039,11 +1222,24 @@ function FileTable({
             const Icon = fileTypeIcon(f.mimetype);
             const ext = fileExtension(f.name);
             const uploader = f.uploaderId ? profileMap.get(f.uploaderId) ?? null : null;
+            const isSelected = selectedIds.has(f.id);
             return (
               <tr
                 key={f.id}
-                className="border-b border-border/40 transition-colors even:bg-background/40 hover:bg-primary/[0.04] [&>td]:border-r [&>td]:border-border/20 [&>td:last-child]:border-r-0"
+                className={cn(
+                  "border-b border-border/40 transition-colors hover:bg-primary/[0.04] [&>td]:border-r [&>td]:border-border/20 [&>td:last-child]:border-r-0",
+                  isSelected ? "bg-primary/[0.06]" : "even:bg-background/40"
+                )}
               >
+                {isAdmin && (
+                  <td className="px-4 py-2.5 text-center align-middle">
+                    <SelectCheckbox
+                      checked={isSelected}
+                      onChange={() => onToggleSelect(f.id)}
+                      label={`Select ${f.name}`}
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-2.5 align-middle">
                   <div className="flex items-center gap-2">
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />

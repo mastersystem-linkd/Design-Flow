@@ -320,6 +320,7 @@ export function DangerZoneTab() {
   const [countsLoading, setCountsLoading] = useState(true);
   const [busyTable, setBusyTable] = useState<string | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [filesExpanded, setFilesExpanded] = useState(false);
 
   const [stage1, setStage1] = useState<
     | { kind: "clear-notifs" }
@@ -330,6 +331,7 @@ export function DangerZoneTab() {
     | { kind: "delete-all-range"; from: string; to: string; count: number }
     | { kind: "delete-files" }
     | { kind: "delete-files-range"; from: string; to: string; files: StorageFile[] }
+    | { kind: "delete-files-selected"; files: StorageFile[] }
     | null
   >(null);
   const [stage2, setStage2] = useState<typeof stage1>(null);
@@ -588,6 +590,7 @@ export function DangerZoneTab() {
     else if (action.kind === "clear-all") await executeClearAll();
     else if (action.kind === "delete-files") await executeDeleteFiles();
     else if (action.kind === "delete-files-range") { await executeDeleteFiles(action.files); setFFrom(""); setFTo(""); }
+    else if (action.kind === "delete-files-selected") await executeDeleteFiles(action.files);
   }
 
   const stage1Dialog = (() => {
@@ -647,6 +650,15 @@ export function DangerZoneTab() {
         onConfirm: onStage1Confirm,
       };
     }
+    if (stage1.kind === "delete-files-selected") {
+      return {
+        title: `Delete ${stage1.files.length.toLocaleString()} selected file${stage1.files.length !== 1 ? "s" : ""}?`,
+        description: `Permanently removes the ${stage1.files.length.toLocaleString()} selected file${stage1.files.length !== 1 ? "s" : ""} from storage AND their records. Cannot be undone.`,
+        confirmLabel: "I understand, continue",
+        variant: "danger" as const,
+        onConfirm: onStage1Confirm,
+      };
+    }
     if (stage1.kind === "delete-files") {
       return {
         title: `Delete ALL ${files.length.toLocaleString()} files?`,
@@ -675,6 +687,7 @@ export function DangerZoneTab() {
     if (stage2.kind === "delete-all-range") return `Confirm deleting ${stage2.count.toLocaleString()} records`;
     if (stage2.kind === "delete-files") return "Confirm deleting ALL files";
     if (stage2.kind === "delete-files-range") return `Confirm deleting ${stage2.files.length.toLocaleString()} files`;
+    if (stage2.kind === "delete-files-selected") return `Confirm deleting ${stage2.files.length.toLocaleString()} files`;
     return "Confirm";
   })();
 
@@ -731,20 +744,26 @@ export function DangerZoneTab() {
         <Card className="border-destructive/30 bg-destructive/[0.05]">
           <CardContent className="space-y-3 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => setFilesExpanded((v) => !v)}
+                disabled={files.length === 0}
+                className="flex min-w-0 flex-1 items-start gap-3 text-left transition-opacity hover:opacity-80 disabled:cursor-default"
+              >
+                <ChevronRight className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", filesExpanded && "rotate-90")} />
                 <FolderOpen className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Delete all files</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">Delete files</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {files.length.toLocaleString()} file{files.length !== 1 ? "s" : ""} across all storage buckets · removes the objects and their records. Super-admin only.
+                    {files.length.toLocaleString()} file{files.length !== 1 ? "s" : ""} across all storage buckets · expand to pick specific files, or delete all / by date. Super-admin only.
                   </p>
                 </div>
-              </div>
+              </button>
               <Button
                 size="sm" variant="outline"
                 disabled={busyTable === "__files__" || files.length === 0}
                 onClick={() => setStage1({ kind: "delete-files" })}
-                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+                className="shrink-0 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
               >
                 {busyTable === "__files__" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 Delete all files
@@ -760,6 +779,13 @@ export function DangerZoneTab() {
                 deleteLabel={(n) => `Delete ${n.toLocaleString()} files`}
                 collapsible
                 className="rounded-lg border border-border/50 bg-card/40 px-3 py-2"
+              />
+            )}
+            {filesExpanded && files.length > 0 && (
+              <FilesExpandedSection
+                files={files}
+                disabled={busyTable === "__files__"}
+                onDeleteSelected={(sel) => setStage1({ kind: "delete-files-selected", files: sel })}
               />
             )}
           </CardContent>
@@ -1136,6 +1162,145 @@ function ExpandedSection({
                     </p>
                     <p className="text-[10px] text-muted-foreground">
                       {spec.dateFn(row) ? formatDate(spec.dateFn(row)) : "—"} · <span className="font-mono text-[9px]">{id.slice(0, 8)}</span>
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Selectable file table (Danger Zone "Delete files" expansion) ───────────
+// Mirrors the Files menu's list so a super-admin can cherry-pick exactly which
+// storage objects to wipe instead of all-or-nothing.
+
+function fmtBytes(n: number): string {
+  if (!n) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FilesExpandedSection({
+  files,
+  disabled,
+  onDeleteSelected,
+}: {
+  files: StorageFile[];
+  disabled: boolean;
+  onDeleteSelected: (files: StorageFile[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return files;
+    const q = search.toLowerCase();
+    return files.filter(
+      (f) =>
+        f.name.toLowerCase().includes(q) ||
+        f.path.toLowerCase().includes(q) ||
+        f.bucket.toLowerCase().includes(q)
+    );
+  }, [files, search]);
+
+  function toggleRow(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected((prev) => {
+      const all = filtered.length > 0 && filtered.every((f) => prev.has(f.id));
+      const next = new Set(prev);
+      if (all) for (const f of filtered) next.delete(f.id);
+      else for (const f of filtered) next.add(f.id);
+      return next;
+    });
+  }
+  const allSelected = filtered.length > 0 && filtered.every((f) => selected.has(f.id));
+  const selectedFiles = files.filter((f) => selected.has(f.id));
+
+  return (
+    <div className="rounded-lg border border-border/50 bg-card/40">
+      {/* Search + delete-selected */}
+      <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search files…"
+            className="h-8 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {selected.size > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => onDeleteSelected(selectedFiles)}
+            className="shrink-0 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="h-3 w-3" /> Delete {selected.size}
+          </Button>
+        )}
+      </div>
+
+      {/* File list */}
+      <div className="max-h-[320px] overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            {search ? "No files match your search" : "No files"}
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 border-b border-border/40 bg-secondary/30 px-3 py-1.5">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-primary"
+              />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {selected.size > 0 ? `${selected.size} selected` : `${filtered.length} files`}
+              </span>
+            </div>
+            {filtered.map((f) => {
+              const isChecked = selected.has(f.id);
+              return (
+                <label
+                  key={f.id}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-3 border-b border-border/30 px-3 py-2 transition-colors last:border-b-0 hover:bg-secondary/30",
+                    isChecked && "bg-destructive/5"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleRow(f.id)}
+                    className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-border accent-primary"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-foreground" title={f.name}>
+                      {f.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {f.bucket} · {fmtBytes(f.size)} · {f.created_at ? formatDate(f.created_at) : "—"}
                     </p>
                   </div>
                 </label>
