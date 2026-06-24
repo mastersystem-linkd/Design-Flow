@@ -330,8 +330,8 @@ export function TaskDashboardView() {
         {tabsRow}
         <div className="space-y-4">
           <div className="h-8 w-48 animate-pulse rounded bg-secondary" />
-          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+          <div className="grid auto-rows-fr grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <div className="lg:col-span-2"><SkeletonCard /></div>
@@ -440,8 +440,8 @@ export function TaskDashboardView() {
       {/* Designer personal view */}
       {isDesigner && myStats ? (
         <>
-          {/* KPI cards — same MetricCard as admin view */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
+          {/* KPI cards — same horizontal MetricCard as admin view */}
+          <div className="grid auto-rows-fr grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <MetricCard
               icon={CheckCircle2}
               label="Completed"
@@ -521,137 +521,138 @@ export function TaskDashboardView() {
       ) : (
         /* Admin / Coordinator view */
         <>
-          {/* ── Hero metrics ──────────────────────────────────────────
-              Linear / Vercel / Stripe idiom: clean individual metric cards
-              with crisp HIGH-CONTRAST numerals (no dim gradient clip),
-              1px borders, generous internal air, and a quiet sparkline.
-              Hierarchy comes from grouping + contrast, not chrome — the
-              four throughput metrics sit above a row of three live-status
-              tiles. No decorative wrapper. */}
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-              <MetricCard
-                icon={CheckCircle2}
-                label="Delivered"
-                tone="success"
-                value={a.kpis.totalCompleted.current}
-                trend={a.kpis.totalCompleted}
-                sparklineData={a.sparklines.completed}
-                onClick={() =>
-                  navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
-                }
-              />
-              <MetricCard
-                icon={Clock}
-                label="On-Time"
-                tone={
-                  a.kpis.totalCompleted.current === 0
-                    ? "muted"
-                    : a.kpis.onTimeRate.current >= 70
-                    ? "success"
-                    : a.kpis.onTimeRate.current >= 50
-                      ? "warning"
-                      : "destructive"
-                }
-                value={
-                  a.kpis.totalCompleted.current === 0
-                    ? "—"
-                    : a.kpis.totalCompleted.current < 10
-                    ? `${a.kpis.totalCompleted.current - a.kpis.lateCompletions.current} of ${a.kpis.totalCompleted.current}`
-                    : `${a.kpis.onTimeRate.current}%`
-                }
-                trend={a.kpis.totalCompleted.current === 0 ? undefined : a.kpis.onTimeRate}
-                sparklineData={a.kpis.totalCompleted.current === 0 ? undefined : a.sparklines.onTime}
-                sub={
-                  a.kpis.totalCompleted.current === 0
-                    ? undefined
-                    : a.kpis.lateCompletions.current > 0
-                    ? `${a.kpis.lateCompletions.current} late`
-                    : "all on time"
-                }
-                onClick={() =>
-                  navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
-                }
-              />
-              <MetricCard
-                icon={Timer}
-                label="Avg Cycle"
-                tone={
-                  a.kpis.avgCycleDays.current === 0
-                    ? "muted"
-                    : a.kpis.avgCycleDays.current <= 3
-                    ? "success"
-                    : a.kpis.avgCycleDays.current <= 5
-                      ? "warning"
-                      : "destructive"
-                }
-                value={a.kpis.avgCycleDays.current > 0 ? `${a.kpis.avgCycleDays.current}d` : "—"}
-                trend={a.kpis.avgCycleDays.current > 0 ? a.kpis.avgCycleDays : undefined}
-                invertTrend
-                sparklineData={a.kpis.totalCompleted.current >= 3 ? a.sparklines.avgDelay : undefined}
-                sub={
-                  a.kpis.avgCycleDays.current > 0 && a.kpis.avgCompletionDays.current > 0
-                    ? `${a.kpis.avgCompletionDays.current}d late avg`
-                    : a.kpis.avgCycleDays.current > 0
-                      ? "on schedule"
-                      : undefined
-                }
-                onClick={() =>
-                  navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
-                }
-              />
-              <MetricCard
-                icon={PlusCircle}
-                label="Created"
-                tone="primary"
-                value={a.kpis.totalCreated.current}
-                trend={a.kpis.totalCreated}
-                sparklineData={a.sparklines.created}
-                onClick={() =>
-                  navigate(dashLink({ filter: "all", from: periodFrom, to: periodTo }))
-                }
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-              {/* Active is hidden on mobile (kept on sm+) so the hero shows a
-                  clean 6 tiles on phones — it's the least actionable of the
-                  three and already surfaced as the "in flight" header chip. */}
-              <div className="hidden sm:contents">
-                <StatusTile
-                  icon={Activity}
-                  label="Active"
-                  tone="primary"
-                  value={a.kpis.activePipeline}
-                  sub={
-                    a.designerStats.length > 0
-                      ? `${(
-                          Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
-                          10
-                        ).toFixed(1)} / designer`
-                      : "in flight"
-                  }
-                  onClick={() => navigate(dashLink({ status: "in_progress" }))}
-                />
-              </div>
-              <StatusTile
-                icon={Zap}
-                label="Urgent"
-                tone={a.kpis.urgentCount > 0 ? "destructive" : "muted"}
-                value={a.kpis.urgentCount}
-                pulse={a.kpis.urgentCount > 0}
-                sub={a.kpis.urgentCount > 0 ? "needs attention" : "all clear"}
-                onClick={() => navigate(dashLink({ filter: "urgent" }))}
-              />
-              <StatusTile
-                icon={Flame}
-                label="Overdue"
-                tone={a.kpis.overdueCount > 0 ? "warning" : "muted"}
-                value={a.kpis.overdueCount}
-                pulse={a.kpis.overdueCount > 3}
-                sub={a.kpis.overdueCount > 0 ? "past deadline" : "on schedule"}
-                onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
-              />
-            </div>
+          {/* ── Hero KPI grid — 8 uniform horizontal cards, 4×2 on lg ── */}
+          <div className="grid auto-rows-fr grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+            <MetricCard
+              icon={CheckCircle2}
+              label="Delivered"
+              tone="success"
+              value={a.kpis.totalCompleted.current}
+              trend={a.kpis.totalCompleted}
+              sparklineData={a.sparklines.completed}
+              onClick={() =>
+                navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+              }
+            />
+            <MetricCard
+              icon={Clock}
+              label="On-Time"
+              tone={
+                a.kpis.totalCompleted.current === 0
+                  ? "muted"
+                  : a.kpis.onTimeRate.current >= 70
+                  ? "success"
+                  : a.kpis.onTimeRate.current >= 50
+                    ? "warning"
+                    : "destructive"
+              }
+              value={
+                a.kpis.totalCompleted.current === 0
+                  ? "—"
+                  : a.kpis.totalCompleted.current < 10
+                  ? `${a.kpis.totalCompleted.current - a.kpis.lateCompletions.current} of ${a.kpis.totalCompleted.current}`
+                  : `${a.kpis.onTimeRate.current}%`
+              }
+              trend={a.kpis.totalCompleted.current === 0 ? undefined : a.kpis.onTimeRate}
+              sparklineData={a.kpis.totalCompleted.current === 0 ? undefined : a.sparklines.onTime}
+              sub={
+                a.kpis.totalCompleted.current === 0
+                  ? undefined
+                  : a.kpis.lateCompletions.current > 0
+                  ? `${a.kpis.lateCompletions.current} late`
+                  : "all on time"
+              }
+              onClick={() =>
+                navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+              }
+            />
+            <MetricCard
+              icon={Timer}
+              label="Avg Cycle"
+              tone={
+                a.kpis.avgCycleDays.current === 0
+                  ? "muted"
+                  : a.kpis.avgCycleDays.current <= 3
+                  ? "success"
+                  : a.kpis.avgCycleDays.current <= 5
+                    ? "warning"
+                    : "destructive"
+              }
+              value={a.kpis.avgCycleDays.current > 0 ? `${a.kpis.avgCycleDays.current}d` : "—"}
+              trend={a.kpis.avgCycleDays.current > 0 ? a.kpis.avgCycleDays : undefined}
+              invertTrend
+              sparklineData={a.kpis.totalCompleted.current >= 3 ? a.sparklines.avgDelay : undefined}
+              sub={
+                a.kpis.avgCycleDays.current > 0 && a.kpis.avgCompletionDays.current > 0
+                  ? `${a.kpis.avgCompletionDays.current}d late avg`
+                  : a.kpis.avgCycleDays.current > 0
+                    ? "on schedule"
+                    : undefined
+              }
+              onClick={() =>
+                navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+              }
+            />
+            <MetricCard
+              icon={PlusCircle}
+              label="Created"
+              tone="primary"
+              value={a.kpis.totalCreated.current}
+              trend={a.kpis.totalCreated}
+              sparklineData={a.sparklines.created}
+              onClick={() =>
+                navigate(dashLink({ filter: "all", from: periodFrom, to: periodTo }))
+              }
+            />
+            <MetricCard
+              icon={Activity}
+              label="Active"
+              tone="primary"
+              value={a.kpis.activePipeline}
+              sub={
+                a.designerStats.length > 0
+                  ? `${(
+                      Math.round((a.kpis.activePipeline / a.designerStats.length) * 10) /
+                      10
+                    ).toFixed(1)} / designer`
+                  : "in flight"
+              }
+              onClick={() => navigate(dashLink({ status: "in_progress" }))}
+            />
+            <MetricCard
+              icon={Zap}
+              label="Urgent"
+              tone={a.kpis.urgentCount > 0 ? "destructive" : "muted"}
+              value={a.kpis.urgentCount}
+              pulse={a.kpis.urgentCount > 0}
+              sub={a.kpis.urgentCount > 0 ? "needs attention" : "all clear"}
+              onClick={() => navigate(dashLink({ filter: "urgent" }))}
+            />
+            <MetricCard
+              icon={Flame}
+              label="Overdue"
+              tone={a.kpis.overdueCount > 0 ? "warning" : "muted"}
+              value={a.kpis.overdueCount}
+              pulse={a.kpis.overdueCount > 3}
+              sub={a.kpis.overdueCount > 0 ? "past deadline" : "on schedule"}
+              onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
+            />
+            <MetricCard
+              icon={AlertTriangle}
+              label="Late"
+              tone={a.kpis.lateCompletions.current > 0 ? "destructive" : "muted"}
+              value={a.kpis.lateCompletions.current}
+              trend={a.kpis.lateCompletions}
+              invertTrend
+              sub={
+                a.kpis.lateCompletions.current > 0
+                  ? "past deadline"
+                  : "none this period"
+              }
+              onClick={() =>
+                navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
+              }
+            />
           </div>
 
           {/* Charts */}
@@ -835,21 +836,19 @@ function ChartTotal({
 }
 
 // ----------------------------------------------------------------------------
-// Hero metric primitives — the Task Dashboard's KPI vocabulary, rebuilt in the
-// Linear / Vercel / Stripe idiom: crisp HIGH-CONTRAST numerals (no dim gradient
-// clip), 1px borders, restrained accent colour, quiet sparklines.
-//   • MetricCard — primary throughput KPI (trend pill + sparkline)
-//   • StatusTile — compact live-status count (Active / Urgent / Overdue)
+// Hero metric primitives — unified horizontal KPI card.
+// Layout: circular icon (left) · title / value / subtext stack (center) ·
+// optional trend badge (top-right).
 // ----------------------------------------------------------------------------
 
 type HeroTone = "primary" | "success" | "warning" | "destructive" | "muted";
 
-const TONE_ICON: Record<HeroTone, string> = {
-  primary: "bg-primary/10 text-primary",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  destructive: "bg-destructive/10 text-destructive",
-  muted: "bg-secondary text-muted-foreground",
+const TONE_RING: Record<HeroTone, string> = {
+  primary: "bg-primary/10 text-primary ring-primary/20",
+  success: "bg-success/10 text-success ring-success/20",
+  warning: "bg-warning/10 text-warning ring-warning/20",
+  destructive: "bg-destructive/10 text-destructive ring-destructive/20",
+  muted: "bg-secondary text-muted-foreground ring-border",
 };
 const TONE_SPARK: Record<HeroTone, string> = {
   primary: "rgb(var(--primary))",
@@ -866,23 +865,15 @@ const TONE_DOT: Record<HeroTone, string> = {
   muted: "bg-muted-foreground/50",
 };
 
-// Trend pill — direction-aware (green up / red down); honours invertTrend so
-// "Avg Cycle 5d ↓20%" reads green even on a primary-toned card.
 export function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invertTrend?: boolean }) {
   if (!metric) return null;
   const diff = metric.current - metric.previous;
-  // No prior-period baseline → the "delta" is just the current value restated
-  // (e.g. "Created 7" showing "+7"), which reads as noise. Only show a trend
-  // once there's real history to compare against.
   if (metric.previous === 0) return null;
   if (diff === 0) {
     return (
-      <span className="text-[10px] font-medium tabular-nums text-muted-foreground">no change</span>
-    );
-  }
-  if (diff === 0) {
-    return (
-      <span className="text-[10px] font-medium tabular-nums text-muted-foreground">no change</span>
+      <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+        no change
+      </span>
     );
   }
   const positive = invertTrend ? diff < 0 : diff > 0;
@@ -890,13 +881,17 @@ export function DeltaBadge({ metric, invertTrend }: { metric?: KpiMetric; invert
   const label = metric.trend !== 0 && metric.previous > 0
     ? `${sign}${Math.min(Math.abs(metric.trend), 200)}%`
     : `${sign}${diff}`;
+  const Arrow = positive ? TrendingUp : TrendingDown;
   return (
     <span
       className={cn(
-        "text-[10px] font-semibold tabular-nums",
-        positive ? "text-success" : "text-destructive"
+        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+        positive
+          ? "bg-success/10 text-success"
+          : "bg-destructive/10 text-destructive"
       )}
     >
+      <Arrow className="h-2.5 w-2.5" />
       {label}
     </span>
   );
@@ -912,6 +907,7 @@ export function MetricCard({
   sparklineData,
   tone,
   invertTrend,
+  pulse,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
@@ -921,44 +917,56 @@ export function MetricCard({
   sub?: string;
   sparklineData?: number[];
   tone: HeroTone;
-  /** When true, a downward trend is positive (e.g. average cycle time). */
   invertTrend?: boolean;
+  pulse?: boolean;
   onClick?: () => void;
 }) {
   const numericValue = typeof value === "number" ? value : 0;
   const animated = useAnimatedNumber(numericValue);
   const displayValue = typeof value === "number" ? animated : value;
 
-  const isEmpty = displayValue === "—" || displayValue === 0;
-  const hasSparkline = sparklineData && sparklineData.length >= 3;
-
   const body = (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between">
-        <span className={cn("flex h-5 w-5 items-center justify-center rounded-md sm:h-6 sm:w-6", TONE_ICON[tone])}>
-          <Icon className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-        </span>
-        <DeltaBadge metric={trend} invertTrend={invertTrend} />
+    <div className="flex h-full items-center gap-3 sm:gap-4">
+      {/* Icon circle */}
+      <span className={cn(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ring-inset sm:h-12 sm:w-12",
+        TONE_RING[tone]
+      )}>
+        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+      </span>
+
+      {/* Text stack */}
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+          {label}
+        </p>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xl font-bold leading-none tracking-tight tabular-nums text-foreground sm:text-2xl">
+            {displayValue}
+          </span>
+          {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
+        </div>
+        {sub && (
+          <p className="mt-0.5 text-[10px] font-medium text-muted-foreground sm:text-[11px]">{sub}</p>
+        )}
       </div>
-      <span className="mt-1.5 text-lg font-bold leading-none tracking-tight tabular-nums text-foreground sm:text-2xl">
-        {displayValue}
-      </span>
-      <span className="mt-0.5 text-[9px] font-medium text-muted-foreground sm:text-[10px]">
-        {label}
-      </span>
-      {!isEmpty && sub && (
-        <p className="hidden text-[9px] text-muted-foreground/70 sm:block">{sub}</p>
-      )}
-      {hasSparkline && (
-        <div className="mt-auto hidden w-full pt-1 sm:block" role="img" aria-label={`${label} trend`}>
-          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={16} />
+
+      {/* Trend badge (top-right) */}
+      {(trend || (sparklineData && sparklineData.length >= 3)) && (
+        <div className="flex shrink-0 flex-col items-end gap-1 self-start">
+          <DeltaBadge metric={trend} invertTrend={invertTrend} />
+          {sparklineData && sparklineData.length >= 3 && (
+            <div className="hidden w-14 sm:block" role="img" aria-label={`${label} trend`}>
+              <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={20} />
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 
   const base =
-    "group relative flex h-full flex-col rounded-lg border border-border bg-card px-2 py-2 shadow-sm transition-all duration-200 sm:rounded-xl sm:px-3 sm:py-2.5";
+    "group relative flex h-full rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 sm:px-4 sm:py-3.5";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
@@ -968,63 +976,6 @@ export function MetricCard({
         base,
         "outline-none hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary/40"
       )}
-    >
-      {body}
-    </button>
-  );
-}
-
-function StatusTile({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  tone,
-  pulse,
-  onClick,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string | number;
-  sub?: string;
-  tone: HeroTone;
-  pulse?: boolean;
-  onClick?: () => void;
-}) {
-  const numericValue = typeof value === "number" ? value : 0;
-  const animated = useAnimatedNumber(numericValue);
-  const displayValue = typeof value === "number" ? animated : value;
-
-  const body = (
-    <>
-      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9", TONE_ICON[tone])}>
-        <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-      </span>
-      <div className="min-w-0 text-center sm:text-left">
-        <div className="flex items-center justify-center gap-1.5 sm:justify-start">
-          <span className="text-base font-semibold leading-none tabular-nums text-foreground sm:text-2xl">{displayValue}</span>
-          {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
-        </div>
-        <span className="mt-1 block text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:truncate sm:text-[11px] sm:tracking-[0.06em]">
-          {label}
-        </span>
-      </div>
-      {sub && (
-        <span className="ml-auto hidden shrink-0 text-right text-[11px] font-medium text-muted-foreground sm:block">
-          {sub}
-        </span>
-      )}
-    </>
-  );
-
-  const base =
-    "group flex flex-col items-center gap-1 rounded-xl border border-border bg-card px-2.5 py-2 text-center shadow-card transition-all duration-200 sm:flex-row sm:gap-3 sm:px-4 sm:py-3 sm:text-left";
-  if (!onClick) return <div className={base}>{body}</div>;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(base, "outline-none hover:border-primary/40 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary/40")}
     >
       {body}
     </button>
