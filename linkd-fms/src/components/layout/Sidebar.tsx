@@ -22,6 +22,8 @@ import {
   ListTodo,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useMyAccess } from "@/hooks/useAccessControl";
+import type { AccessFeatureKey } from "@/lib/accessControl";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
@@ -44,6 +46,9 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   count?: number;
+  /** Access-control feature key — when set, the row is shown only if the
+   *  current role has this feature granted (Settings → Access Control). */
+  key?: AccessFeatureKey;
 }
 
 interface NavGroup {
@@ -57,11 +62,11 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
-            { to: ROUTES.dashboard, label: "My Board", icon: LayoutGrid },
-            { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
-            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
-            { to: ROUTES.files, label: "Files", icon: FolderOpen },
+            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList, key: "dashboards" },
+            { to: ROUTES.dashboard, label: "My Board", icon: LayoutGrid, key: "all_tasks" },
+            { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb, key: "concepts" },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers, key: "salvedge" },
+            { to: ROUTES.files, label: "Files", icon: FolderOpen, key: "files" },
           ],
         },
       ];
@@ -70,21 +75,21 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
-            { to: ROUTES.dashboard, label: "All Tasks", icon: LayoutGrid },
-            { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
+            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList, key: "dashboards" },
+            { to: ROUTES.dashboard, label: "All Tasks", icon: LayoutGrid, key: "all_tasks" },
+            { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb, key: "concepts" },
           ],
         },
         {
           label: "Manage",
           items: [
-            { to: ROUTES.orders, label: "Orders", icon: ShoppingCart },
-            { to: ROUTES.sampling, label: "Sampling", icon: Factory },
-            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
-            { to: ROUTES.coordinatorTasks, label: "Coordinator", icon: ListTodo },
-            { to: ROUTES.files, label: "Files", icon: FolderOpen },
-            { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
-            { to: ROUTES.system, label: "Settings", icon: Settings },
+            { to: ROUTES.orders, label: "Orders", icon: ShoppingCart, key: "orders" },
+            { to: ROUTES.sampling, label: "Sampling", icon: Factory, key: "sampling" },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers, key: "salvedge" },
+            { to: ROUTES.coordinatorTasks, label: "Coordinator", icon: ListTodo, key: "coordinator_tasks" },
+            { to: ROUTES.files, label: "Files", icon: FolderOpen, key: "files" },
+            { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy, key: "scorecards" },
+            { to: ROUTES.system, label: "Settings", icon: Settings, key: "settings" },
           ],
         },
       ];
@@ -92,21 +97,21 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList },
-            { to: ROUTES.dashboard, label: "All Tasks", icon: LayoutGrid },
-            { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb },
+            { to: ROUTES.taskDashboard, label: "Dashboards", icon: ClipboardList, key: "dashboards" },
+            { to: ROUTES.dashboard, label: "All Tasks", icon: LayoutGrid, key: "all_tasks" },
+            { to: ROUTES.concepts, label: "Concepts", icon: Lightbulb, key: "concepts" },
           ],
         },
         {
           label: "Manage",
           items: [
-            { to: ROUTES.orders, label: "Orders", icon: ShoppingCart },
-            { to: ROUTES.sampling, label: "Sampling", icon: Factory },
-            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers },
-            { to: ROUTES.coordinatorTasks, label: "My Tasks", icon: ListTodo },
-            { to: ROUTES.files, label: "Files", icon: FolderOpen },
-            { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy },
-            { to: ROUTES.system, label: "Settings", icon: Settings },
+            { to: ROUTES.orders, label: "Orders", icon: ShoppingCart, key: "orders" },
+            { to: ROUTES.sampling, label: "Sampling", icon: Factory, key: "sampling" },
+            { to: ROUTES.salvedge, label: "Salvedge", icon: Layers, key: "salvedge" },
+            { to: ROUTES.coordinatorTasks, label: "My Tasks", icon: ListTodo, key: "coordinator_tasks" },
+            { to: ROUTES.files, label: "Files", icon: FolderOpen, key: "files" },
+            { to: ROUTES.scorecards, label: "Scorecards", icon: Trophy, key: "scorecards" },
+            { to: ROUTES.system, label: "Settings", icon: Settings, key: "settings" },
           ],
         },
       ];
@@ -117,7 +122,7 @@ function getNavGroups(role: UserRole): NavGroup[] {
       return [
         {
           items: [
-            { to: ROUTES.kitting, label: "Knitting Queue", icon: ClipboardList },
+            { to: ROUTES.kitting, label: "Knitting Queue", icon: ClipboardList, key: "kitting" },
           ],
         },
       ];
@@ -158,7 +163,12 @@ export function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const { signOut } = useAuth();
-  const groups = getNavGroups(profile.role);
+  const { can } = useMyAccess();
+  // Base nav is per-role; the access matrix can further hide items. Items
+  // without a feature key (none today) always show. Empty groups drop out.
+  const groups = getNavGroups(profile.role)
+    .map((g) => ({ ...g, items: g.items.filter((it) => !it.key || can(it.key)) }))
+    .filter((g) => g.items.length > 0);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   // Desktop hover-to-peek: when pinned-collapsed, hovering temporarily expands
   // the rail (as an overlay) so the user can switch menus.

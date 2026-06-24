@@ -54,6 +54,9 @@ export const queryKeys = {
     list: (activeOnly: boolean) =>
       ["requesterOptions", "list", { activeOnly }] as const,
   },
+  rolePermissions: {
+    all: ["rolePermissions"] as const,
+  },
   samplingDropdowns: {
     all: ["samplingDropdowns"] as const,
     list: (activeOnly: boolean) =>

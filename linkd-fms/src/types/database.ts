@@ -318,6 +318,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      role_permissions: {
+        Row: {
+          role: UserRole;
+          permission_key: string;
+          granted: boolean;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          role: UserRole;
+          permission_key: string;
+          granted: boolean;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          role?: UserRole;
+          permission_key?: string;
+          granted?: boolean;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [];
+      };
       concept_categories: {
         Row: {
           id: string;

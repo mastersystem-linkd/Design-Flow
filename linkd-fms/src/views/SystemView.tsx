@@ -14,6 +14,7 @@ import {
   Users,
   ListChecks,
   Globe,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/database";
@@ -34,6 +35,7 @@ import { AppInfoTab } from "@/components/system/AppInfoTab";
 import { AppearanceTab } from "@/components/system/AppearanceTab";
 import { DangerZoneTab } from "@/components/system/DangerZoneTab";
 import { IntegrationsTab } from "@/components/system/IntegrationsTab";
+import { AccessControlTab } from "@/components/system/AccessControlTab";
 import { TeamView } from "@/views/TeamView";
 
 // ============================================================================
@@ -64,6 +66,7 @@ type TabId =
   | "dropdowns"
   | "clients"
   | "designer-codes"
+  | "access"
   | "integrations"
   | "storage"
   | "danger";
@@ -141,6 +144,14 @@ const TABS: TabSpec[] = [
     icon: Tag,
     desc: "Unique code letters for designers",
     group: "data",
+    canAccess: (role) => isSuperAdmin(role) || role === "admin",
+  },
+  {
+    id: "access",
+    label: "Access Control",
+    icon: ShieldCheck,
+    desc: "Role-based menu access",
+    group: "system",
     canAccess: (role) => isSuperAdmin(role) || role === "admin",
   },
   {
@@ -326,6 +337,8 @@ function renderTab(id: TabId, role: UserRole) {
       return <ClientManagementTab />;
     case "designer-codes":
       return adminOnly(<DesignerCodesTab />);
+    case "access":
+      return adminOnly(<AccessControlTab />);
     case "integrations":
       return adminOnly(<IntegrationsTab />);
     case "storage":
