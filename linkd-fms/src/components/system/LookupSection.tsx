@@ -57,7 +57,8 @@ export interface LookupSectionProps {
     | "fabrics"
     | "assigned_by_options"
     | "received_by_options"
-    | "sampling_dropdowns";
+    | "sampling_dropdowns"
+    | "requester_options";
   /**
    * Optional placeholder for the "add" form's name input — useful so each
    * section shows a domain-relevant example.

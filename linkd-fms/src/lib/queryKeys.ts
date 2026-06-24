@@ -49,6 +49,11 @@ export const queryKeys = {
     list: (activeOnly: boolean) =>
       ["receivedByOptions", "list", { activeOnly }] as const,
   },
+  requesterOptions: {
+    all: ["requesterOptions"] as const,
+    list: (activeOnly: boolean) =>
+      ["requesterOptions", "list", { activeOnly }] as const,
+  },
   samplingDropdowns: {
     all: ["samplingDropdowns"] as const,
     list: (activeOnly: boolean) =>

@@ -291,6 +291,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      requester_options: {
+        Row: {
+          id: string;
+          name: string;
+          sort_order: number | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       concept_categories: {
         Row: {
           id: string;

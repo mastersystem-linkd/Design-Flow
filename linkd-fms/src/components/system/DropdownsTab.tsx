@@ -6,26 +6,39 @@ import {
 } from "@/hooks/useAssignedByOptions";
 import { useReceivedByOptions } from "@/hooks/useReceivedByOptions";
 import { useSamplingDropdowns } from "@/hooks/useSamplingDropdowns";
+import { useRequesterOptions } from "@/hooks/useRequesterOptions";
 import { LookupSection, type LookupRow } from "@/components/system/LookupSection";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
 // DropdownsTab — manages every form dropdown roster from one place.
-//   Level 1: context pills  → Tasks / Full Knitting / Sampling
+//   Level 1: context pills  → Tasks / Full Knitting / Sampling / Coordinator Tasks
 //   Level 2: dropdown chips  → the lists that context owns
 //   Below:   the editor for the selected dropdown only (one at a time, tight)
 // ============================================================================
 
-const CONTEXT_DESC: Record<AssignedByContext, string> = {
+// The Dropdowns picker spans every form context. The first three map 1:1 to
+// the assigned_by_options.context values; "coordinator_tasks" is a UI-only
+// context that owns the Requester roster (no Assigned By list).
+type DropdownContext = AssignedByContext | "coordinator_tasks";
+
+const DROPDOWN_CONTEXTS: { key: DropdownContext; label: string }[] = [
+  ...ASSIGNED_BY_CONTEXTS,
+  { key: "coordinator_tasks", label: "Coordinator Tasks" },
+];
+
+const CONTEXT_DESC: Record<DropdownContext, string> = {
   task: "Used by New Brief, Edit Task & Submit Concept.",
   full_kitting: "Used by the Full Knitting form.",
   sampling: "Used by the Sampling form.",
+  coordinator_tasks: "Used by the Coordinator Tasks 'Log New Request' form.",
 };
 
 type DropdownTable =
   | "assigned_by_options"
   | "received_by_options"
-  | "sampling_dropdowns";
+  | "sampling_dropdowns"
+  | "requester_options";
 
 interface ListSpec {
   key: string;
@@ -42,12 +55,18 @@ interface ListSpec {
 }
 
 export function DropdownsTab() {
-  const [context, setContext] = useState<AssignedByContext>("task");
+  const [context, setContext] = useState<DropdownContext>("task");
   const [activeKey, setActiveKey] = useState<string>("assigned_by");
 
-  const assignedBy = useAssignedByOptions(context, { activeOnly: false });
+  // Coordinator Tasks has no Assigned By list — fall back to a valid context
+  // for the (unused) query so the hook is always called with a real value.
+  const assignedBy = useAssignedByOptions(
+    context === "coordinator_tasks" ? "task" : context,
+    { activeOnly: false }
+  );
   const receivedBy = useReceivedByOptions({ activeOnly: false });
   const sampling = useSamplingDropdowns({ activeOnly: false });
+  const requester = useRequesterOptions({ activeOnly: false });
 
   // The dropdown lists the active context owns.
   const lists = useMemo<ListSpec[]>(() => {
@@ -64,6 +83,24 @@ export function DropdownsTab() {
       refetch: assignedBy.refetch,
       insertExtra: { context },
     };
+
+    if (context === "coordinator_tasks") {
+      return [
+        {
+          key: "requester",
+          label: "Requester",
+          count: requester.options.length,
+          table: "requester_options",
+          description:
+            "Names offered by the 'Requester' dropdown on the Coordinator Tasks form.",
+          addPlaceholder: "e.g. Raghav Sir",
+          rows: requester.options,
+          isLoading: requester.isLoading,
+          error: requester.error,
+          refetch: requester.refetch,
+        },
+      ];
+    }
 
     if (context === "full_kitting") {
       return [
@@ -130,7 +167,7 @@ export function DropdownsTab() {
     }
 
     return [assignedSpec];
-  }, [context, assignedBy, receivedBy, sampling]);
+  }, [context, assignedBy, receivedBy, sampling, requester]);
 
   const active = lists.find((l) => l.key === activeKey) ?? lists[0];
   if (!active) return null;
@@ -139,13 +176,15 @@ export function DropdownsTab() {
     <div className="space-y-3">
       {/* Level 1 — context pills */}
       <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1">
-        {ASSIGNED_BY_CONTEXTS.map((c) => (
+        {DROPDOWN_CONTEXTS.map((c) => (
           <button
             key={c.key}
             type="button"
             onClick={() => {
               setContext(c.key);
-              setActiveKey("assigned_by");
+              setActiveKey(
+                c.key === "coordinator_tasks" ? "requester" : "assigned_by"
+              );
             }}
             aria-pressed={context === c.key}
             className={cn(

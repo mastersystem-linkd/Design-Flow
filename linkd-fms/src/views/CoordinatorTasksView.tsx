@@ -5,6 +5,7 @@ import {
   Trash2, X, ClipboardList, Calendar, User, Download, ArrowUpRight,
 } from "lucide-react";
 import { useCoordinatorTasks } from "@/hooks/useCoordinatorTasks";
+import { useRequesterOptions, REQUESTER_OTHER } from "@/hooks/useRequesterOptions";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Card, CardContent, Badge, Button, Input, Label,
@@ -247,6 +248,10 @@ function AddTaskDialog({
   onCreate: (input: { requester_name: string; description: string; requested_at?: string; notes?: string | null }) => Promise<{ error: string | null }>;
 }) {
   const [requester, setRequester] = useState("");
+  // Admin-managed roster (Settings → Dropdowns → Coordinator Tasks) + an
+  // "Other" free-text escape hatch, mirroring the brief form's Assigned By.
+  const { names: requesterNames } = useRequesterOptions();
+  const [requesterOther, setRequesterOther] = useState(false);
   const [description, setDescription] = useState("");
   const [requestDate, setRequestDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [requestTime, setRequestTime] = useState(() => new Date().toTimeString().slice(0, 5));
@@ -273,6 +278,7 @@ function AddTaskDialog({
     if (err) { setError(err); return; }
     toast.success("Task logged");
     setRequester("");
+    setRequesterOther(false);
     setDescription("");
     setRequestDate(new Date().toISOString().slice(0, 10));
     setRequestTime(new Date().toTimeString().slice(0, 5));
@@ -305,13 +311,37 @@ function AddTaskDialog({
                 Requester <span className="text-destructive">*</span>
               </span>
             </Label>
-            <Input
-              value={requester}
-              onChange={(e) => setRequester(e.target.value)}
-              placeholder="Who requested this?"
+            <select
+              value={requesterOther ? REQUESTER_OTHER : requesterNames.includes(requester) ? requester : ""}
+              onChange={(e) => {
+                if (e.target.value === REQUESTER_OTHER) {
+                  setRequesterOther(true);
+                  setRequester("");
+                } else {
+                  setRequesterOther(false);
+                  setRequester(e.target.value);
+                }
+              }}
               disabled={saving}
-              className="mt-1.5"
-            />
+              className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-card px-3.5 text-sm focus-visible:outline-none focus-visible:border-ring focus-visible:shadow-input-focus disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">Select a requester…</option>
+              {requesterNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value={REQUESTER_OTHER}>Other</option>
+            </select>
+            {requesterOther && (
+              <Input
+                value={requester}
+                onChange={(e) => setRequester(e.target.value)}
+                placeholder="Type the requester's name"
+                maxLength={60}
+                disabled={saving}
+                className="mt-2"
+                autoFocus
+              />
+            )}
           </section>
 
           {/* Date + Time side by side */}
