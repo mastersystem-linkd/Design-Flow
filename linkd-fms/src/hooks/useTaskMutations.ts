@@ -1690,9 +1690,35 @@ export function useTaskMutations(): UseTaskMutations {
       const key = `delete:${taskId}`;
       setOpPending(key, true);
       try {
-        // Hard delete — removes the task and cascades to task_logs + files.
-        // Soft-delete (setting deleted_at) was the old approach but left
-        // ghost rows visible to admins; a real DELETE is cleaner for this
+        // Remove the task's linked files from Storage FIRST. The DB delete
+        // below cascades the `files` table ROWS, but NOT the underlying Storage
+        // blobs — those would be orphaned and keep showing in the Files browser
+        // (which lists storage directly). Task files (brief references + task
+        // design uploads) live in the `design-files` bucket; files.storage_url
+        // is the in-bucket path. Best-effort: a Storage hiccup must not block
+        // the delete (orphans can still be swept from Settings → Storage).
+        const { data: linkedFiles } = await supabase
+          .from("files")
+          .select("storage_url")
+          .eq("task_id", taskId);
+        const paths = (linkedFiles ?? [])
+          .map((f) => f.storage_url)
+          .filter((p): p is string => !!p);
+        if (paths.length > 0) {
+          const { error: rmErr } = await supabase.storage
+            .from("design-files")
+            .remove(paths);
+          if (rmErr) {
+            console.warn(
+              "[deleteTask] could not remove linked storage files:",
+              rmErr.message
+            );
+          }
+        }
+
+        // Hard delete — removes the task and cascades to task_logs + files
+        // (rows). Soft-delete (setting deleted_at) was the old approach but
+        // left ghost rows visible to admins; a real DELETE is cleaner for this
         // internal tool.
         const { error } = await supabase
           .from("tasks")
