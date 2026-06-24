@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { PRIORITY_LABELS, PRIORITY_COLORS } from "@/lib/constants";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 import { isFullKittingBlocking } from "@/lib/taskHelpers";
+import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 import { supabase } from "@/lib/supabase";
 import type { TaskWithRelations, UserRole } from "@/types/database";
 
@@ -420,24 +421,27 @@ function PoolRow({
         {formatDateTime(task.created_at)}
       </td>
 
-      {/* Concept */}
+      {/* Concept — source badge (Sales ERP vs internal), Team + FK markers */}
       <td className="px-3 py-1.5 text-left align-middle">
-        <span
-          className={cn(
-            "font-medium text-foreground",
-            isGhost && "line-through"
-          )}
-        >
-          {task.concept || "—"}
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          <span
+            className={cn(
+              "font-medium text-foreground",
+              isGhost && "line-through"
+            )}
+          >
+            {task.concept || "—"}
+          </span>
+          <ExternalOriginBadge source={task.external_source} refId={task.external_ref_id} />
           {(task.is_split || (assignedDesigners && assignedDesigners.length > 0) || (task.qty_remaining != null && task.qty_remaining < task.qty)) && (
-            <Badge className="ml-1 inline-flex items-center gap-0.5 align-middle text-[8px] bg-primary/10 text-primary border-primary/20 px-1 py-0">Team</Badge>
+            <Badge className="inline-flex items-center gap-0.5 align-middle text-[8px] bg-primary/10 text-primary border-primary/20 px-1 py-0">Team</Badge>
           )}
           {isFullKittingBlocking(task) && (
-            <span className="ml-1 inline-flex items-center gap-0.5 align-middle rounded border border-warning/30 bg-warning/10 px-1 py-0 text-[8px] font-semibold text-warning" title="Full Knitting required — not yet added">
+            <span className="inline-flex items-center gap-0.5 align-middle rounded border border-warning/30 bg-warning/10 px-1 py-0 text-[8px] font-semibold text-warning" title="Full Knitting required — not yet added">
               <Layers className="h-2.5 w-2.5" />FK
             </span>
           )}
-        </span>
+        </div>
       </td>
 
       {/* Description */}
