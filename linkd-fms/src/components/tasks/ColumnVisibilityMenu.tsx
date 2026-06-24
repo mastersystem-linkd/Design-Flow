@@ -94,6 +94,14 @@ export function ColumnVisibilityMenu({
   }
 
   const shownCount = ALL_COLUMNS.filter((c) => isVisible(c.key)).length;
+  const allSelected = shownCount === ALL_COLUMNS.length;
+
+  // Master toggle: select everything, or (when already all on) fall back to the
+  // default view — a clear one-click "select all" at the top of the list.
+  function toggleAll() {
+    if (allSelected) resetDefault();
+    else showAll();
+  }
 
   return (
     <div className="relative" ref={ref}>
@@ -125,7 +133,32 @@ export function ColumnVisibilityMenu({
             </span>
           </div>
 
-          <div className="max-h-72 overflow-y-auto py-1">
+          <div className="max-h-[min(55vh,28rem)] overflow-y-auto py-1">
+            {/* Select all — sticky master toggle so it's always reachable
+                without scrolling, even with the full column list. */}
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={allSelected}
+              onClick={toggleAll}
+              title={allSelected ? "Reset to the default view" : "Show every column"}
+              className="sticky top-0 z-10 flex w-full items-center gap-2.5 border-b border-border bg-card px-3 py-1.5 text-left text-sm font-semibold transition-colors hover:bg-secondary/60"
+            >
+              <span
+                className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                  allSelected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card"
+                )}
+              >
+                {allSelected && <Check className="h-3 w-3" />}
+              </span>
+              <span className="text-foreground">Select all columns</span>
+              <span className="ml-auto text-[10px] font-normal tabular-nums text-muted-foreground">
+                {shownCount}/{ALL_COLUMNS.length}
+              </span>
+            </button>
             {ALL_COLUMNS.map(({ key, label }) => {
               const checked = isVisible(key);
               const isLastIdentity =
