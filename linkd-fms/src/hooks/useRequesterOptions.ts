@@ -9,7 +9,7 @@ import { queryKeys } from "@/lib/queryKeys";
 // mirrors the received_by_options / assigned_by_options lookups.
 //
 // DEFAULT_REQUESTERS is a fallback so the picker keeps working even if the
-// table is empty or migration 0079 hasn't been applied yet.
+// table is empty or migration 0083 hasn't been applied yet.
 // REQUESTER_OTHER is the free-text escape-hatch sentinel for the picker.
 // ============================================================================
 
