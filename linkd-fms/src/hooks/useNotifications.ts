@@ -11,41 +11,50 @@ export type MutationResult<T> = { data: T | null; error: string | null };
 
 type NotificationOp = "markAsRead" | "markAllAsRead";
 
+export type DesktopPermission = "default" | "granted" | "denied";
+
+export interface NotificationPrefs {
+  soundEnabled: boolean;
+  desktopEnabled: boolean;
+}
+
+const PREFS_KEY = "linkd-notification-prefs";
+
+function loadPrefs(): NotificationPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) return { soundEnabled: true, desktopEnabled: false, ...JSON.parse(raw) };
+  } catch { /* corrupt — use defaults */ }
+  return { soundEnabled: true, desktopEnabled: false };
+}
+
+function savePrefs(p: NotificationPrefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* quota */ }
+}
+
 export interface UseNotifications {
-  /** All notifications for the current user, newest first. */
   notifications: Notification[];
-  /** Count of is_read = false. */
   unreadCount: number;
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
-  /** Mark a single notification as read. */
   markAsRead: (notificationId: string) => Promise<MutationResult<Notification>>;
-  /** Mark ALL unread notifications as read. */
   markAllAsRead: () => Promise<MutationResult<{ count: number }>>;
-  /** Per-operation pending state (same pattern as useTaskMutations). */
   isPending: (op: NotificationOp, id?: string) => boolean;
-  /** Play the chime once on demand — bypasses the visibility check and 10s
-   *  debounce. Wire to a "Test sound" button so users can verify the chime
-   *  works after the browser's audio autoplay policy unlocks. */
   testNotificationSound: () => void;
+  prefs: NotificationPrefs;
+  setSoundEnabled: (v: boolean) => void;
+  setDesktopEnabled: (v: boolean) => void;
+  desktopPermission: DesktopPermission;
+  requestDesktopPermission: () => Promise<DesktopPermission>;
 }
 
 // ============================================================================
 // Hook
 // ============================================================================
 
-/**
- * Notifications for the current user.
- *
- * - Fetches on mount + exposes `refetch()`.
- * - Subscribes to Supabase Realtime for INSERT events scoped to the user's
- *   `user_id`. New notifications are prepended to the list and the
- *   `unreadCount` incremented without a full refetch.
- * - Cleans up the Realtime channel on unmount.
- */
 export function useNotifications(): UseNotifications {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const userId = user?.id ?? null;
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -53,10 +62,51 @@ export function useNotifications(): UseNotifications {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
-  // Ref to hold the Realtime channel so we can unsubscribe on cleanup.
-  const channelRef = useRef<ReturnType<
-    typeof supabase.channel
-  > | null>(null);
+  // ── Preferences (localStorage-backed) ─────────────────────────────
+  const [prefs, setPrefsState] = useState<NotificationPrefs>(loadPrefs);
+
+  const setSoundEnabled = useCallback((v: boolean) => {
+    setPrefsState((p) => {
+      const next = { ...p, soundEnabled: v };
+      savePrefs(next);
+      return next;
+    });
+  }, []);
+
+  const setDesktopEnabled = useCallback((v: boolean) => {
+    setPrefsState((p) => {
+      const next = { ...p, desktopEnabled: v };
+      savePrefs(next);
+      return next;
+    });
+  }, []);
+
+  // ── Desktop notification permission ───────────────────────────────
+  const [desktopPermission, setDesktopPermission] = useState<DesktopPermission>(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return "denied";
+    return window.Notification.permission as DesktopPermission;
+  });
+
+  const requestDesktopPermission = useCallback(async (): Promise<DesktopPermission> => {
+    if (typeof window === "undefined" || !("Notification" in window)) return "denied";
+    try {
+      const result = await window.Notification.requestPermission();
+      const perm = result as DesktopPermission;
+      setDesktopPermission(perm);
+      if (perm === "granted") {
+        setDesktopEnabled(true);
+        new window.Notification("Notifications enabled", {
+          body: `You'll now receive desktop alerts from ${profile?.full_name ? "LinkD FMS" : "LinkD FMS"}.`,
+          icon: "/logo.png",
+        });
+      }
+      return perm;
+    } catch {
+      return "denied";
+    }
+  }, [setDesktopEnabled, profile?.full_name]);
+
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // ── Pending helpers ──────────────────────────────────────────────────
 
@@ -84,9 +134,6 @@ export function useNotifications(): UseNotifications {
       setIsLoading(false);
       return;
     }
-    // `quiet` = a background re-sync (focus / interval) — don't toggle the
-    // loading state or wipe the list on a transient error, so the feed and
-    // badge update silently without flashing a spinner.
     if (!opts?.quiet) setIsLoading(true);
     setError(null);
 
@@ -114,36 +161,17 @@ export function useNotifications(): UseNotifications {
     void refetch();
   }, [refetch]);
 
-  // ── Notification sound + tab flash ───────────────────────────────────
-  // Two complementary cues for a fresh Realtime INSERT:
-  //
-  //   • Tab is VISIBLE  → play a two-tone ding-dong (A5 → E6, ~250ms, Web
-  //                       Audio, debounced 10s)
-  //   • Tab is HIDDEN   → flash the browser tab title for 10s
-  //
-  // These are mutually exclusive — we never play sound to a backgrounded
-  // tab (most browsers throttle that anyway) and never flash the title of
-  // a tab the user is already looking at (visual noise).
-  //
-  // Both fire only on the realtime INSERT moment. The initial fetch on
-  // mount never plays sound or flashes — that would be annoying every page
-  // load for users who haven't checked their unread queue.
-  //
-  // **Autoplay-policy gotcha (was silently breaking the chime):** Chrome,
-  // Safari and Firefox now require a user gesture before an AudioContext
-  // can produce sound. The old code created a *new* `AudioContext()` per
-  // chime, which always started in `suspended` state — `osc.start()`
-  // queued the tone but no audio came out. The fix: keep ONE shared
-  // context for the whole tab and `resume()` it on the first click /
-  // keypress / touch the user performs. After that gesture every future
-  // chime plays normally.
+  // ── Notification sound ──────────────────────────────────────────────
+  // Web Audio two-tone chime (A5 → E6, ~250ms). Plays on realtime INSERT
+  // regardless of tab visibility so users hear it even while on another
+  // tab. Browser autoplay policy is satisfied by unlocking the shared
+  // AudioContext on the first user gesture (click / keypress / touch).
 
   const lastSoundTime = useRef<number>(0);
   const titleFlashIntervalRef = useRef<number | null>(null);
   const titleFlashTimeoutRef = useRef<number | null>(null);
   const originalTitleRef = useRef<string>("");
 
-  // Shared AudioContext — created lazily, kept for the life of the tab.
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   const ensureAudioCtx = useCallback((): AudioContext | null => {
@@ -153,7 +181,7 @@ export function useNotifications(): UseNotifications {
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
-    if (!Ctx) return null; // Safari < 14.1 / no Web Audio
+    if (!Ctx) return null;
     try {
       audioCtxRef.current = new Ctx();
       return audioCtxRef.current;
@@ -162,23 +190,15 @@ export function useNotifications(): UseNotifications {
     }
   }, []);
 
-  // Unlock the AudioContext on the FIRST user gesture (any click / keypress
-  // / touchstart anywhere on the page). After this the chime is free to
-  // play whenever realtime fires, even without a fresh interaction.
   useEffect(() => {
     if (typeof window === "undefined") return;
     function unlock() {
       const ctx = ensureAudioCtx();
       if (!ctx) return;
       if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {
-          /* still locked — will retry on next gesture */
-        });
+        ctx.resume().catch(() => { /* retry on next gesture */ });
       }
     }
-    // `passive: true` keeps scroll/touch perf untouched. We re-arm on every
-    // gesture so a context that gets re-suspended by the browser (mobile
-    // background tab eviction) gets resumed the next time the user taps.
     window.addEventListener("pointerdown", unlock, { passive: true });
     window.addEventListener("keydown", unlock, { passive: true });
     window.addEventListener("touchstart", unlock, { passive: true });
@@ -189,8 +209,6 @@ export function useNotifications(): UseNotifications {
     };
   }, [ensureAudioCtx]);
 
-  // Play a single tone on the shared context. Used by both the two-tone
-  // notification chime and the louder "Test sound" button.
   const playTone = useCallback(
     (ctx: AudioContext, freq: number, startOffset: number, duration: number, peakGain: number) => {
       const osc = ctx.createOscillator();
@@ -201,8 +219,6 @@ export function useNotifications(): UseNotifications {
       osc.frequency.value = freq;
 
       const t = ctx.currentTime + startOffset;
-      // 20ms attack → hold → 60ms exponential release. Avoids the click
-      // you get from a hard square envelope.
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(peakGain, t + 0.02);
       g.gain.setValueAtTime(peakGain, t + Math.max(0.05, duration - 0.06));
@@ -216,44 +232,59 @@ export function useNotifications(): UseNotifications {
 
   const ringChime = useCallback(() => {
     const ctx = ensureAudioCtx();
-    if (!ctx) {
-      console.warn("[Notifications] No AudioContext available");
-      return;
-    }
+    if (!ctx) return;
     if (ctx.state === "suspended") {
       ctx.resume().then(() => {
         playTone(ctx, 880, 0, 0.15, 0.4);
         playTone(ctx, 1318.5, 0.12, 0.2, 0.35);
-      }).catch(() => {
-        console.warn("[Notifications] AudioContext still suspended — user gesture needed");
-      });
+      }).catch(() => { /* still locked */ });
       return;
     }
     playTone(ctx, 880, 0, 0.15, 0.4);
     playTone(ctx, 1318.5, 0.12, 0.2, 0.35);
   }, [ensureAudioCtx, playTone]);
 
-  const playNotificationSound = useCallback(() => {
-    if (typeof document === "undefined") return;
-    if (document.visibilityState !== "visible") return;
+  // Use a ref to read prefs without re-creating the callback on every
+  // pref change (avoids re-subscribing the realtime channel).
+  const prefsRef = useRef(prefs);
+  useEffect(() => { prefsRef.current = prefs; }, [prefs]);
 
-    // Debounce: don't fire if we played in the last 10s. Prevents a burst
-    // of inserts (e.g. a batch send) from machine-gunning the user.
+  const playNotificationSound = useCallback(() => {
+    if (!prefsRef.current.soundEnabled) return;
     const now = Date.now();
     if (now - lastSoundTime.current < 10_000) return;
     lastSoundTime.current = now;
-
     ringChime();
   }, [ringChime]);
 
-  // Public helper — wired to the Notifications page's "Test" button so the
-  // user can confirm the chime is working without waiting for a real INSERT.
-  // Bypasses the visibility check and the 10s debounce.
   const testNotificationSound = useCallback(() => {
     ringChime();
   }, [ringChime]);
 
-  // Clear any in-flight title flash and restore the original tab title.
+  // ── Desktop notification ────────────────────────────────────────────
+
+  const fireDesktopNotification = useCallback((n: Notification) => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (!prefsRef.current.desktopEnabled) return;
+    if (window.Notification.permission !== "granted") return;
+    if (document.visibilityState === "visible") return;
+
+    try {
+      const notif = new window.Notification(n.title, {
+        body: n.message,
+        icon: "/logo.png",
+        tag: `linkd-${n.id}`,
+      });
+      notif.onclick = () => {
+        window.focus();
+        if (n.link) window.location.href = n.link;
+        notif.close();
+      };
+    } catch { /* some browsers block in workers */ }
+  }, []);
+
+  // ── Tab title flash ─────────────────────────────────────────────────
+
   const stopTitleFlash = useCallback(() => {
     if (titleFlashIntervalRef.current !== null) {
       window.clearInterval(titleFlashIntervalRef.current);
@@ -271,10 +302,6 @@ export function useNotifications(): UseNotifications {
   const startTitleFlash = useCallback(() => {
     if (typeof document === "undefined") return;
     if (document.visibilityState !== "hidden") return;
-
-    // Don't start a second flash if one is already running — the user
-    // already knows something arrived; replacing the interval would just
-    // reset the 10s countdown unnecessarily.
     if (titleFlashIntervalRef.current !== null) return;
 
     if (!originalTitleRef.current) {
@@ -287,8 +314,6 @@ export function useNotifications(): UseNotifications {
       document.title = showing ? "🔔 New Notification" : original;
       showing = !showing;
     }, 2_000);
-    // Initial tick — start with the alert state immediately, the interval
-    // alternates from there.
     document.title = "🔔 New Notification";
 
     titleFlashTimeoutRef.current = window.setTimeout(() => {
@@ -296,7 +321,6 @@ export function useNotifications(): UseNotifications {
     }, 10_000);
   }, [stopTitleFlash]);
 
-  // When the user returns to the tab, cancel any flash mid-cycle.
   useEffect(() => {
     if (typeof document === "undefined") return;
     function onVis() {
@@ -328,12 +352,14 @@ export function useNotifications(): UseNotifications {
         },
         (payload) => {
           const newRow = payload.new;
-          // Prepend — newest first.
           setNotifications((prev) => [newRow, ...prev]);
-          // Pick exactly one cue based on tab visibility.
-          if (typeof document !== "undefined" && document.visibilityState === "visible") {
-            playNotificationSound();
-          } else {
+
+          // Sound plays regardless of tab visibility
+          playNotificationSound();
+
+          // Desktop notification + title flash when tab is hidden
+          if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+            fireDesktopNotification(newRow);
             startTitleFlash();
           }
         }
@@ -346,15 +372,9 @@ export function useNotifications(): UseNotifications {
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [userId, playNotificationSound, startTitleFlash]);
+  }, [userId, playNotificationSound, startTitleFlash, fireDesktopNotification]);
 
   // ── Self-heal the unread badge ───────────────────────────────────────
-  // The realtime channel above only carries INSERTs, so changes that REMOVE
-  // rows never reach this instance — another tab/device, a mark-all-read
-  // elsewhere, or an admin wiping the table via the service-role API. The
-  // derived `unreadCount` then drifts (classic symptom: sidebar/bell stuck on
-  // an old count while the feed is empty). Re-sync quietly on tab focus and on
-  // a slow interval so it converges to the DB truth without a manual reload.
   useEffect(() => {
     if (!userId) return;
     const resync = () => {
@@ -391,13 +411,12 @@ export function useNotifications(): UseNotifications {
           .from("notifications")
           .update({ is_read: true })
           .eq("id", notificationId)
-          .eq("user_id", userId) // RLS safety: only own
+          .eq("user_id", userId)
           .select("*")
           .single();
 
         if (err) return { data: null, error: err.message };
 
-        // Optimistically update local state.
         setNotifications((prev) =>
           prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
         );
@@ -418,9 +437,6 @@ export function useNotifications(): UseNotifications {
     const key = "markAllAsRead";
     setOpPending(key, true);
     try {
-      // Supabase JS doesn't return a count directly from UPDATE. We
-      // count unread before the update and return that as the "affected"
-      // count. The actual DB update is a bulk WHERE.
       const unread = notifications.filter((n) => !n.is_read).length;
 
       const { error: err } = await supabase
@@ -431,7 +447,6 @@ export function useNotifications(): UseNotifications {
 
       if (err) return { data: null, error: err.message };
 
-      // Optimistically mark everything locally.
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
 
       return { data: { count: unread }, error: null };
@@ -450,5 +465,10 @@ export function useNotifications(): UseNotifications {
     markAllAsRead,
     isPending,
     testNotificationSound,
+    prefs,
+    setSoundEnabled,
+    setDesktopEnabled,
+    desktopPermission,
+    requestDesktopPermission,
   };
 }

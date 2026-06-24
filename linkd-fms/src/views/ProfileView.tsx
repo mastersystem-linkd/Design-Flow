@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import { Camera, Eye, EyeOff, Loader2, Lock, Monitor, Moon, Save, Sun, User } from "lucide-react";
+import { Camera, Eye, EyeOff, Loader2, Lock, Monitor, Moon, Save, Sun, Trash2, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { useDesignerCodes } from "@/hooks/useDesignerCodes";
@@ -52,6 +53,7 @@ export function ProfileView() {
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [removingAvatar, setRemovingAvatar] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Password change state ──
@@ -95,12 +97,16 @@ export function ProfileView() {
     }
 
     setUploadingAvatar(true);
-    const ext = file.name.split(".").pop() ?? "png";
+    // Compress before upload (CLAUDE.md convention). Avatars render tiny, so a
+    // 512px cap keeps storage lean; compressImage falls back to the original
+    // if the canvas pipeline can't handle the file.
+    const compressed = await compressImage(file, 512);
+    const ext = compressed.name.split(".").pop() ?? "png";
     const path = `${user.id}/avatar.${ext}`;
 
     const { error: uploadErr } = await supabase.storage
       .from("avatars")
-      .upload(path, file, { contentType: file.type, upsert: true });
+      .upload(path, compressed, { contentType: compressed.type, upsert: true });
 
     if (uploadErr) {
       toast.error(uploadErr.message);
@@ -108,11 +114,14 @@ export function ProfileView() {
       return;
     }
 
+    // Cache-bust so the new image shows immediately even though the path is
+    // reused (upsert keeps the same URL).
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+    const publicUrl = `${urlData.publicUrl}?v=${Date.now()}`;
 
     const { error: updateErr } = await supabase
       .from("profiles")
-      .update({ avatar_url: urlData.publicUrl })
+      .update({ avatar_url: publicUrl })
       .eq("id", profile.id);
 
     if (updateErr) {
@@ -122,6 +131,39 @@ export function ProfileView() {
       await refreshProfile();
     }
     setUploadingAvatar(false);
+  }
+
+  async function handleAvatarRemove() {
+    if (!user || !profile || !profile.avatar_url) return;
+    setRemovingAvatar(true);
+
+    // Best-effort: delete the stored avatar file(s) so we don't leave orphans
+    // in the bucket. Clearing avatar_url is what actually drops the photo from
+    // the UI (it falls back to initials) — so even if the storage delete is
+    // denied by RLS, the removal still succeeds.
+    try {
+      const { data: files } = await supabase.storage.from("avatars").list(user.id);
+      if (files?.length) {
+        await supabase.storage
+          .from("avatars")
+          .remove(files.map((f) => `${user.id}/${f.name}`));
+      }
+    } catch {
+      /* non-fatal — the profile update below is the source of truth */
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ avatar_url: null })
+      .eq("id", profile.id);
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Photo removed");
+      await refreshProfile();
+    }
+    setRemovingAvatar(false);
   }
 
   async function handlePasswordChange() {
@@ -152,31 +194,46 @@ export function ProfileView() {
         <CardContent className="p-6">
           <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start">
             {/* Avatar */}
-            <div className="relative">
-              <Avatar className="h-20 w-20 ring-2 ring-border">
-                {profile.avatar_url ? <AvatarImage src={profile.avatar_url} /> : null}
-                <AvatarFallback className="text-xl">{getInitials(profile.full_name)}</AvatarFallback>
-              </Avatar>
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploadingAvatar}
-                className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-primary text-white transition-colors hover:bg-primary/80"
-                title="Change avatar"
-              >
-                {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleAvatarUpload(f);
-                  if (e.target) e.target.value = "";
-                }}
-              />
+            <div className="flex flex-col items-center gap-2">
+              <div className="relative">
+                <Avatar className="h-20 w-20 ring-2 ring-border">
+                  {profile.avatar_url ? <AvatarImage src={profile.avatar_url} /> : null}
+                  <AvatarFallback className="text-xl">{getInitials(profile.full_name)}</AvatarFallback>
+                </Avatar>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploadingAvatar || removingAvatar}
+                  className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-primary text-white transition-colors hover:bg-primary/80 disabled:opacity-60"
+                  title={profile.avatar_url ? "Change photo" : "Add photo"}
+                >
+                  {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleAvatarUpload(f);
+                    if (e.target) e.target.value = "";
+                  }}
+                />
+              </div>
+
+              {/* Remove photo — only shown when one is set */}
+              {profile.avatar_url && (
+                <button
+                  type="button"
+                  onClick={() => void handleAvatarRemove()}
+                  disabled={uploadingAvatar || removingAvatar}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60"
+                >
+                  {removingAvatar ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                  Remove photo
+                </button>
+              )}
             </div>
 
             {/* Info */}

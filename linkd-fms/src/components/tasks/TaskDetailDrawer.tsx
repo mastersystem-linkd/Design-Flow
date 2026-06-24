@@ -3547,11 +3547,10 @@ function ActionFooter({
     );
   }
 
-  // ----------------- POOL: Claim Task (designer / admin) -----------------
-  // When the parent provides `onClaimTask`, delegate entirely — the parent
-  // runs the full skip-ahead + FK warning chain and opens its own ClaimTaskModal.
-  // When not provided, fall back to the local FK-only logic.
-  if (task.status === "pool" && isUnassigned) {
+  // ----------------- POOL: Claim Task (designer only) ---------------------
+  // Admins / coordinators don't claim — they assign via the header "Assign"
+  // button. Only designers see the full-width "Claim Task" footer CTA.
+  if (task.status === "pool" && isUnassigned && !isAdmin) {
     if (onClaimTask) {
       return (
         <FooterShell>

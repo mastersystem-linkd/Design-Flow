@@ -1786,6 +1786,7 @@ function TopBar({
         <button type="button" onClick={onRefresh} disabled={isRefreshing} className={iconBtn} title="Refresh">
           <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
         </button>
+        {columnMenuSlot}
         <div className="hidden sm:flex sm:items-center sm:gap-1.5">
           <button type="button" onClick={onOpenShortcuts} className={iconBtn} title="Keyboard shortcuts">
             <Keyboard className="h-3.5 w-3.5" />
@@ -1799,7 +1800,6 @@ function TopBar({
           >
             <Rows3 className="h-3.5 w-3.5" />
           </button>
-          {columnMenuSlot}
           {onExport && (
             <button type="button" onClick={onExport} className={iconBtn} title="Export CSV">
               <Download className="h-3.5 w-3.5" />

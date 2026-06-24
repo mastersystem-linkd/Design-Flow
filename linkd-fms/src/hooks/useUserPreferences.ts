@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { queryKeys } from "@/lib/queryKeys";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "@/components/ui";
 import type { UserPreferences } from "@/types/database";
 
 // ============================================================================
@@ -282,9 +283,7 @@ export function useUserPreferences() {
     onError: (err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(key, ctx.prev);
       console.error("[useUserPreferences] save failed:", err);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: key });
+      toast.error("Column preferences couldn't be saved. Please try again.");
     },
   });
 
@@ -320,9 +319,6 @@ export function useUserPreferences() {
     },
     onError: (_err, _d, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(key, ctx.prev);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: key });
     },
   });
 

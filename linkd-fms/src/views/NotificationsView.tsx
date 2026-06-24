@@ -10,6 +10,7 @@ import {
   Package,
   Layers,
   Bell,
+  BellRing,
   ArrowDownToLine,
   Pause,
   Send,
@@ -19,6 +20,9 @@ import {
   ExternalLink,
   Sparkles,
   Volume2,
+  VolumeX,
+  Monitor,
+  Settings2,
 } from "lucide-react";
 import {
   isToday,
@@ -26,7 +30,7 @@ import {
   isThisWeek,
   formatDistanceToNow,
 } from "date-fns";
-import { useNotifications } from "@/hooks/useNotifications";
+import { useNotifications, type DesktopPermission } from "@/hooks/useNotifications";
 import { useProfiles } from "@/hooks/useProfiles";
 import {
   Button,
@@ -41,7 +45,7 @@ import { cn } from "@/lib/utils";
 import type { Notification, NotificationType } from "@/types/database";
 
 // ============================================================================
-// Type config — each type gets a unique color, icon, and badge style
+// Type config
 // ============================================================================
 
 const TYPE_CONFIG: Record<NotificationType, {
@@ -59,7 +63,7 @@ const TYPE_CONFIG: Record<NotificationType, {
 };
 
 // ============================================================================
-// Smart parsing — extract rich info from title + message
+// Smart parsing
 // ============================================================================
 
 function getCategoryIcon(title: string) {
@@ -74,13 +78,6 @@ function getCategoryIcon(title: string) {
   return Bell;
 }
 
-// Captures the leading run of 1–3 capitalised words at the start of a
-// notification body — that's the actor (e.g. "Supriya", "Krupesh Late",
-// "Ma'am"). Verb-agnostic so it works for "requested changes on…",
-// "suggested changes…", "ready for review…" and any future phrasing,
-// not just a hard-coded verb list. Falls back to null when the body
-// opens with a generic noun ("Your", "Concept", "You", …) so we don't
-// promote sentence-starters to actor names.
 const ACTOR_BLOCKLIST = new Set([
   "Your", "You", "You've", "You're",
   "Concept", "Task", "Sample", "Salvedge", "Design", "Designs",
@@ -92,8 +89,6 @@ function extractActorName(message: string): string | null {
   if (!m) return null;
   const name = m[1].trim();
   if (ACTOR_BLOCKLIST.has(name)) return null;
-  // Reject when the first word is blocklisted even if subsequent words
-  // are real (e.g. "Your concept ..." captures "Your" via leading word).
   const first = name.split(/\s+/, 1)[0];
   if (ACTOR_BLOCKLIST.has(first)) return null;
   return name;
@@ -103,11 +98,6 @@ function extractTaskId(message: string): string | null {
   const m = message.match(/((?:DF|C)-[\w-]+)/);
   return m ? m[1] : null;
 }
-
-// extractSubject / getActionVerb removed: we now display the sender's
-// title + message verbatim instead of synthesising "{actor} {verb}
-// {subject}" from regex matches, which silently fell back to
-// "System updated" whenever the verb wasn't in the hard-coded list.
 
 function getBadgeLabel(title: string, type: NotificationType): string {
   const t = title.toLowerCase();
@@ -124,7 +114,7 @@ function getBadgeLabel(title: string, type: NotificationType): string {
 }
 
 // ============================================================================
-// Grouping — collapse identical notifications within 1 hour
+// Grouping
 // ============================================================================
 
 interface GroupedNotification {
@@ -195,7 +185,12 @@ const PAGE_SIZE = 25;
 
 export function NotificationsView() {
   const navigate = useNavigate();
-  const { notifications, unreadCount, isLoading, refetch, markAsRead, markAllAsRead, isPending, testNotificationSound } = useNotifications();
+  const {
+    notifications, unreadCount, isLoading, refetch, markAsRead,
+    markAllAsRead, isPending, testNotificationSound,
+    prefs, setSoundEnabled, setDesktopEnabled,
+    desktopPermission, requestDesktopPermission,
+  } = useNotifications();
   const { profiles } = useProfiles();
 
   const profileMap = useMemo(() => {
@@ -207,6 +202,7 @@ export function NotificationsView() {
   const [tab, setTab] = useState<FilterTab>("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const filtered = useMemo(() => {
     if (tab === "all") return notifications;
@@ -242,71 +238,195 @@ export function NotificationsView() {
 
   return (
     <div className="space-y-4">
-      {/* Sticky header */}
-      <div className="sticky top-0 z-20 -mx-2 rounded-b-xl bg-card/80 px-2 pb-3 pt-1 backdrop-blur-md">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-foreground">Activity Feed</h1>
-            <p className="text-xs text-muted-foreground">
-              {unreadCount > 0 ? `${unreadCount} unread update${unreadCount !== 1 ? "s" : ""}` : "All caught up ✓"}
-            </p>
+      {/* ── Header card ─────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-border bg-card shadow-card">
+        {/* Top row */}
+        <div className="flex items-center justify-between px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/25">
+              <BellRing className="h-[18px] w-[18px]" />
+            </span>
+            <div className="leading-tight">
+              <h1 className="font-display text-base font-bold tracking-[-0.02em] text-foreground sm:text-lg">
+                Activity Feed
+              </h1>
+              <p className="text-[11px] font-medium text-muted-foreground">
+                {unreadCount > 0
+                  ? `${unreadCount} unread update${unreadCount !== 1 ? "s" : ""}`
+                  : "All caught up"}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Test chime — gestures the AudioContext open the first time it's
-                clicked, then plays the same two-tone ding-dong every realtime
-                INSERT will play. Lets users verify sound is reaching them
-                without waiting for a real event. */}
-            <Button
-              variant="outline"
-              size="sm"
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShowSettings((s) => !s)}
+              className={cn(
+                "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+                showSettings && "bg-secondary text-foreground"
+              )}
+              title="Notification settings"
+            >
+              <Settings2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
               onClick={testNotificationSound}
-              className="gap-1.5 text-xs"
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               title="Test notification sound"
             >
-              <Volume2 className="h-3 w-3" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isLoading} className="gap-1.5 text-xs">
-              <RefreshCw className={cn("h-3 w-3", isLoading && "animate-spin")} />
-            </Button>
+              <Volume2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isLoading}
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+              title="Refresh"
+            >
+              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+            </button>
             {unreadCount > 0 && (
-              <Button variant="outline" size="sm" onClick={() => void markAllAsRead()} disabled={isPending("markAllAsRead")} className="gap-1.5 text-xs">
-                {isPending("markAllAsRead") ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCheck className="h-3 w-3" />}
-                Mark all read
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void markAllAsRead()}
+                disabled={isPending("markAllAsRead")}
+                className="ml-1 gap-1.5 text-xs"
+              >
+                {isPending("markAllAsRead")
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <CheckCheck className="h-3 w-3" />
+                }
+                <span className="hidden sm:inline">Mark all read</span>
               </Button>
             )}
           </div>
         </div>
 
-        {/* Filter bar */}
-        <div className="no-scrollbar -mx-1 mt-2 flex items-center gap-1 overflow-x-auto px-1">
-          {FILTER_TABS.map((t) => {
-            const active = tab === t.id;
-            const count = tabCounts[t.id];
-            return (
-              <button key={t.id} type="button" onClick={() => { setTab(t.id); setVisibleCount(PAGE_SIZE); setExpandedId(null); }}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
-                  active ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                )}>
-                {t.label}
-                <span className={cn("rounded-full px-1 text-[9px] tabular-nums", active ? "bg-white/20" : "bg-secondary")}>{count}</span>
-              </button>
-            );
-          })}
+        {/* ── Settings panel (collapsible) ─────────────────────────── */}
+        <div className={cn(
+          "grid overflow-hidden transition-all duration-300 ease-out",
+          showSettings ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        )}>
+          <div className="min-h-0">
+            <div className="border-t border-border px-4 py-3 sm:px-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {/* Sound toggle */}
+                <SettingRow
+                  icon={prefs.soundEnabled ? Volume2 : VolumeX}
+                  title="Sound alerts"
+                  description="Play a chime when a new notification arrives"
+                  active={prefs.soundEnabled}
+                  onToggle={() => setSoundEnabled(!prefs.soundEnabled)}
+                  action={
+                    <button
+                      type="button"
+                      onClick={testNotificationSound}
+                      className="rounded-md px-2 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/10"
+                    >
+                      Test
+                    </button>
+                  }
+                />
+                {/* Desktop alerts toggle */}
+                <SettingRow
+                  icon={Monitor}
+                  title="Desktop alerts"
+                  description={
+                    desktopPermission === "denied"
+                      ? "Blocked by browser — check site permissions"
+                      : "Show native OS notifications when tab is in background"
+                  }
+                  active={prefs.desktopEnabled && desktopPermission === "granted"}
+                  onToggle={
+                    desktopPermission === "granted"
+                      ? () => setDesktopEnabled(!prefs.desktopEnabled)
+                      : desktopPermission === "denied"
+                        ? undefined
+                        : () => void requestDesktopPermission()
+                  }
+                  disabled={desktopPermission === "denied"}
+                  action={
+                    desktopPermission === "default" ? (
+                      <button
+                        type="button"
+                        onClick={() => void requestDesktopPermission()}
+                        className="rounded-md bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/20"
+                      >
+                        Enable
+                      </button>
+                    ) : desktopPermission === "denied" ? (
+                      <span className="rounded-md bg-destructive/10 px-2 py-1 text-[10px] font-medium text-destructive">
+                        Blocked
+                      </span>
+                    ) : null
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter tabs */}
+        <div className="border-t border-border">
+          <div className="no-scrollbar flex items-center gap-1 overflow-x-auto px-4 py-2 sm:px-5">
+            {FILTER_TABS.map((t) => {
+              const active = tab === t.id;
+              const count = tabCounts[t.id];
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => { setTab(t.id); setVisibleCount(PAGE_SIZE); setExpandedId(null); }}
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all",
+                    active
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  )}
+                >
+                  {t.label}
+                  <span className={cn(
+                    "inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums",
+                    active ? "bg-white/20" : "bg-secondary"
+                  )}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Content */}
+      {/* ── Content ────────────────────────────────────────────────── */}
       {isLoading ? (
-        <div className="rounded-xl border border-border bg-card p-6"><SkeletonText lines={8} /></div>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <SkeletonText lines={8} />
+        </div>
       ) : grouped.length === 0 ? (
-        <EmptyState icon={<CheckCircle2 className="h-10 w-10 text-success" />} title="All caught up!" description={tab === "all" ? "You have no notifications." : tab === "unread" ? "No unread notifications." : `No ${FILTER_TABS.find((t) => t.id === tab)?.label.toLowerCase()} notifications.`} />
+        <div className="rounded-xl border border-border bg-card py-16">
+          <EmptyState
+            icon={<CheckCircle2 className="h-12 w-12 text-success" />}
+            title="All caught up!"
+            description={
+              tab === "all"
+                ? "You have no notifications."
+                : tab === "unread"
+                  ? "No unread notifications."
+                  : `No ${FILTER_TABS.find((t) => t.id === tab)?.label.toLowerCase()} notifications.`
+            }
+          />
+        </div>
       ) : (
         <div className="space-y-5">
           {dateGroups.map((group) => (
             <section key={group.label}>
-              <h2 className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
+              <h2 className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">
+                <span className="h-px flex-1 bg-border" />
                 {group.label}
+                <span className="h-px flex-1 bg-border" />
               </h2>
               <div className="space-y-1.5">
                 {group.items.map((g) => (
@@ -337,6 +457,71 @@ export function NotificationsView() {
 }
 
 // ============================================================================
+// Settings row
+// ============================================================================
+
+function SettingRow({
+  icon: Icon,
+  title,
+  description,
+  active,
+  onToggle,
+  disabled,
+  action,
+}: {
+  icon: typeof Volume2;
+  title: string;
+  description: string;
+  active: boolean;
+  onToggle?: () => void;
+  disabled?: boolean;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className={cn(
+      "flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+      active ? "border-primary/20 bg-primary/[0.03]" : "border-border bg-card",
+      disabled && "opacity-60"
+    )}>
+      <span className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+        active ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"
+      )}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold text-foreground">{title}</p>
+        <p className="text-[10px] text-muted-foreground">{description}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {action}
+        {onToggle && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={active}
+            onClick={onToggle}
+            disabled={disabled}
+            className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+              active ? "bg-primary" : "bg-secondary",
+              disabled && "cursor-not-allowed"
+            )}
+          >
+            <span
+              className={cn(
+                "pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200",
+                active ? "translate-x-[18px]" : "translate-x-[3px]"
+              )}
+            />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Premium Notification Card
 // ============================================================================
 
@@ -358,12 +543,6 @@ function NotificationCard({
   const actor = g.actorName ? profileMap.get(g.actorName) : null;
   const timeAgo = formatDistanceToNow(new Date(g.created_at), { addSuffix: true });
 
-  // We used to reconstruct the row text from title+message via getActionVerb
-  // + extractSubject. That broke as soon as the sender vocabulary widened
-  // ("requested changes", "ready for review", …) and silently fell back to
-  // "System updated" — telling the user nothing. We now display the
-  // sender's actual title + message verbatim and use the helpers only for
-  // the badge / task-id chip.
   const taskId = extractTaskId(g.message);
   const badgeLabel = getBadgeLabel(g.title, g.type);
 
@@ -402,9 +581,6 @@ function NotificationCard({
 
         {/* Content */}
         <div className="min-w-0 flex-1">
-          {/* Line 1: sender's actual title + count + time. This is the
-              authoritative "what kind of event is this" — much more
-              reliable than reconstructing a verb from regex. */}
           <div className="flex items-baseline gap-1.5">
             <p
               className={cn(
@@ -429,10 +605,6 @@ function NotificationCard({
             </span>
           </div>
 
-          {/* Line 2: sender's message verbatim — carries the actor, the
-              subject and any extra context (reason, design count, deadline,
-              fabric, etc.). Two-line clamp so longer notes are visible
-              without cropping mid-word; full text shows on expand. */}
           {g.message && (
             <p
               className={cn(
@@ -444,7 +616,7 @@ function NotificationCard({
             </p>
           )}
 
-          {/* Line 3: Meta row — badge + task ID + category */}
+          {/* Meta row */}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ring-1 ring-inset", config.badgeBg)}>
               <config.icon className="h-2.5 w-2.5" />
@@ -475,10 +647,7 @@ function NotificationCard({
       <div className={cn("grid overflow-hidden transition-all duration-200 ease-out", expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
         <div className="min-h-0">
           <div className="border-t border-border/20 px-3 py-2.5">
-            {/* Full message */}
             <p className="text-xs leading-relaxed text-muted-foreground">{g.message}</p>
-
-            {/* Action button */}
             {g.link && (
               <button type="button" onClick={(e) => { e.stopPropagation(); onNavigate(); }}
                 className={cn("mt-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors", config.badgeBg, "hover:opacity-80")}>

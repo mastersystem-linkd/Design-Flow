@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import {
   FolderOpen,
@@ -894,12 +895,29 @@ function FilterField({
 
 function LinkedToCell({ info }: { info?: { label: string; details?: { key: string; value: string }[] } }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Position the portal popover above the trigger so it doesn't clip
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const popH = 120;
+    const fitsBelow = rect.bottom + popH + 8 < window.innerHeight;
+    setPos({
+      top: fitsBelow ? rect.bottom + 4 : rect.top - popH - 4,
+      left: Math.min(rect.left, window.innerWidth - 272),
+    });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -915,8 +933,9 @@ function LinkedToCell({ info }: { info?: { label: string; details?: { key: strin
   const preview = mainDetails.slice(0, 2).map((d) => d.value).join(" · ");
 
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         className="flex items-center gap-1.5 text-left"
@@ -937,8 +956,12 @@ function LinkedToCell({ info }: { info?: { label: string; details?: { key: strin
         <Info className="h-3 w-3 shrink-0 text-muted-foreground" />
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-card p-3 shadow-lg">
+      {open && pos && createPortal(
+        <div
+          ref={popoverRef}
+          className="fixed z-[9999] w-64 rounded-lg border border-border bg-card p-3 shadow-xl animate-fade-in"
+          style={{ top: pos.top, left: pos.left }}
+        >
           <div className="grid gap-1.5">
             {mainDetails.map((d) => (
               <div key={d.key} className="flex items-baseline gap-2">
@@ -947,9 +970,10 @@ function LinkedToCell({ info }: { info?: { label: string; details?: { key: strin
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
