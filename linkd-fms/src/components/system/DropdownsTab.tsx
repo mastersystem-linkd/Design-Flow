@@ -7,7 +7,13 @@ import {
 import { useReceivedByOptions } from "@/hooks/useReceivedByOptions";
 import { useSamplingDropdowns } from "@/hooks/useSamplingDropdowns";
 import { useRequesterOptions } from "@/hooks/useRequesterOptions";
-import { LookupSection, type LookupRow } from "@/components/system/LookupSection";
+import { useTaskSources } from "@/hooks/useTaskSources";
+import {
+  LookupSection,
+  type LookupRow,
+  type FlagColumn,
+} from "@/components/system/LookupSection";
+import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
@@ -38,7 +44,8 @@ type DropdownTable =
   | "assigned_by_options"
   | "received_by_options"
   | "sampling_dropdowns"
-  | "requester_options";
+  | "requester_options"
+  | "task_sources";
 
 interface ListSpec {
   key: string;
@@ -52,6 +59,7 @@ interface ListSpec {
   error: string | null;
   refetch: () => unknown;
   insertExtra?: Record<string, unknown>;
+  flagColumn?: FlagColumn;
 }
 
 export function DropdownsTab() {
@@ -67,6 +75,7 @@ export function DropdownsTab() {
   const receivedBy = useReceivedByOptions({ activeOnly: false });
   const sampling = useSamplingDropdowns({ activeOnly: false });
   const requester = useRequesterOptions({ activeOnly: false });
+  const taskSources = useTaskSources({ activeOnly: false });
 
   // The dropdown lists the active context owns.
   const lists = useMemo<ListSpec[]>(() => {
@@ -166,8 +175,29 @@ export function DropdownsTab() {
       ];
     }
 
-    return [assignedSpec];
-  }, [context, assignedBy, receivedBy, sampling, requester]);
+    // task context — Assigned By + Task Source (the brief "Group" picker).
+    return [
+      assignedSpec,
+      {
+        key: "task_source",
+        label: "Task Source",
+        count: taskSources.rows.length,
+        table: "task_sources",
+        description:
+          "The 'Group' / source picker on New Brief & Edit Task. Toggle WhatsApp to show the green icon in the picker.",
+        addPlaceholder: "e.g. LinkD Design Group",
+        rows: taskSources.rows,
+        isLoading: taskSources.isLoading,
+        error: taskSources.error,
+        refetch: taskSources.refetch,
+        flagColumn: {
+          label: "WhatsApp",
+          hint: "Show the WhatsApp icon in the picker",
+          icon: <WhatsAppIcon />,
+        },
+      },
+    ];
+  }, [context, assignedBy, receivedBy, sampling, requester, taskSources]);
 
   const active = lists.find((l) => l.key === activeKey) ?? lists[0];
   if (!active) return null;
@@ -244,6 +274,7 @@ export function DropdownsTab() {
         error={active.error}
         refetch={active.refetch}
         insertExtra={active.insertExtra}
+        flagColumn={active.flagColumn}
       />
     </div>
   );

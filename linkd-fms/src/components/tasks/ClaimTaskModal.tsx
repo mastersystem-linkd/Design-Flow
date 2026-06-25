@@ -477,19 +477,26 @@ export function ClaimTaskModal({
                     Fully assigned — no designs available to claim.
                   </div>
                 )}
-                <LoadingButton
-                  type="button"
-                  onClick={handleClaim}
-                  loading={claiming}
-                  loadingText="Claiming…"
-                  disabled={!deadline || (showPortionInput && ((portionQty ?? 0) < 1 || qtyRemaining === 0))}
-                  className="gap-1.5 px-5 shadow-sm shadow-primary/20"
-                >
-                  <ArrowDownToLine className="h-4 w-4" />
-                  {showPortionInput && portionQty != null && portionQty < qtyRemaining
-                    ? `Claim ${portionQty}`
-                    : "Claim"}
-                </LoadingButton>
+                <div className="space-y-1">
+                  <LoadingButton
+                    type="button"
+                    onClick={handleClaim}
+                    loading={claiming}
+                    loadingText="Claiming…"
+                    disabled={!deadline || (showPortionInput && ((portionQty ?? 0) < 1 || qtyRemaining === 0))}
+                    className="w-full gap-1.5 px-5 shadow-sm shadow-primary/20"
+                  >
+                    <ArrowDownToLine className="h-4 w-4" />
+                    {showPortionInput && portionQty != null && portionQty < qtyRemaining
+                      ? `Claim ${portionQty}`
+                      : "Claim"}
+                  </LoadingButton>
+                  {!deadline && (
+                    <p className="text-center text-[10px] font-medium text-destructive">
+                      Set a deadline to enable claiming
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}

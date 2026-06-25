@@ -1,11 +1,13 @@
 // ============================================================================
-// WhatsApp Group catalogue (single source of truth)
+// WhatsApp Group catalogue (FALLBACK only)
 // ============================================================================
 //
-// The brief form, the inline task editor, and any future "coordination
-// thread" picker all read from this list. Storing the names here (instead
-// of inline arrays scattered across views) keeps the dropdown stable across
-// surfaces and makes future renames a one-line change.
+// The "Task Source" / Group picker is now a DB-managed dropdown — see the
+// `task_sources` table (migration 0086) + `useTaskSources()`, managed from
+// Settings → Dropdowns → Tasks → Task Source. This list is kept ONLY as the
+// fallback `useTaskSources` uses when that table is empty / the migration
+// hasn't been applied yet, so the brief picker never goes blank. Edit sources
+// in Settings, not here.
 //
 // `isWhatsApp` controls whether the picker renders the green WhatsApp icon
 // next to the label — a few entries here aren't actual WhatsApp groups

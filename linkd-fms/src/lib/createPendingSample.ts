@@ -74,17 +74,19 @@ export async function createPendingSample(input: PendingSampleInput): Promise<vo
       partyName = await resolveDefaultLdParty();
     }
 
-    // Soft dedup matching the unique index (COALESCE-to-'' semantics). The
-    // index is the hard backstop if a concurrent insert races past this.
+    // Soft dedup: one sample per designer per fabric+design combination.
+    // Each designer's portion can yield its own sample even if the fabric/design
+    // happen to match another designer's (split tasks, different portions).
     const { data: existing } = await supabase
       .from("samples")
-      .select("quality, design_type")
+      .select("quality, design_type, created_by")
       .eq("task_id", taskId)
       .eq("source", "task_completion");
     const isDup = (existing ?? []).some(
       (s) =>
         (s.quality ?? "") === (fabric ?? "") &&
-        (s.design_type ?? "") === (designType ?? "")
+        (s.design_type ?? "") === (designType ?? "") &&
+        (s.created_by ?? "") === (createdBy ?? "")
     );
     if (isDup) return;
 
@@ -122,7 +124,8 @@ export async function createPendingSample(input: PendingSampleInput): Promise<vo
       "info",
       "/sampling"
     );
-  } catch {
-    // non-critical — the caller's primary mutation already succeeded
+  } catch (e) {
+    console.error("[createPendingSample] unexpected error:", e);
+    toast.error("Task saved, but creating the sample entry failed. Try flagging sampling from the action menu.");
   }
 }

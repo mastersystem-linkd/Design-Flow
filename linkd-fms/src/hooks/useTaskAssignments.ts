@@ -194,6 +194,7 @@ export function useTaskAssignments(taskId: string | null) {
       if (!user) return { error: "Not authenticated" };
 
       // Client-side pool-remaining pre-check (DB trigger is the hard backstop).
+      let carryQtyCompleted = 0;
       const { data: taskRow } = await supabase
         .from("tasks")
         .select("qty, task_code, concept")
@@ -202,19 +203,41 @@ export function useTaskAssignments(taskId: string | null) {
       if (taskRow) {
         const { data: siblings } = await supabase
           .from("task_assignments")
-          .select("qty_assigned, designer_id")
+          .select("id, qty_assigned, qty_completed, designer_id, status")
           .eq("task_id", tId);
-        // A designer can hold only ONE portion per task (unique index). If they
-        // already have one, point them to Resize instead of a raw DB error.
-        if ((siblings ?? []).some((r) => r.designer_id === user.id)) {
+        if (
+          (siblings ?? []).some(
+            (r) =>
+              r.designer_id === user.id &&
+              r.status !== "completed" &&
+              r.status !== "done"
+          )
+        ) {
           return {
-            error: "You already have a portion on this task. Use “Resize” in the task to change your quantity.",
+            error: "You already have a portion on this task. Use 'Resize' in the task to change your quantity.",
           };
         }
-        const alreadyAssigned = (siblings ?? []).reduce(
-          (s, r) => s + r.qty_assigned,
-          0
+
+        // If the designer has a completed/done assignment from a prior
+        // split-pool release, remove it so the unique index doesn't block
+        // the new INSERT. Carry its qty_completed forward so the parent
+        // task totals stay correct after the recalc trigger fires.
+        const staleRow = (siblings ?? []).find(
+          (r) =>
+            r.designer_id === user.id &&
+            (r.status === "completed" || r.status === "done")
         );
+        if (staleRow) {
+          carryQtyCompleted = staleRow.qty_completed ?? 0;
+          await supabase
+            .from("task_assignments")
+            .delete()
+            .eq("id", staleRow.id);
+        }
+
+        const alreadyAssigned = (siblings ?? [])
+          .filter((r) => r.id !== staleRow?.id)
+          .reduce((s, r) => s + r.qty_assigned, 0);
         const poolRemaining = taskRow.qty - alreadyAssigned;
         if (input.qty > poolRemaining) {
           return {
@@ -228,15 +251,15 @@ export function useTaskAssignments(taskId: string | null) {
         designer_id: user.id,
         assigned_by: user.id,
         qty_assigned: input.qty,
+        qty_completed: carryQtyCompleted,
         planned_deadline: input.deadline || null,
         design_type: input.designType.trim(),
         completion_fabric: input.fabric.trim(),
         status: "assigned" as const,
       });
       if (err) {
-        // Unique violation (raced past the pre-check) = already has a portion.
         if ((err as { code?: string }).code === "23505") {
-          return { error: "You already have a portion on this task. Use “Resize” to change your quantity." };
+          return { error: "You already have a portion on this task. Use 'Resize' to change your quantity." };
         }
         return { error: err.message };
       }
@@ -431,7 +454,7 @@ export function useTaskAssignments(taskId: string | null) {
           error: `Cannot complete: only ${row.qty_completed}/${row.qty_assigned} done. Finish your assigned quantity (or Resize your claim) first.`,
         };
       }
-      // FK gate: check parent task before allowing portion completion.
+      // FK gate: block portion completion until coordinator uploads FK details.
       {
         const { data: parentCheck } = await supabase
           .from("tasks")
@@ -439,7 +462,7 @@ export function useTaskAssignments(taskId: string | null) {
           .eq("id", row.task_id)
           .maybeSingle();
         if (parentCheck?.requires_full_kitting && !parentCheck.full_kitting_image_url && !parentCheck.full_kitting_details) {
-          return { error: "Full Knitting details must be added before completing this portion." };
+          return { error: "Full Knitting details must be added before completing. Ask the coordinator to upload FK first." };
         }
       }
 

@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useMemo,
   type KeyboardEvent,
+  type CSSProperties,
 } from "react";
 import {
   Plus,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
@@ -876,49 +878,66 @@ function BatchCellSelect({
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const [menu, setMenu] = useState<{ placement: "bottom" | "top"; maxHeight: number }>({
-    placement: "bottom",
-    maxHeight: 420,
-  });
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
   }, [options, query]);
 
-  // Flip + cap against the nearest scroll ancestor (the table body) so the
-  // absolute menu stays within the visible region and isn't clipped.
+  // The menu is portaled to <body> with position:fixed so it escapes the
+  // dialog's overflow-hidden + the scrollable table (an in-flow absolute menu
+  // gets clipped — see the §18 "Combobox not portaled" note). Compute viewport
+  // coords from the trigger, flip up when there's no room below, and reposition
+  // on scroll/resize so the menu tracks the cell.
   useLayoutEffect(() => {
-    if (!open || !wrapRef.current) return;
-    const r = wrapRef.current.getBoundingClientRect();
-    let clipTop = 0;
-    let clipBottom = window.innerHeight;
-    for (let n = wrapRef.current.parentElement; n; n = n.parentElement) {
-      const oy = getComputedStyle(n).overflowY;
-      if (oy === "auto" || oy === "scroll" || oy === "hidden") {
-        const cr = n.getBoundingClientRect();
-        clipTop = Math.max(clipTop, cr.top);
-        clipBottom = Math.min(clipBottom, cr.bottom);
-        break;
-      }
-    }
-    const gap = 2;
-    // Tall enough to show a full roster (~14 names) without scrolling when
-    // there's room; still capped to the available side below so it never clips.
-    const desired = 420;
-    const below = clipBottom - r.bottom - gap;
-    const above = r.top - clipTop - gap;
-    const placement = below < 160 && above > below ? "top" : "bottom";
-    const maxHeight = Math.max(120, Math.min(desired, placement === "bottom" ? below : above));
-    setMenu({ placement, maxHeight });
+    if (!open) return;
+    const place = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const gap = 2;
+      const margin = 8; // keep off the viewport edges
+      const desired = 320;
+      const below = window.innerHeight - r.bottom - gap - margin;
+      const above = r.top - gap - margin;
+      const placement = below < 180 && above > below ? "top" : "bottom";
+      const maxHeight = Math.max(
+        120,
+        Math.min(desired, placement === "bottom" ? below : above)
+      );
+      setMenuStyle({
+        position: "fixed",
+        left: Math.round(r.left),
+        width: Math.round(r.width),
+        maxHeight,
+        ...(placement === "bottom"
+          ? { top: Math.round(r.bottom + gap) }
+          : { bottom: Math.round(window.innerHeight - r.top + gap) }),
+      });
+    };
+    place();
+    // Capture-phase scroll catches the table body scrolling, not just window.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
   }, [open, query]);
 
-  // Close on outside mousedown.
+  // Close on outside mousedown. The menu is portaled to <body>, so it isn't a
+  // DOM descendant of wrapRef — check menuRef too, else clicking an option reads
+  // as "outside" and closes the menu before the click can commit.
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -1003,14 +1022,14 @@ function BatchCellSelect({
       />
       <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
 
-      {open && (
-        <div
-          style={{ maxHeight: menu.maxHeight }}
-          className={cn(
-            "absolute left-0 z-50 flex min-w-full flex-col overflow-hidden rounded-lg border border-border bg-card shadow-dropdown",
-            menu.placement === "top" ? "bottom-full mb-1" : "top-full mt-1"
-          )}
-        >
+      {open && menuStyle &&
+        createPortal(
+          <div
+            ref={menuRef}
+            data-batch-cell-menu=""
+            style={menuStyle}
+            className="z-[9999] flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-dropdown"
+          >
           <ul ref={listRef} className="flex-1 overflow-y-auto py-1">
             {value && (
               <li>
@@ -1050,8 +1069,9 @@ function BatchCellSelect({
               ))
             )}
           </ul>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

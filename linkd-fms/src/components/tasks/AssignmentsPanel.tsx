@@ -162,8 +162,8 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
               isAdmin={isAdmin}
               isCompleted={isCompleted}
               canComplete={canComplete}
-              isHighlight={isHighlight}
               fkBlocking={fkBlocking}
+              isHighlight={isHighlight}
               isEditing={editingId === a.id}
               isResizing={resizingId === a.id}
               poolRemaining={poolRemaining}
@@ -246,7 +246,7 @@ export function AssignmentsPanel({ task }: { task: TaskWithRelations }) {
             <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
             <div>
               <p className="text-sm font-medium text-foreground">Waiting for Full Knitting details</p>
-              <p className="text-xs text-muted-foreground">The coordinator needs to add Full Knitting details before portions can be completed. Designers can keep updating progress.</p>
+              <p className="text-xs text-muted-foreground">The coordinator needs to add Full Knitting details before sub-tasks can be completed. Designers can keep updating progress.</p>
             </div>
           </div>
         </div>
@@ -351,7 +351,7 @@ function AssignmentCard({
 
   async function handleCompleteWithDetails() {
     if (fkBlocking) {
-      toast.error("Full Knitting details must be added before completing");
+      toast.error("Full Knitting details must be added before completing. Ask the coordinator to upload FK first.");
       return;
     }
     if (completionFabrics.length === 0) {
@@ -499,7 +499,7 @@ function AssignmentCard({
       )}
 
       {/* Controls row */}
-      {!isEditing && !isResizing && (
+      {!isEditing && !isResizing && !showCompletionPrompt && (
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-dashed border-border/50 pt-2">
           <div className="flex items-center gap-1.5">
             {!isCompleted && canAct && (
@@ -537,11 +537,11 @@ function AssignmentCard({
                 loading={completing}
                 loadingText="…"
                 disabled={fkBlocking}
-                title={fkBlocking ? "Waiting for Full Knitting details" : undefined}
+                title={fkBlocking ? "Full Knitting details must be added first" : undefined}
                 className="h-auto gap-1 rounded-md bg-success px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-success/30 hover:bg-success/90"
               >
                 <Check className="h-3.5 w-3.5" />
-                Complete
+                {fkBlocking ? "FK Required" : "Complete"}
               </LoadingButton>
             ) : (
               <span className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1 text-[11px] font-medium text-warning">

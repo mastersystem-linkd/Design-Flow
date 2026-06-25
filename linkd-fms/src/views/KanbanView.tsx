@@ -3167,10 +3167,22 @@ function TaskRow({
 
       {/* 3. Concept — shows concept name + design types from assignments.
             FK lives in its own FULL KITTING column, not here. */}
-      {showCol("concept") && (
+      {showCol("concept") && (() => {
+        const conceptParts = task.concept ? task.concept.split(",").map((s) => s.trim()).filter(Boolean) : [];
+        return (
       <td className="px-3 py-1.5 text-left align-middle">
-        <div className="flex items-center gap-2 whitespace-nowrap">
-          <span className="font-medium text-foreground">{task.concept}</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {conceptParts.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {conceptParts.map((p) => (
+                <span key={p} className="rounded-md border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-foreground whitespace-nowrap">
+                  {p}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="font-medium text-foreground">{task.concept || "—"}</span>
+          )}
           <ExternalOriginBadge source={task.external_source} refId={task.external_ref_id} />
           {teamInfo && teamInfo.designTypes.length > 0 && (
             <span
@@ -3193,7 +3205,8 @@ function TaskRow({
           )}
         </div>
       </td>
-      )}
+        );
+      })()}
 
       {/* 4. Description — greedy column: absorbs the table's slack so every
           other column hugs its content. max-w-0 + w-full lets the inner span
@@ -3223,16 +3236,21 @@ function TaskRow({
       </td>
       )}
 
-      {/* 6. Fabric — show brief-level fabric, or fall back to completion_fabric
-          set during the done→completed flow. */}
+      {/* 6. Fabric — show brief-level fabric, or fall back to completion_fabric.
+          Multi-values (comma-joined from MultiCombobox) render as inline pills. */}
       {showCol("fabric") && (() => {
-        const fab = task.fabric?.trim() || task.completion_fabric?.trim();
+        const raw = task.fabric?.trim() || task.completion_fabric?.trim();
+        const parts = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return (
-          <td className="whitespace-nowrap px-3 py-1.5 text-left align-middle">
-            {fab ? (
-              <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground">
-                {fab}
-              </span>
+          <td className="px-3 py-1.5 text-left align-middle">
+            {parts.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {parts.map((p) => (
+                  <span key={p} className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground whitespace-nowrap">
+                    {p}
+                  </span>
+                ))}
+              </div>
             ) : (
               <span className="text-[12px] text-muted-foreground">—</span>
             )}

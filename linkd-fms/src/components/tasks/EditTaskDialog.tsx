@@ -24,7 +24,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useAuth } from "@/hooks/useAuth";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
 import { useAssignedByOptions, ASSIGNED_BY_OTHER } from "@/hooks/useAssignedByOptions";
-import { WHATSAPP_GROUPS } from "@/lib/whatsappGroups";
+import { useTaskSources } from "@/hooks/useTaskSources";
 import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -60,6 +60,7 @@ export function EditTaskDialog({
   const { profiles: designers } = useProfiles({ roles: ["designer"] });
   const { categories: concepts } = useConceptCategories();
   const { names: assignedByNames } = useAssignedByOptions();
+  const taskSources = useTaskSources();
 
   const [briefType, setBriefType] = useState<BriefType>("ld");
   const [concept, setConcept] = useState("");
@@ -316,10 +317,10 @@ export function EditTaskDialog({
                     id="edit-wa"
                     value={whatsappGroup}
                     onChange={setWhatsappGroup}
-                    options={WHATSAPP_GROUPS.map((g) => ({
+                    options={taskSources.options.map((g) => ({
                       value: g.name,
                       label: g.name,
-                      icon: g.isWhatsApp ? <WhatsAppIcon /> : undefined,
+                      icon: g.is_whatsapp ? <WhatsAppIcon /> : undefined,
                     }))}
                     placeholder="Choose a group"
                     disabled={saving}

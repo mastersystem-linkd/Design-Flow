@@ -54,6 +54,11 @@ export const queryKeys = {
     list: (activeOnly: boolean) =>
       ["requesterOptions", "list", { activeOnly }] as const,
   },
+  taskSources: {
+    all: ["taskSources"] as const,
+    list: (activeOnly: boolean) =>
+      ["taskSources", "list", { activeOnly }] as const,
+  },
   rolePermissions: {
     all: ["rolePermissions"] as const,
   },

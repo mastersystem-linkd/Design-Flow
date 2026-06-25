@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, type ReactNode } from "react";
 import {
   Plus,
   Pencil,
@@ -44,6 +44,19 @@ export interface LookupRow {
   name: string;
   sort_order: number | null;
   is_active: boolean;
+  /** Optional secondary flag (e.g. Task Source's WhatsApp-icon flag). Present
+   *  only for tables that have an `is_whatsapp` column + a `flagColumn` config. */
+  is_whatsapp?: boolean;
+}
+
+/** Optional secondary boolean-flag column config (bound to `is_whatsapp`). */
+export interface FlagColumn {
+  /** Header + add-form label, e.g. "WhatsApp". */
+  label: string;
+  /** Add-form helper text, e.g. "Show the WhatsApp icon in the picker". */
+  hint?: string;
+  /** Icon rendered in the header + beside each toggle, e.g. <WhatsAppIcon />. */
+  icon?: ReactNode;
 }
 
 export interface LookupSectionProps {
@@ -58,7 +71,8 @@ export interface LookupSectionProps {
     | "assigned_by_options"
     | "received_by_options"
     | "sampling_dropdowns"
-    | "requester_options";
+    | "requester_options"
+    | "task_sources";
   /**
    * Optional placeholder for the "add" form's name input — useful so each
    * section shows a domain-relevant example.
@@ -72,6 +86,10 @@ export interface LookupSectionProps {
   /** Extra columns merged into every insert (e.g. { context: "task" } for the
    *  per-context Assigned By lists). */
   insertExtra?: Record<string, unknown>;
+  /** Optional secondary boolean-flag column (bound to each row's `is_whatsapp`).
+   *  When set, the add form + each row gain a toggle for it — used by Task
+   *  Source to mark which sources are WhatsApp groups (green icon). */
+  flagColumn?: FlagColumn;
 }
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -86,10 +104,12 @@ export function LookupSection({
   error,
   refetch,
   insertExtra,
+  flagColumn,
 }: LookupSectionProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newSort, setNewSort] = useState("");
+  const [newFlag, setNewFlag] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deleteRow, setDeleteRow] = useState<LookupRow | null>(null);
 
@@ -133,7 +153,13 @@ export function LookupSection({
       sortNum != null && Number.isFinite(sortNum) ? sortNum : null;
     const { error: err } = await supabase
       .from(table)
-      .insert({ name, sort_order, is_active: true, ...insertExtra });
+      .insert({
+        name,
+        sort_order,
+        is_active: true,
+        ...(flagColumn ? { is_whatsapp: newFlag } : {}),
+        ...insertExtra,
+      });
     setAdding(false);
     if (err) {
       toast.error(err.message);
@@ -142,13 +168,14 @@ export function LookupSection({
     toast.success("Added");
     setNewName("");
     setNewSort("");
+    setNewFlag(false);
     setAddOpen(false);
     reload();
   }
 
   async function handleUpdate(
     id: string,
-    patch: Partial<Pick<LookupRow, "name" | "sort_order" | "is_active">>
+    patch: Partial<Pick<LookupRow, "name" | "sort_order" | "is_active" | "is_whatsapp">>
   ) {
     const { error: err } = await supabase.from(table).update(patch).eq("id", id);
     if (err) {
@@ -201,7 +228,8 @@ export function LookupSection({
 
         {/* Inline add form */}
         {addOpen && (
-          <div className="grid grid-cols-1 gap-2 border-b border-border bg-secondary/40 px-5 py-3 sm:grid-cols-[1fr_120px_auto]">
+          <div className="space-y-2 border-b border-border bg-secondary/40 px-5 py-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
             <div>
               <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 Name
@@ -238,12 +266,31 @@ export function LookupSection({
                   setAddOpen(false);
                   setNewName("");
                   setNewSort("");
+                  setNewFlag(false);
                 }}
                 className="text-xs text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </button>
             </div>
+          </div>
+
+          {/* Optional flag toggle (e.g. "WhatsApp group") */}
+          {flagColumn && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={newFlag}
+                onChange={(e) => setNewFlag(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary accent-primary focus:ring-2 focus:ring-primary/40"
+              />
+              {flagColumn.icon}
+              <span className="font-medium">{flagColumn.label}</span>
+              {flagColumn.hint && (
+                <span className="text-muted-foreground">— {flagColumn.hint}</span>
+              )}
+            </label>
+          )}
           </div>
         )}
 
@@ -322,6 +369,14 @@ export function LookupSection({
                 <tr className="border-b border-border bg-card/30 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                   <th className="w-[100px] px-4 py-2 font-medium">Sort</th>
                   <th className="px-4 py-2 font-medium">Name</th>
+                  {flagColumn && (
+                    <th className="w-[140px] px-4 py-2 font-medium">
+                      <span className="inline-flex items-center gap-1.5">
+                        {flagColumn.icon}
+                        {flagColumn.label}
+                      </span>
+                    </th>
+                  )}
                   <th className="w-[120px] px-4 py-2 font-medium">Active</th>
                   <th className="w-[80px] px-4 py-2 text-right font-medium">
                     Actions
@@ -333,6 +388,7 @@ export function LookupSection({
                   <LookupRowComponent
                     key={row.id}
                     row={row}
+                    flagColumn={flagColumn}
                     onUpdate={handleUpdate}
                     onDelete={() => setDeleteRow(row)}
                   />
@@ -402,10 +458,12 @@ function FilterChip({
 
 function LookupRowComponent({
   row,
+  flagColumn,
   onUpdate,
   onDelete,
 }: {
   row: LookupRow;
+  flagColumn?: FlagColumn;
   onUpdate: (id: string, patch: Partial<LookupRow>) => Promise<boolean>;
   onDelete: () => void;
 }) {
@@ -453,6 +511,12 @@ function LookupRowComponent({
   async function toggleActive() {
     setBusy(true);
     await onUpdate(row.id, { is_active: !row.is_active });
+    setBusy(false);
+  }
+
+  async function toggleFlag() {
+    setBusy(true);
+    await onUpdate(row.id, { is_whatsapp: !row.is_whatsapp });
     setBusy(false);
   }
 
@@ -532,6 +596,18 @@ function LookupRowComponent({
           </button>
         )}
       </td>
+      {flagColumn && (
+        <td className="px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            {flagColumn.icon}
+            <ToggleSwitch
+              on={!!row.is_whatsapp}
+              onToggle={() => void toggleFlag()}
+              disabled={busy}
+            />
+          </div>
+        </td>
+      )}
       <td className="px-4 py-2.5">
         <ToggleSwitch
           on={row.is_active}

@@ -775,6 +775,7 @@ function AddUserDialog({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("designer");
+  const [designerCode, setDesignerCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -783,6 +784,7 @@ function AddUserDialog({
     setEmail("");
     setPassword("");
     setRole("designer");
+    setDesignerCode("");
     setError(null);
   }
 
@@ -834,6 +836,22 @@ function AddUserDialog({
         if (efData?.error) { setError(efData.error); return; }
         if (!efData?.id) { setError("Couldn't create user — no id returned"); return; }
 
+        if (role === "designer" && designerCode.trim()) {
+          const { error: codeErr } = await supabase.from("designer_codes").insert({
+            profile_id: efData.id,
+            code: designerCode.trim().toUpperCase(),
+            joining_date: new Date().toISOString().slice(0, 10),
+            status: "active",
+          });
+          if (codeErr) {
+            toast.warning(
+              codeErr.code === "23505"
+                ? `User created but code "${designerCode}" already exists — assign a different one from the team table.`
+                : `User created but code couldn't be saved: ${codeErr.message}`
+            );
+          }
+        }
+
         toast.success(
           `${name} added as ${ROLE_LABELS[role]}. They can sign in immediately with the email + password you set.`
         );
@@ -850,6 +868,22 @@ function AddUserDialog({
       if (!data?.id) {
         setError("Couldn't create user — no id returned");
         return;
+      }
+
+      if (role === "designer" && designerCode.trim()) {
+        const { error: codeErr } = await supabase.from("designer_codes").insert({
+          profile_id: data.id,
+          code: designerCode.trim().toUpperCase(),
+          joining_date: new Date().toISOString().slice(0, 10),
+          status: "active",
+        });
+        if (codeErr) {
+          toast.warning(
+            codeErr.code === "23505"
+              ? `User created but code "${designerCode}" already exists — assign a different one from the team table.`
+              : `User created but code couldn't be saved: ${codeErr.message}`
+          );
+        }
       }
 
       toast.success(
@@ -918,7 +952,7 @@ function AddUserDialog({
             <select
               id="new-user-role"
               value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
+              onChange={(e) => { setRole(e.target.value as UserRole); if (e.target.value !== "designer") setDesignerCode(""); }}
               disabled={submitting}
               className="block h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
@@ -929,6 +963,22 @@ function AddUserDialog({
               ))}
             </select>
           </div>
+          {role === "designer" && (
+            <div>
+              <Label htmlFor="new-user-code">Designer code</Label>
+              <Input
+                id="new-user-code"
+                value={designerCode}
+                onChange={(e) => setDesignerCode(e.target.value.toUpperCase())}
+                placeholder="e.g. A, B, K"
+                maxLength={2}
+                disabled={submitting}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                1–2 letter code used in task codes. Must be unique.
+              </p>
+            </div>
+          )}
           {error && (
             <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
               {error}

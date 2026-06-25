@@ -208,6 +208,7 @@ export function ProductionView() {
     { key: "uid", label: "UID" },
     { key: "party_name", label: "Party Name" },
     { key: "quality", label: "Quality" },
+    { key: "design_type", label: "Design Type" },
     { key: "total_fabrics_received", label: "Fabrics Received", transform: (v) => v != null ? String(v) : "" },
     { key: "printed_mtr", label: "Printed (m)", transform: (v) => v != null ? String(v) : "" },
     { key: "pending_qty", label: "Pending", transform: (v) => v != null ? String(v) : "" },
@@ -551,6 +552,7 @@ export function ProductionView() {
                     <th className={TABLE_TH}>Timestamp</th>
                     <th className={TABLE_TH}>Party Name</th>
                     <th className={TABLE_TH}>Quality</th>
+                    <th className={TABLE_TH}>Design Type</th>
                     <th className={TABLE_TH}>Requirement</th>
                     <th className={TABLE_TH}>Assigned By</th>
                     <th className={TABLE_TH}>Sampling Done By</th>
@@ -917,9 +919,37 @@ function SampleRow({
         </span>
       </td>
 
-      {/* Quality */}
-      <td className={cn(TABLE_TD, "whitespace-nowrap text-muted-foreground")}>
-        {s.quality || "—"}
+      {/* Quality (fabric) — multi-select values render as pills */}
+      <td className={cn(TABLE_TD, "text-muted-foreground")}>
+        {(() => {
+          const parts = s.quality ? s.quality.split(",").map((v: string) => v.trim()).filter(Boolean) : [];
+          if (parts.length === 0) return "—";
+          if (parts.length === 1) return parts[0];
+          return (
+            <div className="flex flex-wrap gap-1">
+              {parts.map((p: string) => (
+                <span key={p} className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground whitespace-nowrap">{p}</span>
+              ))}
+            </div>
+          );
+        })()}
+      </td>
+
+      {/* Design Type — multi-select values render as pills */}
+      <td className={cn(TABLE_TD, "text-muted-foreground")}>
+        {(() => {
+          const dt = s.design_type;
+          const parts = dt ? dt.split(",").map((v: string) => v.trim()).filter(Boolean) : [];
+          if (parts.length === 0) return "—";
+          if (parts.length === 1) return parts[0];
+          return (
+            <div className="flex flex-wrap gap-1">
+              {parts.map((p: string) => (
+                <span key={p} className="rounded-md border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[11px] text-foreground whitespace-nowrap">{p}</span>
+              ))}
+            </div>
+          );
+        })()}
       </td>
 
       {/* Requirement */}

@@ -49,7 +49,7 @@ import {
 import { ROUTES } from "@/lib/routes";
 import { initiateKitting, submitKittingForm } from "@/lib/kittingQueries";
 import { sendNotificationToRole } from "@/lib/notifications";
-import { WHATSAPP_GROUPS } from "@/lib/whatsappGroups";
+import { useTaskSources } from "@/hooks/useTaskSources";
 import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { cn } from "@/lib/utils";
 import {
@@ -178,6 +178,7 @@ function BriefingForm({
   });
   const { categories: conceptCategories } = useConceptCategories();
   const { fabrics } = useFabrics();
+  const taskSources = useTaskSources();
 
   // ---------------- form state ----------------
   // Brief type drives the Party Name section. 'ld' hides the party picker
@@ -420,8 +421,7 @@ function BriefingForm({
     if (!description.trim()) e.description = "Description is required.";
     if (!whatsappGroup.trim()) e.whatsapp_group = "Group is required.";
     if (!whatsappReceivedDate) e.whatsapp_received_date = "Received date is required.";
-    const selectedGroup = WHATSAPP_GROUPS.find((g) => g.name === whatsappGroup);
-    if (selectedGroup?.isWhatsApp && !whatsappReceivedTime) e.whatsapp_received_time = "Received time is required for WhatsApp groups.";
+    if (taskSources.isWhatsApp(whatsappGroup) && !whatsappReceivedTime) e.whatsapp_received_time = "Received time is required for WhatsApp groups.";
     if (!assignedBy.trim()) e.assigned_by = "Assigned By is required.";
     if (qty.trim()) {
       const qtyNum = Number(qty);
@@ -989,10 +989,10 @@ function BriefingForm({
                 value={whatsappGroup}
                 onChange={setWhatsappGroup}
                 placeholder="Choose a group"
-                options={WHATSAPP_GROUPS.map((g) => ({
+                options={taskSources.options.map((g) => ({
                   value: g.name,
                   label: g.name,
-                  icon: g.isWhatsApp ? <WhatsAppIcon /> : undefined,
+                  icon: g.is_whatsapp ? <WhatsAppIcon /> : undefined,
                 }))}
                 disabled={submitting}
                 error={show("whatsapp_group")}
@@ -1026,7 +1026,7 @@ function BriefingForm({
             <Field
               label="Received Time"
               htmlFor="wa_time"
-              required={!!WHATSAPP_GROUPS.find((g) => g.name === whatsappGroup)?.isWhatsApp}
+              required={taskSources.isWhatsApp(whatsappGroup)}
               error={show("whatsapp_received_time")}
             >
               <MessageTimeInput

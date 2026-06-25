@@ -318,6 +318,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      task_sources: {
+        Row: {
+          id: string;
+          name: string;
+          is_whatsapp: boolean;
+          sort_order: number | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          is_whatsapp?: boolean;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          is_whatsapp?: boolean;
+          sort_order?: number | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       role_permissions: {
         Row: {
           role: UserRole;
