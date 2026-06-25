@@ -613,6 +613,7 @@ export function ProductionView() {
           onProcess={handleProcessPending}
           onOpenTask={setDrawerTaskId}
           onStartDevelopment={setDevDialogSample}
+          onDelete={isAdmin ? setDeleteSampleTarget : undefined}
         />
       )}
 

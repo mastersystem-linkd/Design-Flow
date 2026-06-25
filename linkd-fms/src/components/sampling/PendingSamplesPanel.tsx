@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Package, ArrowRight, ExternalLink, Clock, Layers, ChevronRight } from "lucide-react";
+import { Package, ArrowRight, ExternalLink, Clock, Layers, ChevronRight, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { EmptyState } from "@/components/ui";
 import { SkeletonText } from "@/components/ui/Skeleton";
@@ -77,6 +77,8 @@ interface PendingSamplesPanelProps {
   onProcess: (sample: SampleWithTask) => void;
   onOpenTask: (taskId: string) => void;
   onStartDevelopment?: (sample: SampleWithTask) => void;
+  /** When provided, a Delete action shows on each row (admins). */
+  onDelete?: (sample: SampleWithTask) => void;
 }
 
 const SOURCE_CHIPS: { key: SourceFilter; label: string }[] = [
@@ -113,6 +115,7 @@ export function PendingSamplesPanel({
   onProcess,
   onOpenTask,
   onStartDevelopment,
+  onDelete,
 }: PendingSamplesPanelProps) {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
@@ -255,12 +258,12 @@ export function PendingSamplesPanel({
                     {v.meters != null && <span>· {v.meters}m</span>}
                     {v.designer !== "—" && <span>· {v.designer}</span>}
                   </div>
-                  <div className="mt-3">
+                  <div className="mt-3 flex items-center gap-2">
                     {erp && onStartDevelopment ? (
                       <Button
                         size="sm"
                         variant="outline"
-                        className="w-full gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+                        className="flex-1 gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
                         onClick={() => onStartDevelopment(s)}
                       >
                         <Layers className="h-3.5 w-3.5" />
@@ -269,12 +272,23 @@ export function PendingSamplesPanel({
                     ) : (
                       <Button
                         size="sm"
-                        className="w-full gap-1.5"
+                        className="flex-1 gap-1.5"
                         onClick={() => onProcess(s)}
                       >
                         <ArrowRight className="h-3.5 w-3.5" />
                         Start Sampling
                       </Button>
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        onClick={() => onDelete(s)}
+                        className="shrink-0 rounded-lg border border-border p-2 text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                        title="Delete sample"
+                        aria-label="Delete sample"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -352,27 +366,40 @@ export function PendingSamplesPanel({
                         {flaggedAgo(s.created_at)}
                       </td>
                       <td className={TABLE_TD_STICKY_RIGHT}>
-                        {erp && onStartDevelopment ? (
-                          <button
-                            type="button"
-                            onClick={() => onStartDevelopment(s)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow-sm"
-                          >
-                            <Layers className="h-3 w-3" />
-                            Development
-                            <ChevronRight className="h-3 w-3" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => onProcess(s)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow-sm"
-                          >
-                            <ArrowRight className="h-3 w-3" />
-                            Start Sampling
-                            <ChevronRight className="h-3 w-3" />
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5">
+                          {erp && onStartDevelopment ? (
+                            <button
+                              type="button"
+                              onClick={() => onStartDevelopment(s)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow-sm"
+                            >
+                              <Layers className="h-3 w-3" />
+                              Development
+                              <ChevronRight className="h-3 w-3" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onProcess(s)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary transition-all hover:border-primary hover:bg-primary/15 hover:shadow-sm"
+                            >
+                              <ArrowRight className="h-3 w-3" />
+                              Start Sampling
+                              <ChevronRight className="h-3 w-3" />
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button
+                              type="button"
+                              onClick={() => onDelete(s)}
+                              className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                              title="Delete sample"
+                              aria-label="Delete sample"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
