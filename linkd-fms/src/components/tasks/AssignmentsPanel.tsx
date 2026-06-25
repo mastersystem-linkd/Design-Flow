@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { ConfirmDialog, Switch, toast } from "@/components/ui";
-import { Combobox } from "@/components/ui/Combobox";
+import { MultiCombobox, splitMulti, joinMulti } from "@/components/ui/MultiCombobox";
 import { useTaskAssignments } from "@/hooks/useTaskAssignments";
 import { useFabrics } from "@/hooks/useFabrics";
 import { useConceptCategories } from "@/hooks/useConceptCategories";
@@ -331,8 +331,9 @@ function AssignmentCard({
   const { categories } = useConceptCategories();
   const [completing, setCompleting] = useState(false);
   const [showCompletionPrompt, setShowCompletionPrompt] = useState(false);
-  const [completionFabric, setCompletionFabric] = useState(a.completion_fabric ?? "");
-  const [completionDesignType, setCompletionDesignType] = useState(a.design_type ?? "");
+  // Multiple fabrics / design types per portion — stored comma-joined.
+  const [completionFabrics, setCompletionFabrics] = useState<string[]>(splitMulti(a.completion_fabric));
+  const [completionDesignTypes, setCompletionDesignTypes] = useState<string[]>(splitMulti(a.design_type));
   const [completionSampling, setCompletionSampling] = useState(false);
 
   const pct =
@@ -353,19 +354,19 @@ function AssignmentCard({
       toast.error("Full Knitting details must be added before completing");
       return;
     }
-    if (!completionFabric.trim()) {
-      toast.error("Fabric is required to complete");
+    if (completionFabrics.length === 0) {
+      toast.error("Select at least one fabric to complete");
       return;
     }
-    if (!completionDesignType.trim()) {
-      toast.error("Design type is required to complete");
+    if (completionDesignTypes.length === 0) {
+      toast.error("Select at least one design type to complete");
       return;
     }
     setCompleting(true);
     const { error } = await onCompletePortion(
       a.id,
-      completionFabric.trim(),
-      completionDesignType.trim(),
+      joinMulti(completionFabrics),
+      joinMulti(completionDesignTypes),
       completionSampling
     );
     setCompleting(false);
@@ -559,14 +560,14 @@ function AssignmentCard({
             <Layers className="h-3 w-3" />
             Add details to complete
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
               <Label className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground">
-                Design Type <span className="text-destructive">*</span>
+                Design Type <span className="text-destructive">*</span> <span className="normal-case text-muted-foreground/70">(multiple)</span>
               </Label>
-              <Combobox
-                value={completionDesignType}
-                onChange={setCompletionDesignType}
+              <MultiCombobox
+                values={completionDesignTypes}
+                onChange={setCompletionDesignTypes}
                 options={categories.map((c) => ({
                   value: c.name,
                   label: c.name,
@@ -577,11 +578,11 @@ function AssignmentCard({
             </div>
             <div>
               <Label className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground">
-                Fabric <span className="text-destructive">*</span>
+                Fabric <span className="text-destructive">*</span> <span className="normal-case text-muted-foreground/70">(multiple)</span>
               </Label>
-              <Combobox
-                value={completionFabric}
-                onChange={setCompletionFabric}
+              <MultiCombobox
+                values={completionFabrics}
+                onChange={setCompletionFabrics}
                 options={fabrics.map((f) => ({
                   value: f.name,
                   label: f.name,
@@ -613,8 +614,8 @@ function AssignmentCard({
               type="button"
               onClick={() => {
                 setShowCompletionPrompt(false);
-                setCompletionFabric(a.completion_fabric ?? "");
-                setCompletionDesignType(a.design_type ?? "");
+                setCompletionFabrics(splitMulti(a.completion_fabric));
+                setCompletionDesignTypes(splitMulti(a.design_type));
                 setCompletionSampling(false);
               }}
               className="h-9 rounded-lg border border-border bg-card px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary"
@@ -774,16 +775,16 @@ function EditDetailsPanel({
 }) {
   const { fabrics } = useFabrics();
   const { categories } = useConceptCategories();
-  const [dt, setDt] = useState(assignment.design_type ?? "");
-  const [fb, setFb] = useState(assignment.completion_fabric ?? "");
+  const [dt, setDt] = useState<string[]>(splitMulti(assignment.design_type));
+  const [fb, setFb] = useState<string[]>(splitMulti(assignment.completion_fabric));
   const [dl, setDl] = useState(assignment.planned_deadline ?? "");
   const [saving, setSaving] = useState(false);
 
   async function save() {
     setSaving(true);
     const { error } = await onSave(assignment.id, {
-      designType: dt.trim() || undefined,
-      fabric: fb.trim() || undefined,
+      designType: joinMulti(dt) || undefined,
+      fabric: joinMulti(fb) || undefined,
       deadline: dl || undefined,
     });
     setSaving(false);
@@ -806,8 +807,8 @@ function EditDetailsPanel({
           <Label className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground">
             Design Type
           </Label>
-          <Combobox
-            value={dt}
+          <MultiCombobox
+            values={dt}
             onChange={setDt}
             options={categories.map((c) => ({
               value: c.name,
@@ -815,15 +816,14 @@ function EditDetailsPanel({
             }))}
             placeholder="Select…"
             searchPlaceholder="Search…"
-            clearable
           />
         </div>
         <div>
           <Label className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground">
             Fabric
           </Label>
-          <Combobox
-            value={fb}
+          <MultiCombobox
+            values={fb}
             onChange={setFb}
             options={fabrics.map((f) => ({
               value: f.name,
@@ -831,7 +831,6 @@ function EditDetailsPanel({
             }))}
             placeholder="Select…"
             searchPlaceholder="Search…"
-            clearable
           />
         </div>
         <div>

@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toaster";
-import { Combobox } from "@/components/ui/Combobox";
+import { MultiCombobox, joinMulti } from "@/components/ui/MultiCombobox";
 import { formatDistanceToNow as fmtDist } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { kittingDetailPath } from "@/lib/routes";
@@ -91,8 +91,9 @@ export function ClaimTaskModal({
   const [poolCount, setPoolCount] = useState(0);
   const [task, setTask] = useState<PoolTaskPreview | null>(null);
   const [deadline, setDeadline] = useState("");
-  const [fabric, setFabric] = useState("");
-  const [designType, setDesignType] = useState("");
+  // Multiple fabrics / design types — stored comma-joined on the task.
+  const [fabricList, setFabricList] = useState<string[]>([]);
+  const [designTypeList, setDesignTypeList] = useState<string[]>([]);
   const [claiming, setClaiming] = useState(false);
   const [portionQty, setPortionQty] = useState<number | null>(null);
 
@@ -130,8 +131,8 @@ export function ClaimTaskModal({
     let cancelled = false;
     setLoading(true);
     setDeadline("");
-    setFabric("");
-    setDesignType("");
+    setFabricList([]);
+    setDesignTypeList([]);
     setKitting(null);
     setPortionQty(null);
 
@@ -228,7 +229,12 @@ export function ClaimTaskModal({
 
     if (isSplitTask || (showPortionInput && portionQty != null && portionQty < qtyRemaining)) {
       const qty = portionQty ?? qtyRemaining;
-      const { error } = await claimPortion(task.id, { qty, deadline, designType, fabric });
+      const { error } = await claimPortion(task.id, {
+        qty,
+        deadline,
+        designType: joinMulti(designTypeList),
+        fabric: joinMulti(fabricList),
+      });
       setClaiming(false);
       if (error) {
         toast.error(error);
@@ -245,7 +251,12 @@ export function ClaimTaskModal({
     }
 
     // Full task claim (standard flow — task is in pool status)
-    const { error } = await claimPoolTask(task.id, deadline, fabric, designType);
+    const { error } = await claimPoolTask(
+      task.id,
+      deadline,
+      joinMulti(fabricList),
+      joinMulti(designTypeList)
+    );
     setClaiming(false);
     if (error) {
       toast.error(error);
@@ -396,32 +407,30 @@ export function ClaimTaskModal({
               <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 sm:gap-4">
                 <div>
                   <Label htmlFor="claim-design-type" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Design Type <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
+                    Design Type <span className="normal-case font-normal text-muted-foreground/70">(optional · multiple)</span>
                   </Label>
-                  <Combobox
+                  <MultiCombobox
                     id="claim-design-type"
-                    value={designType}
-                    onChange={setDesignType}
+                    values={designTypeList}
+                    onChange={setDesignTypeList}
                     options={conceptCategories.map((c) => ({ value: c.name, label: c.name }))}
-                    placeholder="Pick a design type"
+                    placeholder="Pick design type(s)"
                     searchPlaceholder="Search type…"
                     disabled={claiming}
-                    clearable
                   />
                 </div>
                 <div>
                   <Label htmlFor="claim-fabric" className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Fabric <span className="normal-case font-normal text-muted-foreground/70">(optional)</span>
+                    Fabric <span className="normal-case font-normal text-muted-foreground/70">(optional · multiple)</span>
                   </Label>
-                  <Combobox
+                  <MultiCombobox
                     id="claim-fabric"
-                    value={fabric}
-                    onChange={setFabric}
+                    values={fabricList}
+                    onChange={setFabricList}
                     options={fabrics.map((f) => ({ value: f.name, label: f.name }))}
-                    placeholder="Choose fabric"
+                    placeholder="Choose fabric(s)"
                     searchPlaceholder="Search fabric…"
                     disabled={claiming}
-                    clearable
                   />
                 </div>
                 <div>

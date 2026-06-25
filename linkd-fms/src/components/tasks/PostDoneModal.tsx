@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/LoadingButton";
-import { Combobox } from "@/components/ui/Combobox";
+import { MultiCombobox, splitMulti, joinMulti } from "@/components/ui/MultiCombobox";
 import { Switch } from "@/components/ui/Switch";
 import { toast } from "@/components/ui/Toaster";
 import { useFabrics } from "@/hooks/useFabrics";
@@ -46,16 +46,18 @@ export function PostDoneModal({
   const { categories: conceptCategories } = useConceptCategories();
   const { completeTask } = useTaskMutations();
 
-  const [fabric, setFabric] = useState("");
-  const [designType, setDesignType] = useState("");
+  const [fabrics_, setFabrics] = useState<string[]>([]);
+  const [designTypes, setDesignTypes] = useState<string[]>([]);
   const [samplingRequired, setSamplingRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const isExternalTask = !!task?.external_source;
+
   useEffect(() => {
     if (open && task) {
-      setFabric(task.fabric?.trim() ? task.fabric : "");
-      setDesignType(task.concept?.trim() ? task.concept : "");
-      setSamplingRequired(task.sampling_required ?? false);
+      setFabrics(splitMulti(task.fabric));
+      setDesignTypes(splitMulti(task.concept));
+      setSamplingRequired(task.external_source ? false : (task.sampling_required ?? false));
     }
   }, [open, task]);
 
@@ -67,21 +69,21 @@ export function PostDoneModal({
       );
       return;
     }
-    if (!fabric.trim()) {
-      toast.error("Fabric is required to complete this task.");
+    if (fabrics_.length === 0) {
+      toast.error("Select at least one fabric to complete this task.");
       return;
     }
-    if (!designType.trim()) {
-      toast.error("Design type is required to complete this task.");
+    if (designTypes.length === 0) {
+      toast.error("Select at least one design type to complete this task.");
       return;
     }
     // completeTask persists `concept` (design type) atomically with the
-    // status change — no separate pre-update needed.
+    // status change — multiple selections are stored comma-joined.
     setSubmitting(true);
     const { error } = await completeTask(task.id, {
-      fabric,
-      designType: designType.trim(),
-      samplingRequired,
+      fabric: joinMulti(fabrics_),
+      designType: joinMulti(designTypes),
+      samplingRequired: isExternalTask ? false : samplingRequired,
     });
     setSubmitting(false);
     if (error) {
@@ -140,50 +142,54 @@ export function PostDoneModal({
             <div className="space-y-1.5">
               <Label htmlFor="completion-design-type">
                 Design Type <span className="text-destructive">*</span>
+                <span className="ml-1 font-normal normal-case text-muted-foreground/70">(pick one or more)</span>
               </Label>
-              <Combobox
+              <MultiCombobox
                 id="completion-design-type"
-                value={designType}
-                onChange={setDesignType}
+                values={designTypes}
+                onChange={setDesignTypes}
                 options={conceptCategories.map((c) => ({ value: c.name, label: c.name }))}
-                placeholder="Pick a design type"
+                placeholder="Pick design type(s)"
                 searchPlaceholder="Search type…"
                 disabled={submitting}
-                clearable
               />
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="completion-fabric">
                 Fabric <span className="text-destructive">*</span>
+                <span className="ml-1 font-normal normal-case text-muted-foreground/70">(pick one or more)</span>
               </Label>
-              <Combobox
+              <MultiCombobox
                 id="completion-fabric"
-                value={fabric}
-                onChange={setFabric}
+                values={fabrics_}
+                onChange={setFabrics}
                 options={fabrics.map((f) => ({ value: f.name, label: f.name }))}
-                placeholder="Choose fabric"
+                placeholder="Choose fabric(s)"
                 searchPlaceholder="Search fabric…"
                 disabled={submitting}
-                clearable
               />
             </div>
 
-            {/* Sampling Required toggle — optional, defaults OFF */}
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-secondary/30 p-3">
-              <div className="flex-1 pr-3">
-                <p className="text-sm font-medium text-foreground">Sampling Required?</p>
-                <p className="text-xs text-muted-foreground">
-                  Turn on if this design needs sampling. It&apos;ll be added to the Sampling queue.
-                </p>
+            {/* Sampling Required toggle — hidden for external-source tasks
+                (e.g. Sales ERP) because their sampling entries come from the
+                external system. Use the ⋮ action menu after completion instead. */}
+            {!isExternalTask && (
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-secondary/30 p-3">
+                <div className="flex-1 pr-3">
+                  <p className="text-sm font-medium text-foreground">Sampling Required?</p>
+                  <p className="text-xs text-muted-foreground">
+                    Turn on if this design needs sampling. It&apos;ll be added to the Sampling queue.
+                  </p>
+                </div>
+                <Switch
+                  checked={samplingRequired}
+                  onCheckedChange={setSamplingRequired}
+                  disabled={submitting}
+                  aria-label="Sampling required"
+                />
               </div>
-              <Switch
-                checked={samplingRequired}
-                onCheckedChange={setSamplingRequired}
-                disabled={submitting}
-                aria-label="Sampling required"
-              />
-            </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -193,7 +199,7 @@ export function PostDoneModal({
               onClick={handleComplete}
               loading={submitting}
               loadingText="Completing…"
-              disabled={!fabric.trim() || !designType.trim()}
+              disabled={fabrics_.length === 0 || designTypes.length === 0}
               className="w-full"
             >
               Save &amp; Complete Task

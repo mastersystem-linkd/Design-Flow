@@ -86,3 +86,4 @@ export { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
 export { LazyImage, type LazyImageProps } from "./LazyImage";
 export { TShirtLoader, LoaderProvider, useLoader } from "./TShirtLoader";
 export { Combobox, type ComboboxOption, type ComboboxProps } from "./Combobox";
+export { MultiCombobox, type MultiComboboxOption, type MultiComboboxProps } from "./MultiCombobox";
