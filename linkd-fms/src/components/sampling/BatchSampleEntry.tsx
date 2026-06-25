@@ -70,9 +70,9 @@ function emptyRow(prev?: BatchRow): BatchRow {
     party_name: "",
     quality: "",
     requirement: "",
+    assigned_by: "",
     // Carry forward the repeated fields from the previous row — they're usually
     // the same across a batch, so this saves re-entering on every row.
-    assigned_by: prev?.assigned_by ?? "",
     sampling_done_by: prev?.sampling_done_by ?? "",
     fusing_operator: prev?.fusing_operator ?? "",
     printed_mtr: prev?.printed_mtr ?? "0",
@@ -87,7 +87,6 @@ function emptyRow(prev?: BatchRow): BatchRow {
 // of following rows that are still at their default, so common values
 // (operator, fusing, meters) are entered once even when rows were pre-added.
 const CARRY_FIELDS = new Set<keyof BatchRow>([
-  "assigned_by",
   "sampling_done_by",
   "fusing_operator",
   "printed_mtr",
