@@ -6,7 +6,7 @@
 >
 > **Backend:** Supabase (PostgreSQL + Auth + Storage + Realtime). Prod ref `jyfwyfpwbbgfpsntubfy`.
 > **Frontend:** React 18 + Vite + TS, `@tanstack/react-query` v5, `@supabase/supabase-js` **pinned 2.45.4**.
-> **Schema authority:** `linkd-fms/src/types/database.ts` (typed mirror) + `supabase/migrations/0001…0072`.
+> **Schema authority:** `linkd-fms/src/types/database.ts` (typed mirror) + `supabase/migrations/0001…0086`.
 > Migrations are applied **manually** on prod (not via MCP); column-adding migrations end with `NOTIFY pgrst, 'reload schema';`.
 
 ---
@@ -120,8 +120,10 @@ Mirror of `auth.users`; auto-created by `handle_new_user` trigger on signup.
 | `assigned_by_options` | `context` | **unique `(name, context)`**; context = task \| full_kitting \| sampling (0047) | 0045/0047 | "Assigned By" in BriefingView / FullKittingForm / sampling; Settings → Dropdowns |
 | `received_by_options` | — | — | 0049 | "Received By" in FullKittingFormView; Settings |
 | `sampling_dropdowns` | `field` | **unique `(name, field)`**; field = requirement \| sampling_done_by \| fusing_operator | 0051/0052 | sampling form pickers; Settings → Dropdowns |
+| `requester_options` | — | — | 0083 | "Requester" in CoordinatorTasksView; Settings → Dropdowns |
+| `task_sources` | `is_whatsapp` | — | 0086 | brief **Group** picker (BriefingView/EditTaskDialog); Settings → Dropdowns → Tasks → Task Source |
 
-- **RLS (all five):** read any authed · write `is_admin_or_coordinator()` (widened from admin-only in 0046). Hooks: `useConceptCategories`, `useFabrics`, `useAssignedByOptions(context)`, `useReceivedByOptions`, `useSamplingDropdowns`. Each falls back to a built-in list if the table is empty.
+- **RLS (all):** read any authed · write `is_admin_or_coordinator()` (widened from admin-only in 0046). Hooks: `useConceptCategories`, `useFabrics`, `useAssignedByOptions(context)`, `useReceivedByOptions`, `useSamplingDropdowns`, `useRequesterOptions`, `useTaskSources`. Each falls back to a built-in list if the table is empty. **`task_sources`** adds an `is_whatsapp` boolean (per-row toggle in Settings) that drives the green WhatsApp icon in the brief Group picker — `LookupSection`'s optional `flagColumn` renders the toggle + add-form checkbox.
 
 ---
 
@@ -141,7 +143,7 @@ Pipeline: **pool → in_progress → done → completed** (`full_kitting` displa
 | priority | task_priority · status | task_status |
 | assigned_to | uuid N FK→profiles | the working designer (null = Open Pool) |
 | planned_deadline / due_time | date N / time N | designer sets deadline at claim |
-| whatsapp_group | text N | from `lib/whatsappGroups.ts` |
+| whatsapp_group | text N | brief source/group; options from the managed **`task_sources`** table (0086) — `lib/whatsappGroups.ts` is now only the fallback |
 | whatsapp_received_date / _time | date N / text N | brief arrival on WhatsApp (0036, both required at submit) |
 | description / notes | text N | |
 | requires_full_kitting | bool | gate: must add FK before completing |
@@ -325,6 +327,7 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 `id · user_id FK→profiles · title · message · type (info|warning|urgent|success) · link N · is_read · created_at`.
 - **RLS:** select own · insert any authed (or via `notify_user` RPC) · update own (is_read) · delete admin. **Realtime:** yes (0013) — `useNotifications` plays a chime on INSERT.
 - **Always send via** `lib/notifications.ts` (`sendNotification`/`sendNotificationToMany`/`sendNotificationToRole`) → `notify_user`/`notify_users_batch` RPCs. **🖥** **NotificationBell** (TopNav) + **NotificationsView**.
+- **Coordinator = actionable-only feed (§8.6):** completion/status/claim sends target `["admin"]`, **not** `["admin","design_coordinator"]` — coordinators were drowning in noise (task/portion completed, claim joined/released/resized, concept started/on-hold/resumed/added, Stage-2 resubmit, FK submitted, DEO digitized, QC pass/fail/drop). They KEEP only **actionable** sends: Full Knitting Needed, New Sample Pending (task-completion + Sales ERP), held-concept >4-day alerts, Stage-4 concept final review, server-side ERP new-task/new-sample, and the daily overdue cron. Recipient set is decided per call site; **don't re-add `design_coordinator` to a completion send.**
 
 > Counter tables `task_counters` / `sample_counters` back the ID generators (no RLS, server-only).
 
@@ -385,7 +388,7 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 | Concern | File(s) |
 |---|---|
 | Typed schema | `linkd-fms/src/types/database.ts` |
-| Migrations / DDL / RLS / triggers / RPCs | `supabase/migrations/0001…0072` |
+| Migrations / DDL / RLS / triggers / RPCs | `supabase/migrations/0001…0086` |
 | Query cache keys | `linkd-fms/src/lib/queryKeys.ts` |
 | Permission helpers | `linkd-fms/src/lib/permissions.ts` |
 | Notifications | `linkd-fms/src/lib/notifications.ts` |

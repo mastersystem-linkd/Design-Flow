@@ -610,8 +610,10 @@ Auto-disabled: when typing in inputs, when Radix dialog/sheet is open
 ```
 1. PARTY NAME        → LD / Job Work toggle (brief_type). LD = internal, no party.
                        Job Work → required party picker (jobWorkClients). No inline add.
-2. GROUP*            → Dropdown from src/lib/whatsappGroups.ts (WhatsApp icon on flagged
-                       entries). REQUIRED.
+2. GROUP*            → Managed dropdown (task_sources table; Settings → Dropdowns →
+                       Tasks → Task Source). Each source's is_whatsapp flag → green
+                       WhatsApp icon. src/lib/whatsappGroups.ts is now fallback only.
+                       REQUIRED.
    REFERENCE FILES   → Optional multi-file picker beside Group (any type, 50 MB each).
                        Uploaded after task creation → files table (see §12.4 in CLAUDE.md).
 3. MESSAGE date*+time*→ When the brief arrived on WhatsApp. BOTH REQUIRED.
@@ -1203,6 +1205,8 @@ admin-only) — both nav gating and the per-tab render check use `isAdminOrCoord
      context pills (Tasks / Full Knitting / Sampling) → dropdown chips → one
      LookupSection editor at a time.
      • Tasks        → Assigned By (assigned_by_options, context='task')
+                      + Task Source (task_sources, the brief "Group" picker; per-row
+                        is_whatsapp toggle drives the green icon — CLAUDE.md §12.3/§16)
      • Full Knitting→ Assigned By + Received By (received_by_options)
      • Sampling     → Assigned By + Requirement + Sampling Done By + Fusing
                       Operator (sampling_dropdowns, field-scoped)
@@ -1475,7 +1479,7 @@ Where notifications fire from:
   ├───────────────────────────────┼──────────────────────────┤
   │ Task assigned                 │ Designer                 │
   │ Task self-claimed             │ Previous assignee        │
-  │ Task marked done              │ Designer + admins + coords│
+  │ Task marked done              │ Designer + admins        │
   │ Concept submitted             │ All admins               │
   │ Concept reviewed              │ Submitter                │
   │ Final approval                │ Submitter                │
@@ -1484,9 +1488,18 @@ Where notifications fire from:
   │ Role changed                  │ Affected user            │
   │ Email / password changed (UI) │ Affected user            │
   │ Kitting form uploaded (A)     │ All DEOs                 │
-  │ Kitting form digitized (B)    │ Admin + coordinator      │
+  │ Kitting form digitized (B)    │ Admins only (status)     │
   │ Concept reminder (Day 8/17/24)│ Designer (client-side)   │
   └───────────────────────────────┴──────────────────────────┘
+
+  Coordinator = actionable-only feed (CLAUDE.md §8.6): design_coordinator is
+  deliberately DROPPED from completion/status/claim sends (task/portion completed,
+  claim joined/released/resized, concept started/on-hold/resumed/added, Stage-2
+  resubmit, FK submitted, DEO digitized, QC pass/fail/drop) — those go to ["admin"]
+  only. Coordinators KEEP only actionable sends: Full Knitting Needed, New Sample
+  Pending (task-completion + Sales ERP), held-concept >4-day alerts, Stage-4 concept
+  final review (they approve), ERP new-task/new-sample, daily overdue cron. The
+  recipient set is per call site — do NOT re-add design_coordinator to a completion send.
 
 UI surfaces:
   - NotificationBell in TopNav (dropdown with 15 recent, unread badge capped at 9+)
@@ -1500,7 +1513,9 @@ UI surfaces:
 > Managed-dropdown lookup tables (all share `id, name, sort_order, is_active`; admin +
 > coordinator RLS): **`assigned_by_options`** (0045; `context` col added 0047 —
 > task/full_kitting/sampling), **`received_by_options`** (0049), **`sampling_dropdowns`**
-> (0051; field-scoped: requirement/sampling_done_by/fusing_operator). See CLAUDE.md §16.
+> (0051; field-scoped: requirement/sampling_done_by/fusing_operator), **`requester_options`**
+> (0083, Coordinator Tasks), **`task_sources`** (0086; extra `is_whatsapp` flag → the brief
+> "Group" picker, replacing the hardcoded `whatsappGroups.ts`). See CLAUDE.md §16.
 > Also `user_preferences` (0040, per-user `visible_columns`).
 
 
@@ -1726,6 +1741,8 @@ All hooks live in `linkd-fms/src/hooks/`. Read hooks use `@tanstack/react-query`
 │ useReceivedByOptions │ Managed "Received By" list (Full Knitting form)     │
 │ useSamplingDropdowns │ Sampling requirement/done-by/fusing, grouped by     │
 │                      │ field (one query) + fallback                        │
+│ useTaskSources       │ Managed "Task Source" list (brief Group picker) +   │
+│                      │ is_whatsapp flag + whatsappGroups.ts fallback       │
 │ useNotifications     │ Notifications + Realtime subscription + sound       │
 │ useConceptReminders  │ Client-side monthly concept target reminders        │
 │ useFullKitting       │ Kitting form CRUD for full_kitting_details          │
@@ -2006,9 +2023,12 @@ tshirt-wave                                       → 1.5s infinite rotation (TS
   Team Management edit dialog and email column. Client helper: `callAdminApi()`.
 - Notifications go through `notify_user` / `notify_users_batch` SECURITY DEFINER
   RPCs (migrations 0034 + 0035) so cross-user inserts work without weakening
-  table-level RLS.
+  table-level RLS. Coordinators get an **actionable-only** feed — completion/status/
+  claim sends target `["admin"]`, not `["admin","design_coordinator"]` (CLAUDE.md §8.6).
 - Managed form dropdowns (Settings → Dropdowns): assigned_by_options (per-context),
-  received_by_options, sampling_dropdowns (per-field). Admin + coordinator CRUD.
+  received_by_options, sampling_dropdowns (per-field), requester_options, and
+  task_sources (the brief "Group" picker, with a per-source WhatsApp-icon flag).
+  Admin + coordinator CRUD.
 
 **Pages:**
 - Dashboard overview (`/dashboard` via `/home` redirect) — KPIs, alerts, activity, pipeline
