@@ -125,7 +125,7 @@ export function BatchSampleEntry({
 
   // Rows state
   const [rows, setRows] = useState<BatchRow[]>(() => [emptyRow()]);
-  const [addCount, setAddCount] = useState(5);
+  const [addCount, setAddCount] = useState(""); // empty by default — user types a count
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showDraftBanner, setShowDraftBanner] = useState(false);
@@ -204,6 +204,12 @@ export function BatchSampleEntry({
     },
     [scrollToBottom]
   );
+
+  // "Add rows" — parse the typed count (empty/invalid → 1).
+  const handleAddRows = useCallback(() => {
+    const n = parseInt(addCount, 10);
+    addRows(Number.isFinite(n) && n >= 1 ? n : 1);
+  }, [addCount, addRows]);
 
   // Check-all toggles for the Done / Neatly Prepared columns.
   const toggleAllDone = useCallback(() => {
@@ -417,18 +423,12 @@ export function BatchSampleEntry({
         // The cell dropdowns portal their menu to <body> (to escape this
         // dialog's transform + overflow clipping). Clicking such a menu counts
         // as "outside" to Radix and would close the whole dialog — guard it.
-        onInteractOutside={(e) => {
-          const t = (e.detail as { originalEvent?: Event } | undefined)
-            ?.originalEvent?.target as HTMLElement | null;
-          if (t?.closest?.("[data-batch-cell-menu]")) e.preventDefault();
-        }}
-        // Escape runs through Radix's own (capture-phase) handler, which would
-        // close the WHOLE dialog before the cell dropdown's bubble handler runs.
-        // When any cell menu is open, swallow Escape here so it only closes the
-        // dropdown (handled inside BatchCellSelect), not the batch grid.
-        onEscapeKeyDown={(e) => {
-          if (document.querySelector("[data-batch-cell-menu]")) e.preventDefault();
-        }}
+        // This is a long data-entry grid — never discard it on an accidental
+        // outside click (incl. clicking a portaled cell dropdown) or Escape.
+        // Only the explicit Cancel / ✕ / Submit buttons close it. Escape still
+        // bubbles to an open cell dropdown to close just that menu.
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
       >
         {/* Header */}
         <div className="shrink-0 border-b border-border">
@@ -450,23 +450,31 @@ export function BatchSampleEntry({
                   min={1}
                   max={100}
                   value={addCount}
-                  onChange={(e) =>
-                    setAddCount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))
-                  }
+                  placeholder="5"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") {
+                      setAddCount("");
+                      return;
+                    }
+                    setAddCount(
+                      String(Math.max(1, Math.min(100, parseInt(v, 10) || 1)))
+                    );
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      addRows(addCount);
+                      handleAddRows();
                     }
                   }}
-                  className="h-6 w-11 bg-transparent px-1 text-center text-[11px] tabular-nums text-foreground focus:outline-none"
+                  className="h-6 w-11 bg-transparent px-1 text-center text-[11px] tabular-nums text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
                   aria-label="Number of rows to add"
                 />
                 <button
                   type="button"
-                  onClick={() => addRows(addCount)}
+                  onClick={handleAddRows}
                   className="h-6 rounded px-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
-                  title={`Add ${addCount} rows`}
+                  title="Add rows"
                 >
                   Add rows
                 </button>
