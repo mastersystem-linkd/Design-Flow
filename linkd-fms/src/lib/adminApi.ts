@@ -24,15 +24,8 @@ export async function callAdminApi<T = unknown>(
   route: string,
   body: Record<string, unknown>
 ): Promise<AdminApiResult<T>> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
-  if (!token) {
-    return { data: null, error: { message: "Not signed in" } };
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(`/api/${route}`, {
+  const doFetch = (token: string) =>
+    fetch(`/api/${route}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -40,6 +33,30 @@ export async function callAdminApi<T = unknown>(
       },
       body: JSON.stringify(body),
     });
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  let token = sessionData.session?.access_token;
+  if (!token) {
+    return {
+      data: null,
+      error: { message: "Your session has expired — please sign in again." },
+    };
+  }
+
+  let res: Response;
+  try {
+    res = await doFetch(token);
+    // A 401 almost always means the cached access token expired in a
+    // long-open tab. Force a refresh and retry ONCE before giving up, so the
+    // user doesn't have to manually re-login for a routine token rotation.
+    if (res.status === 401) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      const fresh = refreshed.session?.access_token;
+      if (fresh && fresh !== token) {
+        token = fresh;
+        res = await doFetch(token);
+      }
+    }
   } catch (err) {
     return {
       data: null,
@@ -82,12 +99,16 @@ export async function callAdminApi<T = unknown>(
 
   if (!res.ok) {
     const payload = parsed as { error?: string; message?: string };
+    // A surviving 401 (after the refresh-and-retry above) means the session is
+    // genuinely dead — tell the user plainly instead of the server's terse
+    // "Invalid session".
+    const message =
+      res.status === 401
+        ? "Your session has expired. Please sign out and sign in again, then retry."
+        : payload.error ?? payload.message ?? `HTTP ${res.status}`;
     return {
       data: null,
-      error: {
-        message: payload.error ?? payload.message ?? `HTTP ${res.status}`,
-        status: res.status,
-      },
+      error: { message, status: res.status },
     };
   }
 
