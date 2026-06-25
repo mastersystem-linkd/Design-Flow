@@ -3,11 +3,9 @@ import {
   useCallback,
   useRef,
   useEffect,
-  useLayoutEffect,
   useMemo,
   type KeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   Plus,
   Copy,
@@ -16,7 +14,6 @@ import {
   RotateCcw,
   X,
   ChevronDown,
-  Check,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -494,6 +491,40 @@ export function BatchSampleEntry({
         </div>
 
 
+        {/* Shared option lists for the cell dropdowns. Native <datalist> gives
+            reliable type-ahead inside the dialog (no portal/focus-trap issues),
+            and one list per column keeps the DOM light regardless of row count. */}
+        <datalist id="batch-dl-party">
+          {partyNames.map((n, i) => (
+            <option key={`p${i}`} value={n} />
+          ))}
+        </datalist>
+        <datalist id="batch-dl-fabric">
+          {fabricNames.map((n, i) => (
+            <option key={`f${i}`} value={n} />
+          ))}
+        </datalist>
+        <datalist id="batch-dl-requirement">
+          {samplingNames.requirement.map((n, i) => (
+            <option key={`r${i}`} value={n} />
+          ))}
+        </datalist>
+        <datalist id="batch-dl-assigned">
+          {assignedByNames.map((n, i) => (
+            <option key={`a${i}`} value={n} />
+          ))}
+        </datalist>
+        <datalist id="batch-dl-sampling">
+          {samplingNames.sampling_done_by.map((n, i) => (
+            <option key={`s${i}`} value={n} />
+          ))}
+        </datalist>
+        <datalist id="batch-dl-fusing">
+          {samplingNames.fusing_operator.map((n, i) => (
+            <option key={`fu${i}`} value={n} />
+          ))}
+        </datalist>
+
         {/* Scrollable table */}
         <div ref={tableRef} className="flex-1 overflow-auto">
           <table className="w-full border-collapse text-sm">
@@ -550,7 +581,7 @@ export function BatchSampleEntry({
                       <BatchCellSelect
                         value={row.party_name}
                         onChange={(v) => updateRow(row._key, "party_name", v)}
-                        options={partyNames}
+                        listId="batch-dl-party"
                         placeholder="Select party…"
                         ariaLabel="Party name"
                         error={hasError}
@@ -562,7 +593,7 @@ export function BatchSampleEntry({
                       <BatchCellSelect
                         value={row.quality}
                         onChange={(v) => updateRow(row._key, "quality", v)}
-                        options={fabricNames}
+                        listId="batch-dl-fabric"
                         placeholder="Fabric…"
                         ariaLabel="Fabric"
                       />
@@ -573,7 +604,7 @@ export function BatchSampleEntry({
                       <BatchCellSelect
                         value={row.requirement}
                         onChange={(v) => updateRow(row._key, "requirement", v)}
-                        options={samplingNames.requirement}
+                        listId="batch-dl-requirement"
                         placeholder="Requirement…"
                         ariaLabel="Requirement"
                       />
@@ -584,7 +615,7 @@ export function BatchSampleEntry({
                       <BatchCellSelect
                         value={row.assigned_by}
                         onChange={(v) => updateRow(row._key, "assigned_by", v)}
-                        options={assignedByNames}
+                        listId="batch-dl-assigned"
                         placeholder="Assigned by…"
                         ariaLabel="Assigned by"
                       />
@@ -595,7 +626,7 @@ export function BatchSampleEntry({
                       <BatchCellSelect
                         value={row.sampling_done_by}
                         onChange={(v) => updateRow(row._key, "sampling_done_by", v)}
-                        options={samplingNames.sampling_done_by}
+                        listId="batch-dl-sampling"
                         placeholder="Done by…"
                         ariaLabel="Sampling done by"
                       />
@@ -606,7 +637,7 @@ export function BatchSampleEntry({
                       <BatchCellSelect
                         value={row.fusing_operator}
                         onChange={(v) => updateRow(row._key, "fusing_operator", v)}
-                        options={samplingNames.fusing_operator}
+                        listId="batch-dl-fusing"
                         placeholder="Fusing…"
                         ariaLabel="Fusing operator"
                       />
@@ -821,256 +852,43 @@ function HeaderCheckAll({
   );
 }
 
-// ── BatchCellSelect — compact search-as-you-type dropdown for grid cells ──────
-// The trigger is a real <input> (stays inside the dialog's focus trap so typing
-// works), while the result list is PORTALED to <body> with position:fixed so it
-// escapes the dialog's transform + the table's overflow clipping. The list has
-// no focusable controls (items commit on click via mousedown-preventDefault),
-// and the dialog guards onInteractOutside on [data-batch-cell-menu] so clicking
-// the list never closes the dialog.
+// ── BatchCellSelect — searchable grid-cell dropdown (native datalist) ─────────
+// A plain <input list> backed by a shared <datalist>: native type-ahead that
+// works reliably INSIDE the Radix dialog — no portal, no focus-trap fight, no
+// outside-dismiss quirk. Clicking a suggestion fills the input via onChange,
+// and the browser renders the popup so it's never clipped by the table.
 
 function BatchCellSelect({
   value,
   onChange,
-  options,
+  listId,
   placeholder = "--",
   ariaLabel,
   error,
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: string[];
+  listId: string;
   placeholder?: string;
   ariaLabel?: string;
   error?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [activeIdx, setActiveIdx] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState<{
-    left: number;
-    width: number;
-    maxHeight: number;
-    top?: number;
-    bottom?: number;
-  } | null>(null);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.toLowerCase().includes(q));
-  }, [options, query]);
-
-  const reposition = useCallback(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    // If the anchor has scrolled out of its scroll container (e.g. behind the
-    // sticky header), close — otherwise the position:fixed menu floats detached.
-    for (let n = el.parentElement; n; n = n.parentElement) {
-      const oy = getComputedStyle(n).overflowY;
-      if (oy === "auto" || oy === "scroll" || oy === "hidden") {
-        const clip = n.getBoundingClientRect();
-        if (r.bottom <= clip.top || r.top >= clip.bottom) {
-          setOpen(false);
-          return;
-        }
-        break;
-      }
-    }
-    const gap = 4;
-    const desired = 260;
-    const below = window.innerHeight - r.bottom - gap;
-    const above = r.top - gap;
-    // Prefer below when it has reasonable room, else the side with more space.
-    const placeBelow = below >= 160 || below >= above;
-    // Clamp to the chosen side's ACTUAL space so the menu never overflows the
-    // viewport — the inner list scrolls within maxHeight instead.
-    const maxHeight = Math.min(desired, Math.max(0, placeBelow ? below : above));
-    const width = Math.max(r.width, 200);
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    setBox({
-      left,
-      width,
-      maxHeight,
-      ...(placeBelow
-        ? { top: r.bottom + gap }
-        : { bottom: window.innerHeight - r.top + gap }),
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    if (open) reposition();
-  }, [open, reposition]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onScrollResize = () => reposition();
-    // capture:true so we also catch the table's own scroll, not just window.
-    window.addEventListener("scroll", onScrollResize, true);
-    window.addEventListener("resize", onScrollResize);
-    function onDocDown(e: MouseEvent) {
-      const t = e.target as Node;
-      if (inputRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocDown);
-    return () => {
-      window.removeEventListener("scroll", onScrollResize, true);
-      window.removeEventListener("resize", onScrollResize);
-      document.removeEventListener("mousedown", onDocDown);
-    };
-  }, [open, reposition]);
-
-  useEffect(() => {
-    setActiveIdx(0);
-  }, [query]);
-
-  // Reset the search query whenever the menu closes so reopening starts fresh
-  // (and a committed value is shown via the closed-state display, not a stale
-  // query).
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !menuRef.current) return;
-    menuRef.current
-      .querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeIdx, open]);
-
-  function commit(v: string) {
-    onChange(v);
-    setOpen(false);
-    setQuery("");
-  }
-
-  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (!open) setOpen(true);
-      else setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIdx((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter") {
-      if (open) {
-        e.preventDefault();
-        const o = filtered[activeIdx];
-        if (o !== undefined) commit(o);
-      }
-    } else if (e.key === "Escape") {
-      if (open) {
-        e.preventDefault();
-        setOpen(false);
-      }
-    } else if (e.key === "Tab") {
-      setOpen(false);
-    } else if (
-      !open &&
-      e.key.length === 1 &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.altKey
-    ) {
-      // First printable key on a closed-but-focused cell (e.g. right after a
-      // commit). Start a FRESH query with this char instead of letting it
-      // append to the displayed committed value.
-      e.preventDefault();
-      setOpen(true);
-      setQuery(e.key);
-    }
-  }
-
   return (
     <div className="relative">
       <input
-        ref={inputRef}
         type="text"
-        role="combobox"
-        aria-expanded={open}
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
         aria-label={ariaLabel}
-        value={open ? query : value}
-        placeholder={open && value ? value : placeholder}
-        onFocus={() => {
-          setOpen(true);
-          setQuery("");
-        }}
-        onClick={() => {
-          if (!open) setOpen(true);
-        }}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          if (!open) setOpen(true);
-        }}
-        onKeyDown={onKeyDown}
+        autoComplete="off"
         className={cn(
           "h-7 w-full truncate rounded border bg-card pl-1.5 pr-5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40",
           error ? "border-destructive ring-1 ring-destructive/30" : "border-border"
         )}
       />
       <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-
-      {open &&
-        box &&
-        createPortal(
-          <div
-            ref={menuRef}
-            data-batch-cell-menu
-            style={{
-              position: "fixed",
-              left: box.left,
-              width: box.width,
-              maxHeight: box.maxHeight,
-              ...(box.top != null ? { top: box.top } : { bottom: box.bottom }),
-            }}
-            className="z-[200] flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-dropdown"
-          >
-            <ul className="flex-1 overflow-y-auto py-1">
-              {value && (
-                <li>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => commit("")}
-                    className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-secondary/60"
-                  >
-                    <X className="h-3 w-3" /> Clear
-                  </button>
-                </li>
-              )}
-              {filtered.length === 0 ? (
-                <li className="px-3 py-4 text-center text-[11px] italic text-muted-foreground">
-                  No matches
-                </li>
-              ) : (
-                filtered.map((o, i) => (
-                  <li key={o}>
-                    <button
-                      type="button"
-                      data-idx={i}
-                      onMouseEnter={() => setActiveIdx(i)}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => commit(o)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs transition-colors",
-                        i === activeIdx && "bg-primary/[0.08]",
-                        o === value && "bg-primary/[0.12]"
-                      )}
-                    >
-                      <span className="truncate text-foreground">{o}</span>
-                      {o === value && <Check className="h-3 w-3 shrink-0 text-primary" />}
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
-          </div>,
-          document.body
-        )}
     </div>
   );
 }
