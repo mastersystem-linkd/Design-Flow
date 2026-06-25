@@ -39,6 +39,7 @@ interface BatchRow {
   assigned_by: string;
   sampling_done_by: string;
   fusing_operator: string;
+  printed_mtr: string;
   order_or_sample: "order" | "sample";
   is_completed: boolean;
   neatly_prepared: boolean;
@@ -70,6 +71,7 @@ function emptyRow(prev?: BatchRow): BatchRow {
     assigned_by: "",
     sampling_done_by: prev?.sampling_done_by ?? "",
     fusing_operator: prev?.fusing_operator ?? "",
+    printed_mtr: "0",
     order_or_sample: prev?.order_or_sample ?? "sample",
     is_completed: false,
     neatly_prepared: false,
@@ -87,6 +89,7 @@ const COLUMNS = [
   { key: "assigned_by", label: "Assigned By", w: "w-36" },
   { key: "sampling_done_by", label: "Sampling Done By", w: "w-36" },
   { key: "fusing_operator", label: "Fusing Operator", w: "w-36" },
+  { key: "printed_mtr", label: "Printed MTR", w: "w-24" },
   { key: "is_completed", label: "Done", w: "w-14" },
   { key: "neatly_prepared", label: "Neat", w: "w-14" },
   { key: "additional_comments", label: "Comments", w: "w-40" },
@@ -135,7 +138,7 @@ export function BatchSampleEntry({
       if (raw) {
         const parsed = JSON.parse(raw) as BatchRow[];
         if (Array.isArray(parsed) && parsed.length > 0 && parsed.some((r) => r.party_name.trim())) {
-          setRows(parsed.map((r) => ({ ...r, _key: nextKey() })));
+          setRows(parsed.map((r) => ({ ...r, _key: nextKey(), printed_mtr: r.printed_mtr ?? "0" })));
           toast.info(`Restored ${parsed.length} row draft`);
           localStorage.removeItem(DRAFT_KEY);
         }
@@ -205,6 +208,7 @@ export function BatchSampleEntry({
         ...src,
         _key: nextKey(),
         additional_comments: "",
+        printed_mtr: "0",
         is_completed: false,
         neatly_prepared: false,
       };
@@ -304,6 +308,7 @@ export function BatchSampleEntry({
         assigned_by: r.assigned_by || null,
         sampling_done_by: r.sampling_done_by || null,
         fusing_operator: r.fusing_operator || null,
+        printed_mtr: Number(r.printed_mtr) || 0,
         order_or_sample: r.order_or_sample,
         is_completed: r.is_completed,
         neatly_prepared: r.neatly_prepared,
@@ -559,6 +564,21 @@ export function BatchSampleEntry({
                           </option>
                         ))}
                       </select>
+                    </td>
+
+                    {/* Printed MTR */}
+                    <td className="px-1 py-1">
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={row.printed_mtr}
+                        onChange={(e) =>
+                          updateRow(row._key, "printed_mtr", e.target.value)
+                        }
+                        onKeyDown={(e) => handleKeyDown(e, row._key)}
+                        className={inputCls}
+                      />
                     </td>
 
                     {/* Completed */}
