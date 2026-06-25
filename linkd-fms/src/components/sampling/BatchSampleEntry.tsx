@@ -70,17 +70,31 @@ function emptyRow(prev?: BatchRow): BatchRow {
     party_name: "",
     quality: "",
     requirement: "",
-    // Carry forward the "who" fields from the previous row — they're usually
-    // the same across a batch, so this saves re-picking on every row.
+    // Carry forward the repeated fields from the previous row — they're usually
+    // the same across a batch, so this saves re-entering on every row.
     assigned_by: prev?.assigned_by ?? "",
     sampling_done_by: prev?.sampling_done_by ?? "",
     fusing_operator: prev?.fusing_operator ?? "",
-    printed_mtr: "0",
+    printed_mtr: prev?.printed_mtr ?? "0",
     order_or_sample: prev?.order_or_sample ?? "sample",
     is_completed: false,
     neatly_prepared: false,
     additional_comments: "",
   };
+}
+
+// Fields that flow DOWN a batch: setting one in a row fills the contiguous run
+// of following rows that are still at their default, so common values
+// (operator, fusing, meters) are entered once even when rows were pre-added.
+const CARRY_FIELDS = new Set<keyof BatchRow>([
+  "assigned_by",
+  "sampling_done_by",
+  "fusing_operator",
+  "printed_mtr",
+]);
+function isDefaultCarry(field: keyof BatchRow, v: string): boolean {
+  if (field === "printed_mtr") return v === "" || v === "0";
+  return v === "";
 }
 
 // ── Column config ──────────────────────────────────────────────────────
@@ -226,9 +240,27 @@ export function BatchSampleEntry({
 
   const updateRow = useCallback(
     (key: string, field: keyof BatchRow, value: string | boolean) => {
-      setRows((prev) =>
-        prev.map((r) => (r._key === key ? { ...r, [field]: value } : r))
-      );
+      setRows((prev) => {
+        const idx = prev.findIndex((r) => r._key === key);
+        const next = prev.map((r) =>
+          r._key === key ? { ...r, [field]: value } : r
+        );
+        // Flow carry-forward fields down to the following still-default rows
+        // (stop at the first row the user already filled, so manual values
+        // are preserved). Setting it once fills the rest of the batch.
+        if (
+          idx >= 0 &&
+          typeof value === "string" &&
+          CARRY_FIELDS.has(field) &&
+          !isDefaultCarry(field, value)
+        ) {
+          for (let i = idx + 1; i < next.length; i++) {
+            if (!isDefaultCarry(field, next[i][field] as string)) break;
+            next[i] = { ...next[i], [field]: value };
+          }
+        }
+        return next;
+      });
       // Clear error for this row when the user types
       setErrors((prev) => {
         if (prev[key]) {
