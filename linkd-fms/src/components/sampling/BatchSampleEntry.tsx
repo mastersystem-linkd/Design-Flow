@@ -7,6 +7,7 @@ import {
   useMemo,
   type KeyboardEvent,
   type CSSProperties,
+  type ChangeEvent,
 } from "react";
 import {
   Plus,
@@ -17,9 +18,13 @@ import {
   X,
   ChevronDown,
   Check,
+  Upload,
+  Camera,
+  Image as ImageIcon,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/imageCompression";
 import { useAuth } from "@/hooks/useAuth";
 import { useClients } from "@/hooks/useClients";
 import { useFabrics } from "@/hooks/useFabrics";
@@ -44,6 +49,7 @@ interface BatchRow {
   sampling_done_by: string;
   fusing_operator: string;
   printed_mtr: string;
+  photo_url: string | null;
   order_or_sample: "order" | "sample";
   is_completed: boolean;
   neatly_prepared: boolean;
@@ -60,6 +66,8 @@ interface BatchSampleEntryProps {
 
 const DRAFT_KEY = "batch-sample-draft";
 const AUTOSAVE_MS = 30_000;
+const PHOTO_BUCKET = "sample-files";
+const PHOTO_MAX_BYTES = 100 * 1024 * 1024; // 100 MB; images are compressed first
 
 let keyCounter = 0;
 function nextKey(): string {
@@ -78,6 +86,7 @@ function emptyRow(prev?: BatchRow): BatchRow {
     sampling_done_by: prev?.sampling_done_by ?? "",
     fusing_operator: prev?.fusing_operator ?? "",
     printed_mtr: "0",
+    photo_url: null,
     order_or_sample: prev?.order_or_sample ?? "sample",
     is_completed: false,
     neatly_prepared: false,
@@ -108,6 +117,7 @@ const COLUMNS = [
   { key: "sampling_done_by", label: "Sampling Done By", w: "w-36" },
   { key: "fusing_operator", label: "Fusing Operator", w: "w-36" },
   { key: "printed_mtr", label: "Printed MTR", w: "w-24" },
+  { key: "photo", label: "Photo", w: "w-28" },
   { key: "is_completed", label: "Done", w: "w-16" },
   { key: "neatly_prepared", label: "Neatly Prepared", w: "w-24" },
   { key: "additional_comments", label: "Comments", w: "w-40" },
@@ -158,7 +168,7 @@ export function BatchSampleEntry({
       if (raw) {
         const parsed = JSON.parse(raw) as BatchRow[];
         if (Array.isArray(parsed) && parsed.length > 0 && parsed.some((r) => r.party_name.trim())) {
-          setRows(parsed.map((r) => ({ ...r, _key: nextKey(), printed_mtr: r.printed_mtr ?? "0" })));
+          setRows(parsed.map((r) => ({ ...r, _key: nextKey(), printed_mtr: r.printed_mtr ?? "0", photo_url: r.photo_url ?? null })));
           toast.info(`Restored ${parsed.length} row draft`);
           localStorage.removeItem(DRAFT_KEY);
         }
@@ -274,6 +284,15 @@ export function BatchSampleEntry({
     []
   );
 
+  // Photo is held as the uploaded storage PATH (uploaded on selection, like the
+  // single-entry form), so it's already persisted before submit and survives
+  // draft save/restore. Not routed through updateRow (it has no carry-forward).
+  const setRowPhoto = useCallback((key: string, path: string | null) => {
+    setRows((prev) =>
+      prev.map((r) => (r._key === key ? { ...r, photo_url: path } : r))
+    );
+  }, []);
+
   const duplicateRow = useCallback((key: string) => {
     setRows((prev) => {
       const idx = prev.findIndex((r) => r._key === key);
@@ -284,6 +303,7 @@ export function BatchSampleEntry({
         _key: nextKey(),
         additional_comments: "",
         printed_mtr: "0",
+        photo_url: null,
         is_completed: false,
         neatly_prepared: false,
       };
@@ -384,6 +404,7 @@ export function BatchSampleEntry({
         sampling_done_by: r.sampling_done_by || null,
         fusing_operator: r.fusing_operator || null,
         printed_mtr: Number(r.printed_mtr) || 0,
+        photo_url: r.photo_url,
         order_or_sample: r.order_or_sample,
         is_completed: r.is_completed,
         neatly_prepared: r.neatly_prepared,
@@ -658,6 +679,15 @@ export function BatchSampleEntry({
                       />
                     </td>
 
+                    {/* Photo — upload/camera per row (like single entry) */}
+                    <td className="px-1 py-1">
+                      <BatchPhotoCell
+                        value={row.photo_url}
+                        onChange={(v) => setRowPhoto(row._key, v)}
+                        userId={user?.id ?? null}
+                      />
+                    </td>
+
                     {/* Completed */}
                     <td className="px-1 py-1 text-center">
                       <input
@@ -782,8 +812,8 @@ export function BatchSampleEntry({
         {/* Sticky footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-border bg-card px-4 py-2.5">
           <p className="text-xs text-muted-foreground">
-            Enter on last row = new row · Tab = next cell · Files can be added after submit via Edit ·
-            30s.
+            Enter on last row = new row · Tab = next cell · Photo per row; other files via Edit after
+            submit · 30s.
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -858,6 +888,128 @@ function HeaderCheckAll({
 // body-portaled menu drop clicks. Custom JSX = on-theme (no black native popup).
 // The menu flips up/down and caps its height to the table's visible band so the
 // table's overflow never clips it. Tab commits the typed match, then moves on.
+
+// ── Per-row photo cell (compact mirror of the single-entry FileSlot). Uploads
+// on selection to sample-files under {uid}/samples/… and stores the storage
+// PATH on the row, so the batch insert carries photo_url directly — no
+// post-insert id mapping. Upload + Camera, matching single entry. ──
+function BatchPhotoCell({
+  value,
+  onChange,
+  userId,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  userId: string | null;
+}) {
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function pick(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !userId) return;
+    if (f.size > PHOTO_MAX_BYTES) {
+      toast.error(`${f.name} is too large (max 100 MB).`);
+      return;
+    }
+    setBusy(true);
+    const processed = await compressImage(f);
+    const safe = processed.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${userId}/samples/photo_url-${Date.now()}-${safe}`;
+    const { error } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .upload(path, processed, { contentType: processed.type, upsert: false });
+    setBusy(false);
+    if (error) {
+      toast.error(`Upload failed: ${error.message}`);
+      return;
+    }
+    // Replace a previously-uploaded photo on this row (fire-and-forget cleanup).
+    if (value) void supabase.storage.from(PHOTO_BUCKET).remove([value]);
+    onChange(path);
+  }
+
+  async function openSigned() {
+    if (!value) return;
+    const { data } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .createSignedUrl(value, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener");
+  }
+
+  function clear() {
+    if (value) void supabase.storage.from(PHOTO_BUCKET).remove([value]);
+    onChange(null);
+  }
+
+  if (value) {
+    return (
+      <div className="flex items-center gap-1 rounded border border-success/30 bg-success/5 px-1.5 py-1 text-[11px]">
+        <button
+          type="button"
+          onClick={() => void openSigned()}
+          className="flex flex-1 items-center gap-1 truncate text-success hover:underline"
+          title="View photo"
+        >
+          <ImageIcon className="h-3 w-3 shrink-0" />
+          View
+        </button>
+        <button
+          type="button"
+          onClick={clear}
+          className="shrink-0 text-muted-foreground hover:text-destructive"
+          title="Remove photo"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-1">
+      <button
+        type="button"
+        onClick={() => uploadRef.current?.click()}
+        disabled={busy}
+        className="flex flex-1 items-center justify-center rounded border border-dashed border-border bg-card py-1.5 text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
+        title="Upload a photo"
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Upload className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => cameraRef.current?.click()}
+        disabled={busy}
+        className="flex flex-1 items-center justify-center rounded border border-dashed border-border bg-card py-1.5 text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:opacity-50"
+        title="Take a photo with the camera"
+      >
+        <Camera className="h-3.5 w-3.5" />
+      </button>
+      <input
+        ref={uploadRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => void pick(e)}
+      />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void pick(e)}
+      />
+    </div>
+  );
+}
 
 function BatchCellSelect({
   value,
