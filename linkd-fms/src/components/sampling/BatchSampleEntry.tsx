@@ -75,7 +75,7 @@ function emptyRow(prev?: BatchRow): BatchRow {
     // the same across a batch, so this saves re-entering on every row.
     sampling_done_by: prev?.sampling_done_by ?? "",
     fusing_operator: prev?.fusing_operator ?? "",
-    printed_mtr: prev?.printed_mtr ?? "0",
+    printed_mtr: "0",
     order_or_sample: prev?.order_or_sample ?? "sample",
     is_completed: false,
     neatly_prepared: false,
@@ -89,7 +89,6 @@ function emptyRow(prev?: BatchRow): BatchRow {
 const CARRY_FIELDS = new Set<keyof BatchRow>([
   "sampling_done_by",
   "fusing_operator",
-  "printed_mtr",
 ]);
 function isDefaultCarry(field: keyof BatchRow, v: string): boolean {
   if (field === "printed_mtr") return v === "" || v === "0";
