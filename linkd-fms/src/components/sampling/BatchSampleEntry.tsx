@@ -880,7 +880,7 @@ function BatchCellSelect({
   const listRef = useRef<HTMLUListElement>(null);
   const [menu, setMenu] = useState<{ placement: "bottom" | "top"; maxHeight: number }>({
     placement: "bottom",
-    maxHeight: 240,
+    maxHeight: 420,
   });
 
   const filtered = useMemo(() => {
@@ -905,11 +905,13 @@ function BatchCellSelect({
       }
     }
     const gap = 2;
-    const desired = 240;
+    // Tall enough to show a full roster (~14 names) without scrolling when
+    // there's room; still capped to the available side below so it never clips.
+    const desired = 420;
     const below = clipBottom - r.bottom - gap;
     const above = r.top - clipTop - gap;
-    const placement = below < 140 && above > below ? "top" : "bottom";
-    const maxHeight = Math.max(96, Math.min(desired, placement === "bottom" ? below : above));
+    const placement = below < 160 && above > below ? "top" : "bottom";
+    const maxHeight = Math.max(120, Math.min(desired, placement === "bottom" ? below : above));
     setMenu({ placement, maxHeight });
   }, [open, query]);
 
