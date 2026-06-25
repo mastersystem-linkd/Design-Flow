@@ -286,7 +286,8 @@ export default function FullKittingFormView() {
     // don't fail the submit if the notification call errors.
     if (state.kind === "ready") {
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only (DEO-digitized is status).
+        ["admin"],
         "Knitting form digitized",
         `${values.partyName || state.row.party_name || "A knitting form"} has been digitized by the DEO and is ready to review.`,
         "success",

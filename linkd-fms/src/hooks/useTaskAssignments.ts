@@ -271,7 +271,8 @@ export function useTaskAssignments(taskId: string | null) {
       const claimInfo = await fetchTaskInfo(tId);
       const claimSummary = claimInfo ? taskSummary(claimInfo) : (taskRow?.concept ?? "a task");
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only.
+        ["admin"],
         "Claim Joined",
         `${designerName} claimed ${input.qty} designs (${input.designType}): ${claimSummary}`,
         "info",
@@ -330,7 +331,8 @@ export function useTaskAssignments(taskId: string | null) {
 
       const released = t ? t.qty - keep : 0;
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only.
+        ["admin"],
         "Task Split",
         `${designerName} kept ${keep} designs${t ? ` and released ${released} to the pool` : ""}: ${t?.concept ?? t?.task_code ?? "a task"}`,
         "info",
@@ -364,7 +366,8 @@ export function useTaskAssignments(taskId: string | null) {
 
         if (newQty === 0) {
           void sendNotificationToRole(
-            ["admin", "design_coordinator"],
+            // Admins only — coordinators' feed is actionable-only.
+            ["admin"],
             "Claim Released",
             `${name} released their portion back to pool: ${summary}`,
             "info",
@@ -373,7 +376,8 @@ export function useTaskAssignments(taskId: string | null) {
           logActivity(taskId, `${name} released ${oldQty} designs back to pool`);
         } else {
           void sendNotificationToRole(
-            ["admin", "design_coordinator"],
+            // Admins only — coordinators' feed is actionable-only.
+            ["admin"],
             "Claim Resized",
             `${name} resized claim ${oldQty} → ${newQty}: ${summary}`,
             "info",
@@ -495,7 +499,8 @@ export function useTaskAssignments(taskId: string | null) {
       // Notify admins + coordinators: portion completed.
       const portionDesigner = row.designer?.full_name ?? "Designer";
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators don't get completion notifications.
+        ["admin"],
         "Portion Completed",
         `${portionDesigner} completed ${row.qty_assigned} (${portionType}): ${summary}`,
         "success",
@@ -537,7 +542,8 @@ export function useTaskAssignments(taskId: string | null) {
       if (everyPortionCompleted) {
         // Notify admins + coordinators.
         void sendNotificationToRole(
-          ["admin", "design_coordinator"],
+          // Admins only — coordinators don't get completion notifications.
+          ["admin"],
           "Task Fully Completed",
           `All portions completed: ${summary}`,
           "success",

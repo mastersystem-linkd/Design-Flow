@@ -376,7 +376,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
         input.start_date ? `Start: ${new Date(input.start_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : null,
       ].filter(Boolean).join(" · ");
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only (no concept status).
+        ["admin"],
         "New Concept Submitted",
         `${submitterName} submitted "${input.title}"${conceptDetails ? ` — ${conceptDetails}` : ""}`,
         "info",
@@ -822,7 +823,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
 
       const submitterName = profile?.full_name ?? "Designer";
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — Stage-2 MD-review resubmit (coordinators act at Stage 4; see resubmitForFinalReview).
+        ["admin"],
         "Concept Re-submitted",
         `${submitterName} addressed feedback and re-submitted "${data.title}"${newFiles.length > 0 ? ` — ${newFiles.length} new file${newFiles.length > 1 ? "s" : ""} uploaded` : ""}${changesNotes ? ` · Note: "${changesNotes.slice(0, 80)}${changesNotes.length > 80 ? "…" : ""}"` : ""}`,
         "info",
@@ -880,7 +882,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
 
       const designerName = profile?.full_name ?? "A designer";
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only (no concept status).
+        ["admin"],
         "Concept started",
         `${designerName} started working on "${data.title}"`,
         "info",
@@ -937,7 +940,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
 
       const designerName = profile?.full_name ?? "A designer";
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — status. Actionable >4-day escalation is sent by useHeldConceptAlerts.
+        ["admin"],
         "Concept on hold",
         `${designerName} paused "${data.title}"${reason?.trim() ? ` — ${reason.trim()}` : ""}`,
         "warning",
@@ -1007,7 +1011,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
 
       const designerName = profile?.full_name ?? "A designer";
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only (no concept status).
+        ["admin"],
         "Concept resumed",
         `${designerName} resumed "${data.title}"`,
         "info",
@@ -1264,7 +1269,8 @@ export function useConcepts(filters?: ConceptFilters): UseConcepts {
 
       const designerName = profile?.full_name ?? "A designer";
       void sendNotificationToRole(
-        ["admin", "design_coordinator"],
+        // Admins only — coordinators' feed is actionable-only (no concept status).
+        ["admin"],
         "Implementing changes",
         `${designerName} started working on changes for "${data.title}"`,
         "info",

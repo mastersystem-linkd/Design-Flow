@@ -1215,7 +1215,8 @@ export function useTaskMutations(): UseTaskMutations {
         }
 
         void sendNotificationToRole(
-          ["admin", "design_coordinator"],
+          // Admins only — coordinators' feed is actionable-only (no claim/status noise).
+          ["admin"],
           "Task Claimed from Pool",
           `${profile.full_name} claimed: ${selfSummary}`,
           "info",
@@ -1355,7 +1356,8 @@ export function useTaskMutations(): UseTaskMutations {
         try {
           const claimSummary = taskSummary(claimed);
           void sendNotificationToRole(
-            ["admin", "design_coordinator"],
+            // Admins only — coordinators' feed is actionable-only.
+            ["admin"],
             "Task Claimed from Pool",
             `${profile.full_name} claimed: ${claimSummary}`,
             "info",
@@ -1439,7 +1441,8 @@ export function useTaskMutations(): UseTaskMutations {
         );
 
         void sendNotificationToRole(
-          ["admin", "design_coordinator"],
+          // Admins only — coordinators don't get completion notifications.
+          ["admin"],
           "Task Completed",
           `${profile.full_name} completed: ${doneSummary} (${data.qty_completed ?? 0}/${data.qty} done)`,
           "success",
@@ -1526,7 +1529,8 @@ export function useTaskMutations(): UseTaskMutations {
         try {
           const completeSummary = taskSummary(data);
           void sendNotificationToRole(
-            ["admin", "design_coordinator"],
+            // Admins only — coordinators don't get completion notifications.
+            ["admin"],
             "Task Fully Completed",
             `${profile.full_name} completed: ${completeSummary}`,
             "success",

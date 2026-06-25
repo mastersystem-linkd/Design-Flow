@@ -579,21 +579,24 @@ export function useSamples(
       const label = sample?.uid || sample?.party_name || "sample";
       if (input.outcome === "pass") {
         void sendNotificationToRole(
-          ["admin", "design_coordinator"],
+          // Admins only — coordinators don't get QC outcome/status notifications.
+          ["admin"],
           "QC Passed",
           `Sample ${label} passed QC and is completed.`,
           "success"
         );
       } else if (input.outcome === "resample") {
         void sendNotificationToRole(
-          ["admin", "design_coordinator"],
+          // Admins only — the resample reappears as its own pending item in Sampling.
+          ["admin"],
           "QC Failed — Resampling",
           `Sample ${label} failed QC (attempt ${attemptNo}); resampling.`,
           "warning"
         );
       } else {
         void sendNotificationToRole(
-          ["admin", "design_coordinator"],
+          // Admins only — coordinators don't get QC outcome/status notifications.
+          ["admin"],
           "Sample Dropped",
           `Sample ${label} was ${input.outcome === "discard" ? "discarded" : "dropped"} after QC.`,
           "warning"

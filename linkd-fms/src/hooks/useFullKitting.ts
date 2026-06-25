@@ -245,7 +245,8 @@ export function useFullKitting(): UseFullKitting {
           const code = taskInfo?.task_code ?? taskId;
           const submitterName = profile?.full_name ?? "A designer";
           void sendNotificationToRole(
-            ["admin", "design_coordinator"],
+            // Admins only — coordinators' feed is actionable-only (FK-needed is sent separately).
+            ["admin"],
             "Full Kitting Submitted",
             `${submitterName} submitted kitting for ${code}`,
             "info",
