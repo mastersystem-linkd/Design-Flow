@@ -35,3 +35,7 @@ types.bak/
 
 # Supabase CLI local cache — auth tokens + project link
 supabase/.temp/
+
+# Claude Code harness runtime state (transient locks — never commit)
+.claude/scheduled_tasks.lock
+.claude/*.lock
