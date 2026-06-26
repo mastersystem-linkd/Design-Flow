@@ -29,6 +29,7 @@ import {
 import { KpiCard } from "@/components/analytics/KpiCard";
 import { Cube3D } from "@/components/analytics/Cube3D";
 import { Trophy3D } from "@/components/analytics/Trophy3D";
+import { TrophySpin } from "@/components/analytics/TrophySpin";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
@@ -1451,8 +1452,10 @@ function TaskLeaderboard({
   return (
     <Card>
       <CardContent className="py-4">
-        <div className="mb-4 flex items-center gap-2">
-          <Trophy3D rank={1} size={28} />
+        <div className="mb-4 flex items-center gap-2 sm:gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-warning/15 to-transparent ring-1 ring-inset ring-warning/25 sm:h-10 sm:w-10">
+            <TrophySpin size={22} />
+          </span>
           <h3 className="text-sm font-semibold text-foreground sm:text-lg">Designer Task Performance</h3>
         </div>
 

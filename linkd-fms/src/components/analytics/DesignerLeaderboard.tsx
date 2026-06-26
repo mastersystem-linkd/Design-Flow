@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronUp, ChevronDown, ChevronRight } from "lucide-react";
 import { Trophy3D } from "@/components/analytics/Trophy3D";
+import { TrophySpin } from "@/components/analytics/TrophySpin";
 import {
   Card,
   CardContent,
@@ -60,8 +61,10 @@ export function DesignerLeaderboard({
       <Card>
         <CardContent className="py-4">
           <div className="mb-4 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Trophy3D rank={1} size={28} />
+            <div className="flex items-center gap-2 sm:gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-warning/15 to-transparent ring-1 ring-inset ring-warning/25 sm:h-10 sm:w-10">
+                <TrophySpin size={22} />
+              </span>
               <div>
                 <h3 className="text-sm font-semibold text-foreground sm:text-lg">
                   Designer Concept Performance
