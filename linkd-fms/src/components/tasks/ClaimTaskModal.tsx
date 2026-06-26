@@ -109,12 +109,16 @@ export function ClaimTaskModal({
 
   // Determine if this task requires portion claiming.
   // Prefer live assignment data over potentially-stale task.qty_remaining.
+  // While assignments are loading, fall back to task.qty (NOT task.qty_remaining
+  // which can be stale/0 from a prior session) to avoid falsely disabling the button.
   const qtyRemaining = task
     ? !assignmentsLoading && (assignments.length > 0 || totalAssigned > 0)
       ? Math.max(0, task.qty - totalAssigned)
-      : (task.qty_remaining ?? task.qty)
+      : assignmentsLoading
+        ? task.qty
+        : (task.qty_remaining ?? task.qty)
     : 0;
-  const isPartiallyAssigned = task != null && (task.qty_remaining != null || totalAssigned > 0);
+  const isPartiallyAssigned = task != null && !assignmentsLoading && (task.qty_remaining != null || totalAssigned > 0);
   const showPortionInput = task != null && (isPartiallyAssigned || task.qty > 1);
 
   // Reset portionQty when task or remaining changes
@@ -127,9 +131,13 @@ export function ClaimTaskModal({
   }, [showPortionInput, qtyRemaining]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setTask(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
+    setTask(null);
     setDeadline("");
     setFabricList([]);
     setDesignTypeList([]);
@@ -280,6 +288,7 @@ export function ClaimTaskModal({
       <DialogContent
         className="max-w-[780px] max-h-[92vh] overflow-y-auto p-0"
         srTitle="Claim next task"
+        onInteractOutside={(e) => e.preventDefault()}
       >
         {/* ── Header banner ── (pr-12 keeps the priority badge clear of the
             dialog's absolute close ✕ at right-4) */}
