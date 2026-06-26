@@ -6,7 +6,7 @@
 >
 > **Backend:** Supabase (PostgreSQL + Auth + Storage + Realtime). Prod ref `jyfwyfpwbbgfpsntubfy`.
 > **Frontend:** React 18 + Vite + TS, `@tanstack/react-query` v5, `@supabase/supabase-js` **pinned 2.45.4**.
-> **Schema authority:** `linkd-fms/src/types/database.ts` (typed mirror) + `supabase/migrations/0001…0088`.
+> **Schema authority:** `linkd-fms/src/types/database.ts` (typed mirror) + `supabase/migrations/0001…0089`.
 > Migrations are applied **manually** on prod (not via MCP); column-adding migrations end with `NOTIFY pgrst, 'reload schema';`.
 
 ---
@@ -348,7 +348,8 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 | `next_sample_uid(prefix='SMP')` | — | DEFINER | `{prefix}-YYYY-NNNN`, per-year (0032); **`ESMP-` for ERP samples** (0080) |
 | `notify_user` | p_user_id, p_title, p_message, p_type='info', p_link | DEFINER | insert a notification for anyone (bypasses role RLS) |
 | `notify_users_batch` | p_user_ids[], … | DEFINER | broadcast to many |
-| `fn_archive_deleted_row` | (trigger) | DEFINER | snapshots `OLD` into `deleted_records` before any delete (Recycle Bin, §37/0087) |
+| `fn_archive_deleted_row` | (trigger) | DEFINER | snapshots `OLD` into `deleted_records` before any delete; bins every storage column's blob in the same batch (Recycle Bin, §37/0087, extended 0089) |
+| `fn_bin_one_blob` | p_bucket, p_path, p_by, p_batch | DEFINER | bin a single blob (dedup-guarded); used by the archive trigger to recycle a deleted entity's every storage column (0089) |
 | `fn_bin_storage_files` | p_files jsonb | DEFINER | bin storage files (record only, no blob removal); dedups active `(bucket,path)` (0088); used by `trashFiles()` |
 | `fn_binned_storage_paths` | — | DEFINER | active `(bucket,path)` in the bin so the Files browser hides them |
 | `fn_purge_expired_recycle_bin` | — | DEFINER | daily pg_cron purge of expired DB snapshots |
@@ -399,7 +400,7 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 | Concern | File(s) |
 |---|---|
 | Typed schema | `linkd-fms/src/types/database.ts` |
-| Migrations / DDL / RLS / triggers / RPCs | `supabase/migrations/0001…0088` |
+| Migrations / DDL / RLS / triggers / RPCs | `supabase/migrations/0001…0089` |
 | Query cache keys | `linkd-fms/src/lib/queryKeys.ts` |
 | Permission helpers | `linkd-fms/src/lib/permissions.ts` |
 | Notifications | `linkd-fms/src/lib/notifications.ts` |

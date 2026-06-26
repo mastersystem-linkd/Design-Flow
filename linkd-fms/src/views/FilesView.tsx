@@ -309,10 +309,37 @@ export function FilesView() {
       }
       const { data: taskFkRows } = await supabase
         .from("tasks")
-        .select("full_kitting_image_url")
+        .select("full_kitting_image_url, task_code, concept, brief_type, created_at, assigned_to, clients:client_id ( party_name )")
         .not("full_kitting_image_url", "is", null);
       if (taskFkRows) {
-        for (const r of taskFkRows) { if (r.full_kitting_image_url) fkPathSet.add(r.full_kitting_image_url); }
+        const tIds = Array.from(new Set(
+          taskFkRows.map((r) => (r as unknown as { assigned_to?: string | null }).assigned_to).filter(Boolean)
+        )) as string[];
+        if (tIds.length > 0) {
+          const { data: tp } = await supabase.from("profiles").select("id, full_name").in("id", tIds);
+          for (const p of tp ?? []) designerMap.set(p.id, p.full_name);
+        }
+        for (const r of taskFkRows) {
+          const path = r.full_kitting_image_url;
+          if (!path) continue;
+          fkPathSet.add(path);
+          // full_kitting_details may have already mapped this path — don't clobber.
+          if (next.has(path)) continue;
+          const t = r as unknown as {
+            task_code?: string; concept?: string; brief_type?: string | null;
+            created_at?: string; assigned_to?: string | null;
+            clients?: { party_name?: string | null } | null;
+          };
+          const partyName = t.clients?.party_name ?? (t.brief_type === "ld" ? "LD Silk Mills" : "");
+          const designer = t.assigned_to ? designerMap.get(t.assigned_to) ?? "" : "";
+          const date = t.created_at ? new Date(t.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "";
+          const details: { key: string; value: string }[] = [{ key: "Type", value: "FK Image" }];
+          if (date) details.push({ key: "Date", value: date });
+          if (designer) details.push({ key: "Designer", value: designer });
+          if (t.concept) details.push({ key: "Concept", value: t.concept });
+          if (partyName) details.push({ key: "Party", value: partyName });
+          next.set(path, { label: t.task_code ?? "Task", details });
+        }
       }
       _fkPaths = fkPathSet;
 
@@ -344,24 +371,56 @@ export function FilesView() {
           });
         }
       }
-      // 4. Sampling files — samples.photo_url / video_url / signature_url
+      // 4. Sampling files — samples.photo_url / video_url / signature_url /
+      //    full_kitting_image_url. Label by sample UID so each file is
+      //    recognizable + searchable by code.
       const { data: sampleRows } = await supabase
         .from("samples")
-        .select("photo_url, video_url, signature_url, party_name, quality, requirement, assigned_by, sampling_done_by, fusing_operator");
+        .select("uid, photo_url, video_url, signature_url, full_kitting_image_url, party_name, quality, requirement, assigned_by, sampling_done_by, fusing_operator");
       if (!cancelled && sampleRows) {
         for (const s of sampleRows) {
-          const urls = [s.photo_url, s.video_url, s.signature_url].filter(Boolean) as string[];
+          const urls = [s.photo_url, s.video_url, s.signature_url, s.full_kitting_image_url].filter(Boolean) as string[];
           if (urls.length === 0) continue;
-          const details: { key: string; value: string }[] = [];
+          const details: { key: string; value: string }[] = [{ key: "Type", value: "Sample" }];
+          if (s.uid) details.push({ key: "UID", value: s.uid });
           if (s.party_name) details.push({ key: "Party", value: s.party_name });
           if (s.quality) details.push({ key: "Quality", value: s.quality });
           if (s.requirement) details.push({ key: "Requirement", value: s.requirement });
           if (s.assigned_by) details.push({ key: "Assigned By", value: s.assigned_by });
           if (s.sampling_done_by) details.push({ key: "Done By", value: s.sampling_done_by });
           if (s.fusing_operator) details.push({ key: "Fusing", value: s.fusing_operator });
-          const info: LinkedInfo = { label: s.party_name ?? "Sample", details };
+          const label = s.uid
+            ? `${s.uid}${s.party_name ? ` · ${s.party_name}` : ""}`
+            : s.party_name ?? "Sample";
+          const info: LinkedInfo = { label, details };
           for (const url of urls) {
             if (!next.has(url)) next.set(url, info);
+          }
+        }
+      }
+
+      // 5. Concepts — concepts.image_url + files[] (sample-files /concepts/).
+      const { data: conceptRows } = await supabase
+        .from("concepts")
+        .select("concept_code, title, image_url, files, created_at");
+      if (!cancelled && conceptRows) {
+        for (const c of conceptRows) {
+          const paths = [
+            c.image_url,
+            ...(((c.files as string[] | null) ?? [])),
+          ].filter(Boolean) as string[];
+          if (paths.length === 0) continue;
+          const date = c.created_at ? new Date(c.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "";
+          const details: { key: string; value: string }[] = [{ key: "Type", value: "Concept" }];
+          if (c.concept_code) details.push({ key: "Code", value: c.concept_code });
+          if (c.title) details.push({ key: "Title", value: c.title });
+          if (date) details.push({ key: "Date", value: date });
+          const label = c.concept_code
+            ? `${c.concept_code}${c.title ? ` · ${c.title}` : ""}`
+            : c.title ?? "Concept";
+          const info: LinkedInfo = { label, details };
+          for (const p of paths) {
+            if (!next.has(p)) next.set(p, info);
           }
         }
       }
