@@ -141,7 +141,7 @@ export function TaskDetailDrawer({
   // Edit visible to admin/coordinator OR the designer who owns the task
   const isOwner = !!(task && (task.assigned_to === user?.id || task.created_by === user?.id));
   const canEdit = isAdminRole(profile?.role) || isOwner;
-  const canDelete = isAdminRole(profile?.role) || isOwner;
+  const canDelete = isAdminRole(profile?.role);
 
   // The ASSIGNEE can split off their own claim: keep part, release the rest to
   // the pool. Only on an in-progress, not-yet-split task with room to release.

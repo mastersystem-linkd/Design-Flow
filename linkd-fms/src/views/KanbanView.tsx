@@ -3605,7 +3605,7 @@ function RowActionMenu({
 
   const isAdmin = isAdminOrCoordinator(role);
   const canEdit = isAdmin || isMine;
-  const canDelete = isAdmin || isMine;
+  const canDelete = isAdmin;
 
   // Flag-sampling-later (completed tasks). flagSamplingRequired self-invalidates
   // the tasks + samples queries, so the row + Pending Samples badge refresh.

@@ -724,7 +724,7 @@ function PoolRowActionMenu({
 
   const isAdmin = isAdminOrCoordinator(role);
   const canEdit = isAdmin || isMine;
-  const canDelete = isAdmin || isMine;
+  const canDelete = isAdmin;
 
   useEffect(() => {
     if (!open) return;
