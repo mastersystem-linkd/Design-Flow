@@ -484,7 +484,7 @@ export function BatchSampleEntry({
       >
         {/* Header */}
         <div className="shrink-0 border-b border-border">
-          <div className="flex items-center justify-between px-5 py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 sm:px-5 sm:py-3">
             <DialogTitle className="text-sm font-semibold text-foreground">
               Batch Entry
               <span className="ml-2 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-primary">
@@ -531,14 +531,14 @@ export function BatchSampleEntry({
                   Add rows
                 </button>
               </div>
-              <Button type="button" size="sm" onClick={() => onOpenChange(false)} variant="outline" className="h-7 text-[11px]">
+              <Button type="button" size="sm" onClick={() => onOpenChange(false)} variant="outline" className="hidden h-7 text-[11px] sm:inline-flex">
                 Cancel
               </Button>
-              <Button type="button" size="sm" onClick={handleSubmit} disabled={submitting || filledCount === 0} className="h-7 gap-1 text-[11px]">
+              <Button type="button" size="sm" onClick={handleSubmit} disabled={submitting || filledCount === 0} className="hidden h-7 gap-1 text-[11px] sm:inline-flex">
                 {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
                 Submit ({filledCount})
               </Button>
-              <button type="button" onClick={() => onOpenChange(false)} className="ml-1 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Close">
+              <button type="button" onClick={() => onOpenChange(false)} className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Close">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -548,7 +548,119 @@ export function BatchSampleEntry({
 
         {/* Scrollable table */}
         <div ref={tableRef} className="flex-1 overflow-auto">
-          <table className="w-full border-collapse text-sm">
+          {/* ── Mobile card layout (< md) ── */}
+          <div className="flex flex-col gap-3 p-3 md:hidden">
+            {rows.map((row, idx) => {
+              const hasError = !!errors[row._key];
+              return (
+                <div
+                  key={row._key}
+                  data-row-key={row._key}
+                  className={cn(
+                    "rounded-xl border bg-card p-3",
+                    hasError ? "border-destructive/50 bg-destructive/5" : "border-border"
+                  )}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-[10px] font-bold tabular-nums text-primary">
+                        {idx + 1}
+                      </span>
+                      {row.party_name && (
+                        <span className="max-w-[180px] truncate text-xs font-medium text-foreground">
+                          {row.party_name}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <button type="button" onClick={() => duplicateRow(row._key)} title="Duplicate" className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" onClick={() => deleteRow(row._key)} title="Delete" disabled={rows.length <= 1} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-30">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Party Name *</label>
+                      <BatchCellSelect value={row.party_name} onChange={(v) => updateRow(row._key, "party_name", v)} options={partyNames} placeholder="Select party…" ariaLabel="Party name" error={hasError} />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Fabric</label>
+                        <BatchCellSelect value={row.quality} onChange={(v) => updateRow(row._key, "quality", v)} options={fabricNames} placeholder="Fabric…" ariaLabel="Fabric" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Requirement</label>
+                        <BatchCellSelect value={row.requirement} onChange={(v) => updateRow(row._key, "requirement", v)} options={samplingNames.requirement} placeholder="Require…" ariaLabel="Requirement" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Assigned By</label>
+                        <BatchCellSelect value={row.assigned_by} onChange={(v) => updateRow(row._key, "assigned_by", v)} options={assignedByNames} placeholder="Assigned…" ariaLabel="Assigned by" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Done By</label>
+                        <BatchCellSelect value={row.sampling_done_by} onChange={(v) => updateRow(row._key, "sampling_done_by", v)} options={samplingNames.sampling_done_by} placeholder="Done by…" ariaLabel="Sampling done by" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Fusing</label>
+                        <BatchCellSelect value={row.fusing_operator} onChange={(v) => updateRow(row._key, "fusing_operator", v)} options={samplingNames.fusing_operator} placeholder="Fusing…" ariaLabel="Fusing operator" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Printed MTR</label>
+                        <input type="number" min={0} step={0.5} value={row.printed_mtr} onChange={(e) => updateRow(row._key, "printed_mtr", e.target.value)} onKeyDown={(e) => handleKeyDown(e, row._key)} className={inputCls} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Photo</label>
+                      <BatchPhotoCell value={row.photo_url} onChange={(v) => setRowPhoto(row._key, v)} userId={user?.id ?? null} />
+                    </div>
+
+                    <div className="flex items-center gap-5 pt-0.5">
+                      <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                        <input type="checkbox" checked={row.is_completed} onChange={(e) => updateRow(row._key, "is_completed", e.target.checked)} className={checkboxCls} />
+                        Done
+                      </label>
+                      <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                        <input type="checkbox" checked={row.neatly_prepared} onChange={(e) => updateRow(row._key, "neatly_prepared", e.target.checked)} className={checkboxCls} />
+                        Neatly Prepared
+                      </label>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Comments</label>
+                      <input type="text" value={row.additional_comments} onChange={(e) => updateRow(row._key, "additional_comments", e.target.value)} onKeyDown={(e) => handleKeyDown(e, row._key)} placeholder="Notes..." className={inputCls} />
+                    </div>
+                  </div>
+
+                  {hasError && errors[row._key] && (
+                    <p className="mt-2 text-[11px] text-destructive">{errors[row._key]}</p>
+                  )}
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={addRow}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Row
+            </button>
+          </div>
+
+          {/* ── Desktop table layout (md+) ── */}
+          <table className="hidden w-full border-collapse text-sm md:table">
             <thead className="sticky top-0 z-10 bg-secondary/80 backdrop-blur-sm">
               <tr>
                 {COLUMNS.map((col) => (
@@ -810,12 +922,11 @@ export function BatchSampleEntry({
         )}
 
         {/* Sticky footer */}
-        <div className="flex shrink-0 items-center justify-between border-t border-border bg-card px-4 py-2.5">
-          <p className="text-xs text-muted-foreground">
-            Enter on last row = new row · Tab = next cell · Photo per row; other files via Edit after
-            submit · 30s.
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-card px-3 py-2 sm:px-4 sm:py-2.5">
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            Enter = new row · Tab = next cell · 30s autosave
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-1 items-center justify-between gap-2 sm:flex-none sm:justify-end sm:gap-3">
             <Button
               type="button"
               variant="ghost"
@@ -825,13 +936,11 @@ export function BatchSampleEntry({
             >
               Cancel
             </Button>
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
               <span>{rows.length} row{rows.length !== 1 ? "s" : ""}</span>
               <span className="text-border">·</span>
               <span className="font-medium text-primary">{filledCount} ready</span>
               {completedCount > 0 && <><span className="text-border">·</span><span className="font-medium text-success">{completedCount} done</span></>}
-              <span className="text-border">·</span>
-              <span>Tab to navigate, Enter for new row</span>
             </div>
             <Button
               type="button"
