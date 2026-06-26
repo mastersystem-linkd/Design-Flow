@@ -128,6 +128,43 @@ const TABLE_LABELS: Record<string, string> = {
   [STORAGE]: "Files",
 };
 
+// Each archived table rolls up to a user-facing MODULE so the Recycle Bin can
+// be organized into sections. A delete and its cascaded children share a batch
+// that may span tables; the batch is filed under its highest-priority module.
+const MODULE_OF: Record<string, string> = {
+  tasks: "Tasks",
+  task_logs: "Tasks",
+  task_assignments: "Tasks",
+  task_comments: "Tasks",
+  concepts: "Concepts",
+  samples: "Sampling",
+  sampling_logs: "Sampling",
+  full_kitting_details: "Full Knitting",
+  files: "Files",
+  [STORAGE]: "Files",
+  salvedge_records: "Salvedge",
+  coordinator_tasks: "Coordinator Tasks",
+  notifications: "Notifications",
+};
+const MODULE_PRIORITY = [
+  "Tasks",
+  "Concepts",
+  "Sampling",
+  "Full Knitting",
+  "Salvedge",
+  "Coordinator Tasks",
+  "Files",
+  "Notifications",
+  "Other",
+];
+// Within a batch, which table's record best represents it (for the row label).
+const TABLE_PRIORITY = [
+  "tasks", "concepts", "samples", "salvedge_records", "coordinator_tasks",
+  "full_kitting_details", "files", STORAGE, "task_assignments",
+  "sampling_logs", "task_comments", "task_logs", "notifications",
+];
+const moduleOf = (table: string): string => MODULE_OF[table] ?? "Other";
+
 /** Best-effort removal of expired binned storage blobs + their rows. */
 async function purgeExpiredStorage(admin: SupabaseClient): Promise<void> {
   try {
@@ -284,7 +321,7 @@ export default async function handler(
       await purgeExpiredStorage(admin);
       const { data, error } = await admin
         .from("deleted_records")
-        .select("table_name, deleted_at, deleted_by, batch_id, expires_at")
+        .select("id, table_name, data, deleted_at, deleted_by, batch_id, expires_at")
         .is("restored_at", null)
         .gte("expires_at", nowIso)
         .order("deleted_at", { ascending: false })
@@ -292,7 +329,7 @@ export default async function handler(
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as Pick<
         DeletedRecord,
-        "table_name" | "deleted_at" | "deleted_by" | "batch_id" | "expires_at"
+        "id" | "table_name" | "data" | "deleted_at" | "deleted_by" | "batch_id" | "expires_at"
       >[];
 
       // Resolve deleted_by → names.
@@ -310,42 +347,66 @@ export default async function handler(
         }
       }
 
-      const map = new Map<
-        number,
-        {
-          batch_id: number;
-          deleted_at: string;
-          deleted_by_name: string | null;
-          expires_at: string;
-          total: number;
-          file_count: number;
-          breakdown: Record<string, number>;
-        }
-      >();
+      interface BatchAgg {
+        batch_id: number;
+        module: string;
+        deleted_at: string;
+        deleted_by_name: string | null;
+        expires_at: string;
+        total: number;
+        file_count: number;
+        breakdown: Record<string, number>;
+        tables: Set<string>;
+        records: { id: string; table: string; table_label: string; label: string }[];
+      }
+      const map = new Map<number, BatchAgg>();
       for (const r of rows) {
         let b = map.get(r.batch_id);
         if (!b) {
           b = {
             batch_id: r.batch_id,
+            module: "Other",
             deleted_at: r.deleted_at,
             deleted_by_name: r.deleted_by ? nameById[r.deleted_by] ?? null : null,
             expires_at: r.expires_at,
             total: 0,
             file_count: 0,
             breakdown: {},
+            tables: new Set<string>(),
+            records: [],
           };
           map.set(r.batch_id, b);
         }
         b.total += 1;
+        b.tables.add(r.table_name);
         if (r.table_name === STORAGE) b.file_count += 1;
         const label = TABLE_LABELS[r.table_name] ?? r.table_name;
         b.breakdown[label] = (b.breakdown[label] ?? 0) + 1;
-        // keep the newest deleted_at for the batch
+        b.records.push({
+          id: r.id,
+          table: r.table_name,
+          table_label: label,
+          label: recordLabel(r.table_name, r.data),
+        });
         if (r.deleted_at > b.deleted_at) b.deleted_at = r.deleted_at;
       }
-      const batches = Array.from(map.values()).sort((a, b) =>
-        a.deleted_at < b.deleted_at ? 1 : -1
-      );
+
+      const batches = Array.from(map.values())
+        .map((b) => {
+          // Primary module = highest-priority module present in the batch.
+          b.module =
+            MODULE_PRIORITY.find((m) =>
+              Array.from(b.tables).some((t) => moduleOf(t) === m)
+            ) ?? "Other";
+          // Sort records so the most representative one is first.
+          b.records.sort(
+            (x, y) => TABLE_PRIORITY.indexOf(x.table) - TABLE_PRIORITY.indexOf(y.table)
+          );
+          const { tables: _t, ...rest } = b;
+          void _t;
+          return rest;
+        })
+        .sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
       res.status(200).json({ batches });
       return;
     }

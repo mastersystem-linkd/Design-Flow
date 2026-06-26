@@ -13,8 +13,17 @@ import { callAdminApi } from "@/lib/adminApi";
 import { queryKeys } from "@/lib/queryKeys";
 import { DATA_RESTORED_EVENT } from "@/lib/recycleFiles";
 
+export interface RecycleRecord {
+  id: string;
+  table: string;
+  table_label: string;
+  label: string;
+}
+
 export interface RecycleBatch {
   batch_id: number;
+  /** User-facing module this restore point belongs to (Tasks, Sampling, …). */
+  module: string;
   deleted_at: string;
   deleted_by_name: string | null;
   expires_at: string;
@@ -22,15 +31,8 @@ export interface RecycleBatch {
   file_count: number;
   /** table label → count, e.g. { Samples: 46, "Full Knitting": 9 }. */
   breakdown: Record<string, number>;
-}
-
-export interface RecycleRecord {
-  id: string;
-  table_name: string;
-  table_label: string;
-  record_id: string;
-  label: string;
-  deleted_at: string;
+  /** The records in this batch (labels), most representative first. */
+  records: RecycleRecord[];
 }
 
 export interface RestoreResult {
@@ -64,19 +66,6 @@ export function useRecycleBin() {
     },
     staleTime: 10_000,
   });
-
-  /** Lazily fetch the records inside one batch (for the expand drill-down). */
-  const fetchBatch = useCallback(
-    async (batchId: number): Promise<RecycleRecord[]> => {
-      const { data, error } = await callAdminApi<{ records: RecycleRecord[] }>(
-        "admin-recycle-bin",
-        { kind: "batch", batch_id: batchId }
-      );
-      if (error) throw new Error(error.message);
-      return data?.records ?? [];
-    },
-    []
-  );
 
   const invalidate = useCallback(() => {
     for (const k of REVIVE_KEYS) {
@@ -152,7 +141,6 @@ export function useRecycleBin() {
     isLoading: listQuery.isLoading,
     error: listQuery.error ? (listQuery.error as Error).message : null,
     refetch: listQuery.refetch,
-    fetchBatch,
     restore,
     purge,
     isRestoring: restoreMut.isPending,
