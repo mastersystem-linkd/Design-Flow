@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { DATA_RESTORED_EVENT } from "@/lib/recycleFiles";
 import type { SalvedgeRecord } from "@/types/database";
 
 type SalvedgeInsert = {
@@ -41,6 +42,13 @@ export function useSalvedge() {
   }, []);
 
   useEffect(() => { void refetch(); }, [refetch]);
+
+  // Re-pull after a Recycle Bin restore so recovered records reappear.
+  useEffect(() => {
+    const h = () => void refetch();
+    window.addEventListener(DATA_RESTORED_EVENT, h);
+    return () => window.removeEventListener(DATA_RESTORED_EVENT, h);
+  }, [refetch]);
 
   const createRecord = useCallback(
     async (input: SalvedgeInsert): Promise<MutationResult<SalvedgeRecord>> => {

@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  trashFiles,
+  fetchBinnedPaths,
+  DATA_RESTORED_EVENT,
+} from "@/lib/recycleFiles";
 
 // ============================================================================
 // Types
@@ -180,17 +185,26 @@ export function useFiles(): UseFiles {
   const [files, setFiles] = useState<StorageFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Last known binned-path set — reused if the lookup transiently fails, so a
+  // hiccup never un-hides freshly-trashed files.
+  const lastBinned = useRef<Set<string>>(new Set());
 
   const refetch = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const allResults = await Promise.all(
-        BUCKETS.map((b) => listAllInBucket(b))
-      );
+      const [allResults, binnedResult] = await Promise.all([
+        Promise.all(BUCKETS.map((b) => listAllInBucket(b))),
+        fetchBinnedPaths(),
+      ]);
+      const binned = binnedResult.error ? lastBinned.current : binnedResult.paths;
+      if (!binnedResult.error) lastBinned.current = binnedResult.paths;
       const merged = allResults
         .flat()
+        // Hide files that are sitting in the Recycle Bin (blob still exists
+        // until purged, but it reads as deleted everywhere in the UI).
+        .filter((f) => !binned.has(`${f.bucket}::${f.path}`))
         .sort(
           (a, b) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -209,6 +223,14 @@ export function useFiles(): UseFiles {
     void refetch();
   }, [refetch]);
 
+  // Refetch when something is restored from the Recycle Bin (un-binned files
+  // should reappear without a manual refresh).
+  useEffect(() => {
+    const h = () => void refetch();
+    window.addEventListener(DATA_RESTORED_EVENT, h);
+    return () => window.removeEventListener(DATA_RESTORED_EVENT, h);
+  }, [refetch]);
+
   const getSignedUrl = useCallback(
     async (file: StorageFile): Promise<string | null> => {
       const { data, error: err } = await supabase.storage
@@ -223,13 +245,15 @@ export function useFiles(): UseFiles {
     []
   );
 
+  // Deleting a file moves it to the Recycle Bin (the blob is kept until a
+  // super-admin purges it) so accidental deletes are recoverable. See
+  // lib/recycleFiles.ts.
   const deleteFile = useCallback(
     async (file: StorageFile): Promise<{ error: string | null }> => {
-      const { error: err } = await supabase.storage
-        .from(file.bucket)
-        .remove([file.path]);
-      if (err) return { error: err.message };
-      // Remove from local state
+      const { error } = await trashFiles([
+        { bucket: file.bucket, path: file.path, name: file.name, size: file.size },
+      ]);
+      if (error) return { error };
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
       return { error: null };
     },
@@ -241,37 +265,18 @@ export function useFiles(): UseFiles {
       toDelete: StorageFile[]
     ): Promise<{ deleted: number; error: string | null }> => {
       if (toDelete.length === 0) return { deleted: 0, error: null };
-
-      // Group by bucket — Storage `.remove()` is per-bucket and takes an array.
-      const byBucket = new Map<BucketName, StorageFile[]>();
-      for (const f of toDelete) {
-        const arr = byBucket.get(f.bucket) ?? [];
-        arr.push(f);
-        byBucket.set(f.bucket, arr);
-      }
-
-      const removedIds = new Set<string>();
-      let firstError: string | null = null;
-      const CHUNK = 100; // keep each request payload modest
-
-      for (const [bucket, items] of byBucket) {
-        for (let i = 0; i < items.length; i += CHUNK) {
-          const chunk = items.slice(i, i + CHUNK);
-          const { error: err } = await supabase.storage
-            .from(bucket)
-            .remove(chunk.map((c) => c.path));
-          if (err) {
-            firstError ??= err.message;
-            continue; // keep going; report partial result
-          }
-          for (const c of chunk) removedIds.add(c.id);
-        }
-      }
-
-      if (removedIds.size > 0) {
-        setFiles((prev) => prev.filter((f) => !removedIds.has(f.id)));
-      }
-      return { deleted: removedIds.size, error: firstError };
+      const { trashed, error } = await trashFiles(
+        toDelete.map((f) => ({
+          bucket: f.bucket,
+          path: f.path,
+          name: f.name,
+          size: f.size,
+        }))
+      );
+      if (error) return { deleted: 0, error };
+      const removedIds = new Set(toDelete.map((f) => f.id));
+      setFiles((prev) => prev.filter((f) => !removedIds.has(f.id)));
+      return { deleted: trashed || toDelete.length, error: null };
     },
     []
   );

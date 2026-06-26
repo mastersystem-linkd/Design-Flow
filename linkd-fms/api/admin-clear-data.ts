@@ -202,10 +202,13 @@ export default async function handler(
     .select("role")
     .eq("id", callerUser.user.id)
     .maybeSingle();
+  // Super-admin only — matches the Danger Zone UI gate (the only caller). The
+  // endpoint bypasses RLS via the service-role key, so it must not be reachable
+  // by admins/coordinators who can't see the Danger Zone tab.
   const role = callerProfile?.role as string | undefined;
-  if (role !== "super_admin" && role !== "admin" && role !== "design_coordinator") {
+  if (role !== "super_admin") {
     res.status(403).json({
-      error: "Only super admins, admins, or design coordinators can clear data",
+      error: "Only super admins can clear data",
     });
     return;
   }
@@ -278,30 +281,28 @@ export default async function handler(
   }
 
   if (body.kind === "clear-all") {
-    const perTable: Record<string, number> = {};
-    const errors: Record<string, string> = {};
-    let total = 0;
-    for (const table of CLEAR_ALL_ORDER) {
-      const { deleted, error, missing } = await wipe(table);
-      // A table that simply doesn't exist in this deployment is a no-op,
-      // not a failure — record 0 and move on. A real error (FK violation,
-      // permission, timeout) is collected so we can report exactly which
-      // table broke without aborting the rest of the wipe.
-      if (error && !missing) {
-        errors[table] = error;
-        continue;
-      }
-      perTable[table] = deleted;
-      total += deleted;
+    // Run the whole wipe in ONE transaction (migration 0088) so the Recycle
+    // Bin archive trigger stamps a single batch_id ⇒ one restore point that can
+    // be restored parents-first. This RPC deliberately does NOT reset
+    // task_counters: resetting it left the counter at 0 while restored tasks
+    // still held ORD-YYYY-0001…, so the next new task collided on task_code and
+    // failed. A monotonic counter is harmless.
+    const { data, error } = await (
+      admin.rpc as unknown as (
+        fn: string
+      ) => Promise<{ data: unknown; error: { message: string } | null }>
+    )("fn_clear_all_transactional");
+    if (error) {
+      res.status(500).json({ error: `Failed to clear all data: ${error.message}` });
+      return;
     }
-    // Reset the per-year task_code counter so codes restart at NN=01.
-    // task_counters has a composite PK (year), not a UUID id, so wipe()
-    // can't be used here.
-    await admin.from("task_counters" as never).delete().neq("year", -1);
+    const result = (data ?? {}) as {
+      cleared?: number;
+      perTable?: Record<string, number>;
+    };
     res.status(200).json({
-      cleared: total,
-      perTable,
-      ...(Object.keys(errors).length ? { errors } : {}),
+      cleared: result.cleared ?? 0,
+      perTable: result.perTable ?? {},
     });
     return;
   }

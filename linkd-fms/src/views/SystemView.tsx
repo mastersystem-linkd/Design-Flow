@@ -15,6 +15,7 @@ import {
   ListChecks,
   Globe,
   ShieldCheck,
+  ArchiveRestore,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/types/database";
@@ -34,6 +35,7 @@ import { StorageTab } from "@/components/system/StorageTab";
 import { AppInfoTab } from "@/components/system/AppInfoTab";
 import { AppearanceTab } from "@/components/system/AppearanceTab";
 import { DangerZoneTab } from "@/components/system/DangerZoneTab";
+import { RecycleBinTab } from "@/components/system/RecycleBinTab";
 import { IntegrationsTab } from "@/components/system/IntegrationsTab";
 import { AccessControlTab } from "@/components/system/AccessControlTab";
 import { TeamView } from "@/views/TeamView";
@@ -69,6 +71,7 @@ type TabId =
   | "access"
   | "integrations"
   | "storage"
+  | "recycle-bin"
   | "danger";
 
 interface TabSpec {
@@ -169,6 +172,14 @@ const TABS: TabSpec[] = [
     desc: "Bucket usage & file monitoring",
     group: "system",
     canAccess: (role) => isSuperAdmin(role) || role === "admin",
+  },
+  {
+    id: "recycle-bin",
+    label: "Recycle Bin",
+    icon: ArchiveRestore,
+    desc: "Restore or purge deleted data",
+    group: "system",
+    canAccess: (role) => isSuperAdmin(role),
   },
   {
     id: "danger",
@@ -319,6 +330,9 @@ function renderTab(id: TabId, role: UserRole) {
   // design coordinators.
   const coordOk = (component: React.ReactNode) =>
     isAdminOrCoordinator(role) ? component : <AccessRestricted />;
+  // Recycle Bin + Danger Zone are super-admin only.
+  const superOnly = (component: React.ReactNode) =>
+    isSuperAdmin(role) ? component : <AccessRestricted />;
 
   switch (id) {
     case "app-info":
@@ -343,8 +357,10 @@ function renderTab(id: TabId, role: UserRole) {
       return adminOnly(<IntegrationsTab />);
     case "storage":
       return adminOnly(<StorageTab />);
+    case "recycle-bin":
+      return superOnly(<RecycleBinTab />);
     case "danger":
-      return coordOk(<DangerZoneTab />);
+      return superOnly(<DangerZoneTab />);
     default:
       return null;
   }

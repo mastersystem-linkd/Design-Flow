@@ -12,6 +12,7 @@ import {
   Search,
   X,
   FolderOpen,
+  ArchiveRestore,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { callAdminApi } from "@/lib/adminApi";
@@ -608,7 +609,7 @@ export function DangerZoneTab() {
       const n = counts[stage1.spec.key] ?? 0;
       return {
         title: `Clear all ${stage1.spec.label}?`,
-        description: `Permanently deletes ${n.toLocaleString()} records. ${stage1.spec.dependents?.length ? `Cascades: ${stage1.spec.dependents.join(", ")}.` : ""} Cannot be undone.`,
+        description: `Permanently deletes ${n.toLocaleString()} records. ${stage1.spec.dependents?.length ? `Cascades: ${stage1.spec.dependents.join(", ")}.` : ""} Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -617,7 +618,7 @@ export function DangerZoneTab() {
     if (stage1.kind === "delete-selected") {
       return {
         title: `Delete ${stage1.ids.length} from ${stage1.spec.label}?`,
-        description: `Permanently deletes the selected ${stage1.ids.length} record${stage1.ids.length !== 1 ? "s" : ""}. Cannot be undone.`,
+        description: `Permanently deletes the selected ${stage1.ids.length} record${stage1.ids.length !== 1 ? "s" : ""}. Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -626,7 +627,7 @@ export function DangerZoneTab() {
     if (stage1.kind === "delete-range") {
       return {
         title: `Delete ${stage1.count.toLocaleString()} from ${stage1.spec.label}?`,
-        description: `Permanently deletes the ${stage1.count.toLocaleString()} ${stage1.spec.label} record${stage1.count !== 1 ? "s" : ""} dated ${rangeLabel(stage1.from, stage1.to)}.${stage1.spec.dependents?.length ? ` Cascades: ${stage1.spec.dependents.join(", ")}.` : ""} Cannot be undone.`,
+        description: `Permanently deletes the ${stage1.count.toLocaleString()} ${stage1.spec.label} record${stage1.count !== 1 ? "s" : ""} dated ${rangeLabel(stage1.from, stage1.to)}.${stage1.spec.dependents?.length ? ` Cascades: ${stage1.spec.dependents.join(", ")}.` : ""} Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -635,7 +636,7 @@ export function DangerZoneTab() {
     if (stage1.kind === "delete-all-range") {
       return {
         title: `Delete ${stage1.count.toLocaleString()} across all tables?`,
-        description: `Permanently deletes the ${stage1.count.toLocaleString()} transactional record${stage1.count !== 1 ? "s" : ""} dated ${rangeLabel(stage1.from, stage1.to)} across every table (tasks, concepts, samples, salvedge, notifications, files, comments, logs). The task-code counter is NOT reset. Cannot be undone.`,
+        description: `Permanently deletes the ${stage1.count.toLocaleString()} transactional record${stage1.count !== 1 ? "s" : ""} dated ${rangeLabel(stage1.from, stage1.to)} across every table (tasks, concepts, samples, salvedge, notifications, files, comments, logs). The task-code counter is NOT reset. Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -644,7 +645,7 @@ export function DangerZoneTab() {
     if (stage1.kind === "delete-files-range") {
       return {
         title: `Delete ${stage1.files.length.toLocaleString()} file${stage1.files.length !== 1 ? "s" : ""} in range?`,
-        description: `Permanently removes ${stage1.files.length.toLocaleString()} file${stage1.files.length !== 1 ? "s" : ""} created ${rangeLabel(stage1.from, stage1.to)} from every storage bucket AND their records. Cannot be undone.`,
+        description: `Permanently removes ${stage1.files.length.toLocaleString()} file${stage1.files.length !== 1 ? "s" : ""} created ${rangeLabel(stage1.from, stage1.to)} from every storage bucket AND their records. Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -653,7 +654,7 @@ export function DangerZoneTab() {
     if (stage1.kind === "delete-files-selected") {
       return {
         title: `Delete ${stage1.files.length.toLocaleString()} selected file${stage1.files.length !== 1 ? "s" : ""}?`,
-        description: `Permanently removes the ${stage1.files.length.toLocaleString()} selected file${stage1.files.length !== 1 ? "s" : ""} from storage AND their records. Cannot be undone.`,
+        description: `Permanently removes the ${stage1.files.length.toLocaleString()} selected file${stage1.files.length !== 1 ? "s" : ""} from storage AND their records. Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -662,7 +663,7 @@ export function DangerZoneTab() {
     if (stage1.kind === "delete-files") {
       return {
         title: `Delete ALL ${files.length.toLocaleString()} files?`,
-        description: `Permanently removes all ${files.length.toLocaleString()} uploaded file${files.length !== 1 ? "s" : ""} from every storage bucket (briefs, concepts, samples, salvedge, full-knitting) AND their database records. Cannot be undone.`,
+        description: `Permanently removes all ${files.length.toLocaleString()} uploaded file${files.length !== 1 ? "s" : ""} from every storage bucket (briefs, concepts, samples, salvedge, full-knitting) AND their database records. Deleted items move to the Recycle Bin — restorable for 30 days.`,
         confirmLabel: "I understand, continue",
         variant: "danger" as const,
         onConfirm: onStage1Confirm,
@@ -700,10 +701,10 @@ export function DangerZoneTab() {
         <CardContent className="flex items-start gap-3 p-4">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-destructive">Permanent data deletion</p>
+            <p className="text-sm font-semibold text-destructive">Delete data</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Actions here permanently delete data. User accounts, profiles, clients, and lookup tables are never affected.
-              Expand a section to search and delete specific records, or use Clear to wipe an entire table.
+              Clean up test data or close out old records. Expand a section to delete specific rows, or clear an
+              entire table. User accounts, profiles, clients and lookup data are never affected.
             </p>
           </div>
           <Button size="sm" variant="outline" onClick={() => void fetchCounts()} className="shrink-0 gap-1.5" disabled={countsLoading}>
@@ -712,6 +713,19 @@ export function DangerZoneTab() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Reassurance — deletes are recoverable via the Recycle Bin */}
+      <div className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/[0.05] p-3.5">
+        <ArchiveRestore className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span className="font-semibold text-foreground">Made a mistake? It's recoverable.</span> Everything you
+          delete here moves to the <span className="font-medium text-foreground">Recycle Bin</span> (in the sidebar
+          just above Danger Zone), where you can restore it for <span className="font-medium text-foreground">30 days</span>{" "}
+          before it's permanently purged.
+        </p>
+      </div>
+
+      <SectionLabel>Quick clears</SectionLabel>
 
       {/* Clear notifications (soft) */}
       <Card className="border-warning/30 bg-warning/[0.04]">
@@ -793,6 +807,7 @@ export function DangerZoneTab() {
       )}
 
       {/* Expandable per-table sections */}
+      <SectionLabel>Delete by table</SectionLabel>
       <div className="space-y-2">
         {TABLE_SPECS.map((spec) => {
           const count = counts[spec.key] ?? 0;
@@ -852,6 +867,7 @@ export function DangerZoneTab() {
       </div>
 
       {/* Nuclear clear all */}
+      <SectionLabel>Clear everything</SectionLabel>
       <Card className="border-destructive/40 bg-destructive/[0.05]">
         <CardContent className="space-y-3 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -907,7 +923,9 @@ export function DangerZoneTab() {
               <AlertTriangle className="h-4 w-4" /> {stage2Title}
             </DialogTitle>
             <DialogDescription>
-              Type <span className="font-mono font-bold text-foreground">DELETE</span> below to permanently execute this action. There is no undo.
+              Type <span className="font-mono font-bold text-foreground">DELETE</span> below to run this now. Deleted
+              items move to the <span className="font-medium text-foreground">Recycle Bin</span>, where you can restore
+              them for 30 days.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -939,6 +957,15 @@ export function DangerZoneTab() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Small uppercase divider that groups the Danger Zone into clear sections. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {children}
+    </p>
   );
 }
 

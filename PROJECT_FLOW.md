@@ -1227,14 +1227,24 @@ admin-only) — both nav gating and the per-tab render check use `isAdminOrCoord
      Zone's "Clear all data" only wipes the `files` TABLE rows (metadata); the
      actual storage objects are removed here.
 
-8. Danger Zone (DangerZoneTab)
+8. Danger Zone (DangerZoneTab)  — super_admin only
    - Two-stage destructive data clearing:
      Stage 1: ConfirmDialog (variant danger/warning)
      Stage 2: modal with "type DELETE" text input
-   - Per-table clear with live row counts
-   - FK-safe ordering
-   - Nuclear "Clear All" option
+   - Per-table clear with live row counts, FK-safe ordering, nuclear "Clear All"
    - Protected tables (never deleted): profiles, auth.users, designer_codes
+   - Redesigned (§37): grouped sections + a banner — deletes are RECOVERABLE
+     for 30 days via the Recycle Bin (no longer permanent)
+
+9. Recycle Bin (RecycleBinTab)  — super_admin only, sits above Danger Zone
+   - EVERY delete in the app (Danger Zone bulk, single-row ⋮ Delete, cascade
+     children, storage files) is snapshotted into `deleted_records` by a
+     BEFORE DELETE trigger (migration 0087) — zero changes to delete code.
+   - Deletes grouped into restore points by batch_id (one transaction).
+   - Restore (re-insert parents-first, original codes preserved) or
+     Delete-forever (2-stage). Auto-purge after 30 days (pg_cron).
+   - Engine: api/admin-recycle-bin.ts (super_admin) via useRecycleBin;
+     storage files via lib/recycleFiles.ts (blob kept until purge).
 ```
 
 ---

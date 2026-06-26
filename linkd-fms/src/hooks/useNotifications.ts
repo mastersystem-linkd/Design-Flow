@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { DATA_RESTORED_EVENT } from "@/lib/recycleFiles";
 import type { Notification } from "@/types/database";
 
 // ============================================================================
@@ -159,6 +160,13 @@ export function useNotifications(): UseNotifications {
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  // Re-pull after a Recycle Bin restore so recovered notifications reappear.
+  useEffect(() => {
+    const h = () => void refetch({ quiet: true });
+    window.addEventListener(DATA_RESTORED_EVENT, h);
+    return () => window.removeEventListener(DATA_RESTORED_EVENT, h);
   }, [refetch]);
 
   // ── Notification sound ──────────────────────────────────────────────

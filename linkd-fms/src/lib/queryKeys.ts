@@ -84,4 +84,10 @@ export const queryKeys = {
     events: ["integration", "events"] as const,
     queueStats: ["integration", "queueStats"] as const,
   },
+  recycleBin: {
+    all: ["recycleBin"] as const,
+    list: ["recycleBin", "list"] as const,
+    counts: ["recycleBin", "counts"] as const,
+    batch: (batchId: number) => ["recycleBin", "batch", batchId] as const,
+  },
 } as const;

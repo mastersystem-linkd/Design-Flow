@@ -6,7 +6,7 @@
 >
 > **Backend:** Supabase (PostgreSQL + Auth + Storage + Realtime). Prod ref `jyfwyfpwbbgfpsntubfy`.
 > **Frontend:** React 18 + Vite + TS, `@tanstack/react-query` v5, `@supabase/supabase-js` **pinned 2.45.4**.
-> **Schema authority:** `linkd-fms/src/types/database.ts` (typed mirror) + `supabase/migrations/0001…0086`.
+> **Schema authority:** `linkd-fms/src/types/database.ts` (typed mirror) + `supabase/migrations/0001…0088`.
 > Migrations are applied **manually** on prod (not via MCP); column-adding migrations end with `NOTIFY pgrst, 'reload schema';`.
 
 ---
@@ -331,6 +331,12 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 
 > Counter tables `task_counters` / `sample_counters` back the ID generators (no RLS, server-only).
 
+#### `deleted_records` — Recycle Bin / recoverable deletes (§37, migration 0087)
+`id · table_name · record_id · data jsonb (to_jsonb(OLD)) · deleted_at · deleted_by N FK→profiles · batch_id (txid_current) · expires_at (now()+30d) · restored_at N`.
+- **Capture:** SECURITY DEFINER trigger `fn_archive_deleted_row()` is `BEFORE DELETE FOR EACH ROW` on **tasks, samples, concepts, salvedge_records, task_comments, notifications, task_assignments, full_kitting_details, files, task_logs, sampling_logs, coordinator_tasks**. Snapshots every delete (service-role, RLS, AND cascade children) — no app code involved. Same transaction ⇒ same `batch_id` = one restore point. The `files` branch ALSO bins the `design-files` blob as a `__storage__` row (same batch). `table_name='__storage__'` rows hold `{bucket,path,name,size}` and are NOT removed from Storage until purge.
+- **RLS:** super_admin only. **Realtime:** no. **Auto-purge:** pg_cron `purge-recycle-bin` daily → `fn_purge_expired_recycle_bin()` (DB snapshots); expired file blobs swept by the route on `list`/`counts`.
+- **🖥** **Settings → Recycle Bin** (`RecycleBinTab`, super_admin) via `useRecycleBin` → `api/admin-recycle-bin.ts` (list/batch/restore/purge/counts). Restore re-inserts parents-first with original codes (generator triggers no-op on non-null). Client file-trash goes through `lib/recycleFiles.ts` (`fn_bin_storage_files` / `fn_binned_storage_paths`). `useFiles` hides binned files.
+
 ---
 
 ## 3. RPC functions (callable from the client)
@@ -342,6 +348,11 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 | `next_sample_uid(prefix='SMP')` | — | DEFINER | `{prefix}-YYYY-NNNN`, per-year (0032); **`ESMP-` for ERP samples** (0080) |
 | `notify_user` | p_user_id, p_title, p_message, p_type='info', p_link | DEFINER | insert a notification for anyone (bypasses role RLS) |
 | `notify_users_batch` | p_user_ids[], … | DEFINER | broadcast to many |
+| `fn_archive_deleted_row` | (trigger) | DEFINER | snapshots `OLD` into `deleted_records` before any delete (Recycle Bin, §37/0087) |
+| `fn_bin_storage_files` | p_files jsonb | DEFINER | bin storage files (record only, no blob removal); dedups active `(bucket,path)` (0088); used by `trashFiles()` |
+| `fn_binned_storage_paths` | — | DEFINER | active `(bucket,path)` in the bin so the Files browser hides them |
+| `fn_purge_expired_recycle_bin` | — | DEFINER | daily pg_cron purge of expired DB snapshots |
+| `fn_clear_all_transactional` | — | DEFINER (service_role only) | Danger Zone "Clear all" in ONE txn ⇒ one Recycle-Bin batch; does NOT reset task_counters (0088) |
 | `update_assignment_claim` | p_id, p_new_qty | DEFINER | resize a split portion; guards: not below qty_completed, not over remaining, abandon only if 0 done (0064) |
 | `finalize_parent_task` | p_task_id | DEFINER | stamp parent completed when last portion done (0066) |
 | `recalc_task_from_assignments` | — (trigger) | — | parent rollup from portions (0063) |
@@ -388,7 +399,7 @@ Read-only SELECT joining `full_kitting_details → tasks → clients`, filtered 
 | Concern | File(s) |
 |---|---|
 | Typed schema | `linkd-fms/src/types/database.ts` |
-| Migrations / DDL / RLS / triggers / RPCs | `supabase/migrations/0001…0086` |
+| Migrations / DDL / RLS / triggers / RPCs | `supabase/migrations/0001…0088` |
 | Query cache keys | `linkd-fms/src/lib/queryKeys.ts` |
 | Permission helpers | `linkd-fms/src/lib/permissions.ts` |
 | Notifications | `linkd-fms/src/lib/notifications.ts` |

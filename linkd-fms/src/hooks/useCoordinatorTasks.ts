@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { DATA_RESTORED_EVENT } from "@/lib/recycleFiles";
 import type { CoordinatorTask } from "@/types/database";
 
 type MutationResult<T> = { data: T | null; error: string | null };
@@ -29,6 +30,13 @@ export function useCoordinatorTasks() {
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  // Re-pull after a Recycle Bin restore so recovered to-dos reappear.
+  useEffect(() => {
+    const h = () => void refetch();
+    window.addEventListener(DATA_RESTORED_EVENT, h);
+    return () => window.removeEventListener(DATA_RESTORED_EVENT, h);
   }, [refetch]);
 
   const createTask = useCallback(
