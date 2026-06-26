@@ -13,6 +13,7 @@ import { AnalyticsView, type AnalyticsViewControls } from "@/views/AnalyticsView
 import { Download, Calendar } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
+import { useSamples } from "@/hooks/useSamples";
 import { useClients } from "@/hooks/useClients";
 import {
   useTaskAnalytics,
@@ -105,6 +106,7 @@ export function TaskDashboardView() {
   const [source, setSource] = useState<SourceLens>("all");
   const a = useTaskAnalytics(period, customRange, source);
   const { tasks } = useTasks();
+  const { totalCount: pendingSampleCount } = useSamples({ sampleStatus: "pending" });
 
   // Scorecard drawer state (admin-only opens; for designer self-view this
   // would still pop, but coordinators see nothing because the drawer
@@ -374,7 +376,14 @@ export function TaskDashboardView() {
             <h1 className="truncate font-display text-base font-bold tracking-[-0.02em] text-foreground sm:text-xl md:text-2xl">
               {isDesigner ? "My Work" : "Production Studio"}
             </h1>
-            <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">{a.periodLabel}</p>
+            <p className="truncate text-[10px] font-medium text-muted-foreground sm:text-[11px]">
+              {a.periodLabel}
+              {source !== "all" && (
+                <span className="ml-1.5 inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                  {source === "erp" ? "ERP" : "Internal"}
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
@@ -429,12 +438,13 @@ export function TaskDashboardView() {
                   onClick={() => navigate(dashLink({ status: "in_progress" }))}
                 />
               )}
-              {/* Supporting visibility for the new flows (subtle, not headline). */}
-              {a.kpis.samplingFlagged > 0 && (
+              {/* Pending samples — counts actual pending rows from the samples
+                  table (task-completion + ERP), not just task flags. */}
+              {pendingSampleCount > 0 && (
                 <StatusChip
                   tone="warning"
                   icon={FlaskConical}
-                  count={a.kpis.samplingFlagged}
+                  count={pendingSampleCount}
                   label="sampling"
                   onClick={() => navigate("/sampling")}
                 />

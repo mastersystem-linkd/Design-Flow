@@ -359,7 +359,7 @@ export function useTaskAnalytics(
       urgentCount: tasks.filter((t) => t.priority === "urgent" && !isFinished(t)).length,
       overdueCount: tasks.filter((t) => !isFinished(t) && t.planned_deadline && new Date(t.planned_deadline) < new Date()).length,
       // Supporting visibility for the new flows (small stats, not headline KPIs).
-      samplingFlagged: tasks.filter((t) => t.sampling_required).length,
+      samplingFlagged: tasks.filter((t) => t.sampling_required && !isFinished(t)).length,
       fkBlocked: tasks.filter((t) => !isFinished(t) && isFullKittingBlocking(t)).length,
     };
   }, [tasks, start, end, prevStart, prevEnd]);
