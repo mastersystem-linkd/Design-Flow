@@ -5,6 +5,7 @@ import App from "@/App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { AuthProvider } from "@/hooks/useAuth";
+import { NotificationsProvider } from "@/hooks/NotificationsProvider";
 import { LoaderProvider } from "@/components/ui";
 // The single app font (Sora) loads via the Google Fonts <link> in index.html.
 // JetBrains Mono is self-hosted ONLY for the tabular data numerals
@@ -30,7 +31,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <LoaderProvider>
-              <App />
+              <NotificationsProvider>
+                <App />
+              </NotificationsProvider>
             </LoaderProvider>
           </AuthProvider>
         </QueryClientProvider>

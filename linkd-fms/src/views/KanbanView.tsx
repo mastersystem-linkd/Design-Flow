@@ -99,7 +99,6 @@ import { daysUntil, daysSeverity, DAYS_DOT_CLASS, DAYS_TEXT_CLASS } from "@/lib/
 import { isAdminOrCoordinator, canCreateBriefs } from "@/lib/permissions";
 import { isFullKittingAdded, isFullKittingBlocking } from "@/lib/taskHelpers";
 import { flagFkPendingToCoordinator } from "@/lib/fkCoordinatorTask";
-import { sendNotificationToRole } from "@/lib/notifications";
 import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 
 /** Compact creation timestamp for the Date/Time column (Indian locale). */
@@ -456,12 +455,13 @@ export function KanbanView() {
     const task = tasks.find((t) => t.id === fkWarningTaskId);
     setFkNotifying(true);
     try {
-      await sendNotificationToRole(
-        ["admin", "design_coordinator"],
-        "Full Knitting Needed",
-        `${profile?.full_name ?? "A designer"} is waiting on Full Knitting details for ${task?.task_code ?? "a task"}`,
-        "warning",
-        "/dashboard"
+      // Deduped per task (RPC) → one "Full Knitting Needed" ping, even if the
+      // designer asks repeatedly or also claimed without FK.
+      await flagFkPendingToCoordinator(
+        fkWarningTaskId,
+        task?.task_code ?? "a task",
+        profile?.full_name ?? "A designer",
+        `${profile?.full_name ?? "A designer"} is waiting on Full Knitting details for ${task?.task_code ?? "a task"}`
       );
       toast.info("Coordinator notified");
     } catch {

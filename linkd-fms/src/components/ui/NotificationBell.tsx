@@ -9,7 +9,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useNotifications } from "@/hooks/useNotifications";
+import { useNotificationsContext } from "@/hooks/NotificationsProvider";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
 import type { Notification, NotificationType } from "@/types/database";
@@ -40,7 +40,7 @@ export function NotificationBell() {
     markAsRead,
     markAllAsRead,
     isPending,
-  } = useNotifications();
+  } = useNotificationsContext();
 
   const [open, setOpen] = useState(false);
   const [prevCount, setPrevCount] = useState(unreadCount);

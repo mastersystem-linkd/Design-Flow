@@ -36,20 +36,19 @@ export function TrophySpin({ size = 24 }: { size?: number }) {
           <defs>
             <linearGradient id={`${id}-body`} x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stopColor="#fde047" />
-              <stop offset="45%" stopColor="#facc15" />
-              <stop offset="100%" stopColor="#ca8a04" />
+              <stop offset="40%" stopColor="#f59e0b" />
+              <stop offset="100%" stopColor="#b45309" />
             </linearGradient>
             <linearGradient id={`${id}-stem`} x1="0.5" y1="0" x2="0.5" y2="1">
-              <stop offset="0%" stopColor="#eab308" />
-              <stop offset="100%" stopColor="#a16207" />
+              <stop offset="0%" stopColor="#d97706" />
+              <stop offset="100%" stopColor="#92400e" />
             </linearGradient>
             <linearGradient id={`${id}-hi`} x1="0.3" y1="0" x2="0.7" y2="1">
-              <stop offset="0%" stopColor="white" stopOpacity="0.6" />
+              <stop offset="0%" stopColor="white" stopOpacity="0.7" />
               <stop offset="100%" stopColor="white" stopOpacity="0" />
             </linearGradient>
             <filter id={`${id}-g`}>
-              <feGaussianBlur stdDeviation="1.2" result="b" />
-              <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+              <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodColor="#92400e" floodOpacity="0.5" />
             </filter>
           </defs>
 
@@ -57,14 +56,16 @@ export function TrophySpin({ size = 24 }: { size?: number }) {
           <path
             d="M14 8 h20 v3 c0 9 -4 15 -10 17 c-6 -2 -10 -8 -10 -17 z"
             fill={`url(#${id}-body)`}
+            stroke="#92400e"
+            strokeWidth="0.8"
             filter={`url(#${id}-g)`}
           />
 
           {/* Left handle */}
           <path
             d="M14 11 C7 11 6 17 10 21 L14 18"
-            stroke={`url(#${id}-body)`}
-            strokeWidth="2.4"
+            stroke="#b45309"
+            strokeWidth="2.8"
             strokeLinecap="round"
             fill="none"
           />
@@ -72,8 +73,8 @@ export function TrophySpin({ size = 24 }: { size?: number }) {
           {/* Right handle */}
           <path
             d="M34 11 C41 11 42 17 38 21 L34 18"
-            stroke={`url(#${id}-body)`}
-            strokeWidth="2.4"
+            stroke="#b45309"
+            strokeWidth="2.8"
             strokeLinecap="round"
             fill="none"
           />
@@ -82,21 +83,21 @@ export function TrophySpin({ size = 24 }: { size?: number }) {
           <path
             d="M17 10 h5 v3 c0 6 -1 10 -4 13 c-2 -3 -2 -7 -1 -13 z"
             fill={`url(#${id}-hi)`}
-            opacity="0.8"
+            opacity="0.9"
           />
 
           {/* Stem */}
-          <rect x="21" y="28" width="6" height="6" rx="1.5" fill={`url(#${id}-stem)`} />
+          <rect x="21" y="28" width="6" height="6" rx="1.5" fill={`url(#${id}-stem)`} stroke="#92400e" strokeWidth="0.5" />
 
           {/* Base */}
-          <rect x="15" y="34" width="18" height="4" rx="2" fill={`url(#${id}-body)`} />
-          <rect x="18" y="34.8" width="12" height="1.4" rx="0.7" fill="white" opacity="0.3" />
+          <rect x="15" y="34" width="18" height="4" rx="2" fill={`url(#${id}-body)`} stroke="#92400e" strokeWidth="0.5" />
+          <rect x="18" y="34.8" width="12" height="1.4" rx="0.7" fill="white" opacity="0.35" />
 
           {/* Star */}
           <path
             d="M24 12 l1.6 3.2 3.5 0.5 -2.5 2.5 0.6 3.5 -3.2-1.7 -3.2 1.7 0.6-3.5 -2.5-2.5 3.5-0.5z"
             fill="white"
-            opacity="0.45"
+            opacity="0.55"
           />
         </svg>
       </div>

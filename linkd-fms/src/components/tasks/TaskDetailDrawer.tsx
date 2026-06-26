@@ -87,7 +87,6 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { isAdminOrCoordinator } from "@/lib/permissions";
 import { isFullKittingBlocking } from "@/lib/taskHelpers";
-import { sendNotificationToRole } from "@/lib/notifications";
 import { flagFkPendingToCoordinator } from "@/lib/fkCoordinatorTask";
 import { ExternalOriginBadge } from "@/components/integration/ExternalOriginBadge";
 import type {
@@ -3619,12 +3618,12 @@ function ActionFooter({
                 onClick={async () => {
                   setFkNotifying(true);
                   try {
-                    await sendNotificationToRole(
-                      ["admin", "design_coordinator"],
-                      "Full Knitting Needed",
-                      `${profile?.full_name ?? "A designer"} is waiting on Full Knitting details for ${task.task_code ?? "a task"}`,
-                      "warning",
-                      "/dashboard"
+                    // Deduped per task (RPC) → one "Full Knitting Needed" ping.
+                    await flagFkPendingToCoordinator(
+                      task.id,
+                      task.task_code ?? "a task",
+                      profile?.full_name ?? "A designer",
+                      `${profile?.full_name ?? "A designer"} is waiting on Full Knitting details for ${task.task_code ?? "a task"}`
                     );
                     toast.info("Coordinator notified");
                   } catch {

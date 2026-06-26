@@ -16,22 +16,40 @@ import { sendNotificationToRole } from "@/lib/notifications";
 export async function flagFkPendingToCoordinator(
   taskId: string,
   taskCode: string,
-  designerName: string
+  designerName: string,
+  /** Optional custom message (e.g. an explicit "is waiting on…" ask). Defaults
+   *  to the auto "started working without FK" wording. */
+  message?: string
 ): Promise<void> {
+  // The RPC dedups the to-do per task and (after migration 0090) returns
+  // whether it actually created a NEW one. Notify ONLY on a fresh flag, so a
+  // coordinator gets ONE "Full Knitting Needed" per task — not one per re-claim
+  // or repeat "Ask Coordinator" click. Dedup has to be server-side: the
+  // `notifications` RLS is own-only, so this (designer's) client can't tell
+  // whether coordinators were already pinged.
+  let created: unknown = null;
   try {
-    await supabase.rpc("create_fk_coordinator_task", {
+    const { data } = await supabase.rpc("create_fk_coordinator_task", {
       p_task_id: taskId,
       p_task_code: taskCode,
       p_designer_name: designerName,
     });
+    created = data;
   } catch {
     // non-critical — the claim still proceeds
   }
+
+  // `created === false` ⇒ an open to-do already existed ⇒ skip the duplicate
+  // ping. Pre-migration the void RPC returns null → we still notify (legacy
+  // behavior), so this is safe to ship ahead of applying 0090.
+  if (created === false) return;
+
   try {
     await sendNotificationToRole(
       ["admin", "design_coordinator"],
       "Full Knitting Needed",
-      `${designerName} started working on ${taskCode} without Full Knitting details — please add them.`,
+      message ??
+        `${designerName} started working on ${taskCode} without Full Knitting details — please add them.`,
       "warning",
       "/coordinator-tasks"
     );

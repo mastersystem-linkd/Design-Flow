@@ -62,8 +62,8 @@ export function DesignerLeaderboard({
         <CardContent className="py-4">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 sm:gap-2.5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-warning/15 to-transparent ring-1 ring-inset ring-warning/25 sm:h-10 sm:w-10">
-                <TrophySpin size={22} />
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 via-primary/10 to-transparent ring-1 ring-inset ring-primary/25 sm:h-12 sm:w-12">
+                <TrophySpin size={36} />
               </span>
               <div>
                 <h3 className="text-sm font-semibold text-foreground sm:text-lg">

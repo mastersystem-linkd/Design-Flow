@@ -30,7 +30,8 @@ import {
   isThisWeek,
   formatDistanceToNow,
 } from "date-fns";
-import { useNotifications, type DesktopPermission } from "@/hooks/useNotifications";
+import { type DesktopPermission } from "@/hooks/useNotifications";
+import { useNotificationsContext } from "@/hooks/NotificationsProvider";
 import { useProfiles } from "@/hooks/useProfiles";
 import {
   Button,
@@ -190,7 +191,7 @@ export function NotificationsView() {
     markAllAsRead, isPending, testNotificationSound,
     prefs, setSoundEnabled, setDesktopEnabled,
     desktopPermission, requestDesktopPermission,
-  } = useNotifications();
+  } = useNotificationsContext();
   const { profiles } = useProfiles();
 
   const profileMap = useMemo(() => {

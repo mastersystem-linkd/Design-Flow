@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
 import { MobileTabBar } from "@/components/layout/MobileTabBar";
-import { useNotifications } from "@/hooks/useNotifications";
+import { useNotificationsContext } from "@/hooks/NotificationsProvider";
 import { useConceptReminders } from "@/hooks/useConceptReminders";
 import { useHeldConceptAlerts } from "@/hooks/useHeldConceptAlerts";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,7 @@ export function AppLayout({ profile, children }: AppLayoutProps) {
     });
   }
   const location = useLocation();
-  const { unreadCount } = useNotifications();
+  const { unreadCount } = useNotificationsContext();
   useConceptReminders();
   useHeldConceptAlerts();
 

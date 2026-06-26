@@ -681,21 +681,16 @@ export function TaskDashboardView() {
               onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
             />
             <MetricCard
-
-              icon={AlertTriangle}
-              label="Late"
-              tone={a.kpis.lateCompletions.current > 0 ? "destructive" : "muted"}
-              value={a.kpis.lateCompletions.current}
-              trend={a.kpis.lateCompletions}
-              invertTrend
+              icon={Layers}
+              label="FK Blocked"
+              tone={a.kpis.fkBlocked > 0 ? "warning" : "muted"}
+              value={a.kpis.fkBlocked}
               sub={
-                a.kpis.lateCompletions.current > 0
-                  ? "past deadline"
-                  : "none this period"
+                a.kpis.fkBlocked > 0
+                  ? "awaiting Full Knitting"
+                  : "none blocked"
               }
-              onClick={() =>
-                navigate(dashLink({ status: "done", from: periodFrom, to: periodTo }))
-              }
+              onClick={() => navigate(dashLink({ status: "in_progress" }))}
             />
           </div>
 
@@ -1453,8 +1448,8 @@ function TaskLeaderboard({
     <Card>
       <CardContent className="py-4">
         <div className="mb-4 flex items-center gap-2 sm:gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-warning/15 to-transparent ring-1 ring-inset ring-warning/25 sm:h-10 sm:w-10">
-            <TrophySpin size={22} />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 via-primary/10 to-transparent ring-1 ring-inset ring-primary/25 sm:h-12 sm:w-12">
+            <TrophySpin size={36} />
           </span>
           <h3 className="text-sm font-semibold text-foreground sm:text-lg">Designer Task Performance</h3>
         </div>
