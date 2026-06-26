@@ -165,6 +165,147 @@ const TABLE_PRIORITY = [
 ];
 const moduleOf = (table: string): string => MODULE_OF[table] ?? "Other";
 
+// Tables that get their OWN row in the bin (main entities, like the originals).
+// Internal children (logs / assignments / comments / sampling_logs) are NOT
+// listed — they ride along when their parent's batch is restored.
+const LISTABLE = new Set<string>([
+  "tasks", "concepts", "samples", "salvedge_records", "full_kitting_details",
+  "coordinator_tasks", "files", "notifications", STORAGE,
+]);
+
+// Per-module columns — mirror each module's real list view.
+const MODULE_COLUMNS: Record<string, { key: string; label: string }[]> = {
+  Tasks: [
+    { key: "code", label: "Code" },
+    { key: "concept", label: "Concept" },
+    { key: "party", label: "Party" },
+    { key: "qty", label: "Qty" },
+    { key: "status", label: "Status" },
+  ],
+  Concepts: [
+    { key: "code", label: "Code" },
+    { key: "title", label: "Title" },
+    { key: "status", label: "Status" },
+    { key: "designer", label: "Designer" },
+  ],
+  Sampling: [
+    { key: "uid", label: "UID" },
+    { key: "party", label: "Party" },
+    { key: "quality", label: "Fabric" },
+    { key: "requirement", label: "Requirement" },
+  ],
+  "Full Knitting": [
+    { key: "party", label: "Party" },
+    { key: "form_date", label: "Form date" },
+  ],
+  Salvedge: [
+    { key: "challan", label: "Challan" },
+    { key: "party", label: "Party" },
+    { key: "qty", label: "Qty" },
+  ],
+  "Coordinator Tasks": [
+    { key: "requester", label: "Requester" },
+    { key: "description", label: "Description" },
+    { key: "status", label: "Status" },
+  ],
+  Files: [
+    { key: "name", label: "Name" },
+    { key: "size", label: "Size" },
+    { key: "bucket", label: "Bucket" },
+  ],
+  Notifications: [
+    { key: "title", label: "Title" },
+    { key: "type", label: "Type" },
+  ],
+  Other: [{ key: "label", label: "Item" }],
+};
+
+const BUCKET_SHORT: Record<string, string> = {
+  "design-files": "Design",
+  "sample-files": "Sample",
+  "task-files": "Task",
+  "proof-photos": "Proof",
+};
+
+function fmtBytes(n: number): string {
+  if (!n || n <= 0) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+// The cell values for a record, keyed to its module's columns.
+function recordCells(
+  table: string,
+  data: Record<string, unknown>,
+  clientMap: Record<string, string>,
+  profileMap: Record<string, string>
+): Record<string, string> {
+  const s = (k: string) => (data[k] == null ? "" : String(data[k]));
+  const dash = (v: string) => v || "—";
+  switch (table) {
+    case "tasks": {
+      const party = data.client_id ? clientMap[String(data.client_id)] : "";
+      return {
+        code: dash(s("task_code")),
+        concept: dash(s("concept")),
+        party: party || (data.brief_type === "ld" ? "LD Silk Mills" : "—"),
+        qty: `${s("qty_completed") || 0}/${s("qty") || 0}`,
+        status: dash(s("status")),
+      };
+    }
+    case "concepts": {
+      const designer = data.designer_id ? profileMap[String(data.designer_id)] : "";
+      return {
+        code: dash(s("concept_code")),
+        title: dash(truncate(s("title"), 40)),
+        status: dash(s("md_status")),
+        designer: designer || "—",
+      };
+    }
+    case "samples":
+      return {
+        uid: dash(s("uid")),
+        party: dash(s("party_name")),
+        quality: dash(s("quality")),
+        requirement: dash(s("requirement")),
+      };
+    case "full_kitting_details":
+      return { party: dash(s("party_name")), form_date: dash(s("form_date")) };
+    case "salvedge_records":
+      return {
+        challan: dash(s("challan_no")),
+        party: dash(s("party_name")),
+        qty: `${s("completed_qty") || 0}/${s("qty") || 0}`,
+      };
+    case "coordinator_tasks":
+      return {
+        requester: dash(s("requester_name")),
+        description: dash(truncate(s("description"), 50)),
+        status: data.is_completed ? "Done" : "Pending",
+      };
+    case "files":
+      return {
+        name: dash(s("file_name")),
+        size: fmtBytes(Number(data.file_size) || 0),
+        bucket: BUCKET_SHORT["design-files"],
+      };
+    case STORAGE:
+      return {
+        name: dash(String(data.name ?? "") || s("path")),
+        size: fmtBytes(Number(data.size) || 0),
+        bucket: BUCKET_SHORT[String(data.bucket)] ?? dash(String(data.bucket ?? "")),
+      };
+    case "notifications":
+      return { title: dash(truncate(s("title"), 50)), type: dash(s("type")) };
+    default:
+      return { label: recordLabel(table, data) };
+  }
+}
+
 /** Best-effort removal of expired binned storage blobs + their rows. */
 async function purgeExpiredStorage(admin: SupabaseClient): Promise<void> {
   try {
@@ -316,7 +457,7 @@ export default async function handler(
       return;
     }
 
-    // ── list — batch summaries, newest first ──────────────────────────────────
+    // ── list — per-module sections, one row per deleted entity ────────────────
     if (body.kind === "list") {
       await purgeExpiredStorage(admin);
       const { data, error } = await admin
@@ -332,82 +473,104 @@ export default async function handler(
         "id" | "table_name" | "data" | "deleted_at" | "deleted_by" | "batch_id" | "expires_at"
       >[];
 
-      // Resolve deleted_by → names.
-      const byIds = Array.from(
-        new Set(rows.map((r) => r.deleted_by).filter(Boolean))
-      ) as string[];
+      // How many records each batch holds (restore/purge act on the whole batch).
+      const batchTotal: Record<number, number> = {};
+      for (const r of rows) batchTotal[r.batch_id] = (batchTotal[r.batch_id] ?? 0) + 1;
+
+      // Resolve names: deleted_by + concept designer → profiles; task party → clients.
+      const profileIds = new Set<string>(
+        rows.map((r) => r.deleted_by).filter(Boolean) as string[]
+      );
+      const clientIds = new Set<string>();
+      for (const r of rows) {
+        if (r.table_name === "concepts" && r.data?.designer_id)
+          profileIds.add(String(r.data.designer_id));
+        if (r.table_name === "tasks" && r.data?.client_id)
+          clientIds.add(String(r.data.client_id));
+      }
       const nameById: Record<string, string> = {};
-      if (byIds.length) {
+      if (profileIds.size) {
         const { data: profs } = await admin
           .from("profiles")
           .select("id, full_name")
-          .in("id", byIds);
-        for (const p of (profs ?? []) as { id: string; full_name: string }[]) {
+          .in("id", Array.from(profileIds));
+        for (const p of (profs ?? []) as { id: string; full_name: string }[])
           nameById[p.id] = p.full_name;
-        }
+      }
+      const clientMap: Record<string, string> = {};
+      if (clientIds.size) {
+        const { data: cls } = await admin
+          .from("clients")
+          .select("id, party_name")
+          .in("id", Array.from(clientIds));
+        for (const c of (cls ?? []) as { id: string; party_name: string }[])
+          clientMap[c.id] = c.party_name;
       }
 
-      interface BatchAgg {
+      interface BinRow {
+        id: string;
         batch_id: number;
-        module: string;
         deleted_at: string;
         deleted_by_name: string | null;
         expires_at: string;
-        total: number;
-        file_count: number;
-        breakdown: Record<string, number>;
-        tables: Set<string>;
-        records: { id: string; table: string; table_label: string; label: string }[];
+        batch_total: number;
+        cells: Record<string, string>;
       }
-      const map = new Map<number, BatchAgg>();
+      const byModule = new Map<string, BinRow[]>();
+      const batchHasRow = new Set<number>();
+      const push = (module: string, row: BinRow) => {
+        const arr = byModule.get(module) ?? [];
+        arr.push(row);
+        byModule.set(module, arr);
+      };
+
+      // Main-entity rows (one per listable record), under that record's module.
       for (const r of rows) {
-        let b = map.get(r.batch_id);
-        if (!b) {
-          b = {
-            batch_id: r.batch_id,
-            module: "Other",
-            deleted_at: r.deleted_at,
-            deleted_by_name: r.deleted_by ? nameById[r.deleted_by] ?? null : null,
-            expires_at: r.expires_at,
-            total: 0,
-            file_count: 0,
-            breakdown: {},
-            tables: new Set<string>(),
-            records: [],
-          };
-          map.set(r.batch_id, b);
-        }
-        b.total += 1;
-        b.tables.add(r.table_name);
-        if (r.table_name === STORAGE) b.file_count += 1;
-        const label = TABLE_LABELS[r.table_name] ?? r.table_name;
-        b.breakdown[label] = (b.breakdown[label] ?? 0) + 1;
-        b.records.push({
+        if (!LISTABLE.has(r.table_name)) continue;
+        batchHasRow.add(r.batch_id);
+        push(moduleOf(r.table_name), {
           id: r.id,
-          table: r.table_name,
-          table_label: label,
-          label: recordLabel(r.table_name, r.data),
+          batch_id: r.batch_id,
+          deleted_at: r.deleted_at,
+          deleted_by_name: r.deleted_by ? nameById[r.deleted_by] ?? null : null,
+          expires_at: r.expires_at,
+          batch_total: batchTotal[r.batch_id] ?? 1,
+          cells: recordCells(r.table_name, r.data, clientMap, nameById),
         });
-        if (r.deleted_at > b.deleted_at) b.deleted_at = r.deleted_at;
       }
 
-      const batches = Array.from(map.values())
-        .map((b) => {
-          // Primary module = highest-priority module present in the batch.
-          b.module =
-            MODULE_PRIORITY.find((m) =>
-              Array.from(b.tables).some((t) => moduleOf(t) === m)
-            ) ?? "Other";
-          // Sort records so the most representative one is first.
-          b.records.sort(
-            (x, y) => TABLE_PRIORITY.indexOf(x.table) - TABLE_PRIORITY.indexOf(y.table)
-          );
-          const { tables: _t, ...rest } = b;
-          void _t;
-          return rest;
-        })
-        .sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
-      res.status(200).json({ batches });
+      // Fallback: a batch of only internal children (e.g. a lone comment) still
+      // needs to be restorable — surface its most representative record under "Other".
+      const fallback = new Map<number, (typeof rows)[number]>();
+      for (const r of rows) {
+        if (batchHasRow.has(r.batch_id)) continue;
+        const cur = fallback.get(r.batch_id);
+        if (
+          !cur ||
+          TABLE_PRIORITY.indexOf(r.table_name) < TABLE_PRIORITY.indexOf(cur.table_name)
+        )
+          fallback.set(r.batch_id, r);
+      }
+      for (const r of fallback.values()) {
+        push("Other", {
+          id: r.id,
+          batch_id: r.batch_id,
+          deleted_at: r.deleted_at,
+          deleted_by_name: r.deleted_by ? nameById[r.deleted_by] ?? null : null,
+          expires_at: r.expires_at,
+          batch_total: batchTotal[r.batch_id] ?? 1,
+          cells: { label: recordLabel(r.table_name, r.data) },
+        });
+      }
+
+      const sections = MODULE_PRIORITY.filter((m) => byModule.has(m)).map((m) => ({
+        module: m,
+        columns: MODULE_COLUMNS[m] ?? MODULE_COLUMNS.Other,
+        rows: (byModule.get(m) ?? []).sort((a, b) =>
+          a.deleted_at < b.deleted_at ? 1 : -1
+        ),
+      }));
+      res.status(200).json({ sections });
       return;
     }
 

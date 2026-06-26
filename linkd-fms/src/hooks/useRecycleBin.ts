@@ -13,26 +13,27 @@ import { callAdminApi } from "@/lib/adminApi";
 import { queryKeys } from "@/lib/queryKeys";
 import { DATA_RESTORED_EVENT } from "@/lib/recycleFiles";
 
-export interface RecycleRecord {
-  id: string;
-  table: string;
-  table_label: string;
+export interface RecycleColumn {
+  key: string;
   label: string;
 }
 
-export interface RecycleBatch {
+export interface RecycleRow {
+  id: string;
   batch_id: number;
-  /** User-facing module this restore point belongs to (Tasks, Sampling, …). */
-  module: string;
   deleted_at: string;
   deleted_by_name: string | null;
   expires_at: string;
-  total: number;
-  file_count: number;
-  /** table label → count, e.g. { Samples: 46, "Full Knitting": 9 }. */
-  breakdown: Record<string, number>;
-  /** The records in this batch (labels), most representative first. */
-  records: RecycleRecord[];
+  /** Records in this row's batch — restore/purge act on the whole batch. */
+  batch_total: number;
+  /** Column key → display value (matches the section's columns). */
+  cells: Record<string, string>;
+}
+
+export interface RecycleSection {
+  module: string;
+  columns: RecycleColumn[];
+  rows: RecycleRow[];
 }
 
 export interface RestoreResult {
@@ -56,13 +57,13 @@ export function useRecycleBin() {
 
   const listQuery = useQuery({
     queryKey: queryKeys.recycleBin.list,
-    queryFn: async (): Promise<RecycleBatch[]> => {
-      const { data, error } = await callAdminApi<{ batches: RecycleBatch[] }>(
+    queryFn: async (): Promise<RecycleSection[]> => {
+      const { data, error } = await callAdminApi<{ sections: RecycleSection[] }>(
         "admin-recycle-bin",
         { kind: "list" }
       );
       if (error) throw new Error(error.message);
-      return data?.batches ?? [];
+      return data?.sections ?? [];
     },
     staleTime: 10_000,
   });
@@ -137,7 +138,7 @@ export function useRecycleBin() {
   );
 
   return {
-    batches: listQuery.data ?? [],
+    sections: listQuery.data ?? [],
     isLoading: listQuery.isLoading,
     error: listQuery.error ? (listQuery.error as Error).message : null,
     refetch: listQuery.refetch,
