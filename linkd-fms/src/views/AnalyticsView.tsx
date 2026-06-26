@@ -336,7 +336,7 @@ export function AnalyticsView({
               no decorative wrapper — hierarchy from grouping + contrast. */}
           <div className="df-rise grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
             <MetricCard
-              tilt
+
               icon={FileText}
               label="Concepts Submitted"
               tone="primary"
@@ -347,7 +347,7 @@ export function AnalyticsView({
               onClick={() => navigate(`${ROUTES.concepts}?tab=all`)}
             />
             <MetricCard
-              tilt
+
               icon={CheckCircle2}
               label="Approved"
               tone={a.kpis.approvalRate.current > 80 ? "success" : a.kpis.approvalRate.current < 50 ? "destructive" : "success"}
@@ -358,7 +358,7 @@ export function AnalyticsView({
               onClick={() => navigate(`${ROUTES.concepts}?tab=approved`)}
             />
             <MetricCard
-              tilt
+
               icon={PackageCheck}
               label="Completed"
               tone={a.kpis.completionRate.current >= 70 ? "success" : a.kpis.completionRate.current >= 40 ? "warning" : "muted"}
@@ -369,7 +369,7 @@ export function AnalyticsView({
               onClick={() => navigate(`${ROUTES.concepts}?tab=completed`)}
             />
             <MetricCard
-              tilt
+
               icon={RotateCcw}
               label="Avg Review Time"
               tone={a.kpis.avgApprovalHours.current === 0 ? "muted" : a.kpis.avgApprovalHours.current < 24 ? "success" : a.kpis.avgApprovalHours.current < 48 ? "warning" : "destructive"}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, Clock, Timer, PlusCircle, AlertTriangle,
   LayoutGrid, Trophy, ChevronUp, ChevronDown, ChevronRight,
@@ -26,6 +26,7 @@ import {
   type PipelineItem,
 } from "@/hooks/useTaskAnalytics";
 import { KpiCard } from "@/components/analytics/KpiCard";
+import { Cube3D } from "@/components/analytics/Cube3D";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
@@ -168,16 +169,30 @@ export function TaskDashboardView() {
           setCustomRange({ from: new Date(f + "T00:00:00"), to: new Date(t + "T23:59:59") });
         }}
       />
-      <div className="inline-flex rounded-lg bg-secondary p-1">
+      {/* Segmented control with a sliding pill that springs between positions.
+          The pill hides when a custom date range overrides the period. */}
+      <div className="relative grid grid-cols-3 rounded-lg bg-secondary p-1">
+        <span
+          aria-hidden
+          className="absolute inset-y-1 rounded-md bg-primary shadow-sm"
+          style={{
+            width: "calc((100% - 0.5rem) / 3)",
+            left: "0.25rem",
+            transform: `translateX(${Math.max(0, PERIODS.findIndex((p) => p.value === period)) * 100}%)`,
+            opacity: customRange ? 0 : 1,
+            transition:
+              "transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease",
+          }}
+        />
         {PERIODS.map((p) => (
           <button
             key={p.value}
             type="button"
             onClick={() => { setPeriod(p.value); setCustomRange(null); }}
             className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:py-1",
+              "relative z-10 rounded-md px-3 py-1.5 text-center text-xs font-medium transition-colors duration-200 sm:py-1",
               !customRange && period === p.value
-                ? "bg-primary text-white"
+                ? "text-white"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -351,8 +366,8 @@ export function TaskDashboardView() {
       {/* ── Page header — display title + accessible status chips ── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2.5 shadow-card sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary ring-1 ring-inset ring-primary/25 sm:h-9 sm:w-9">
-            <LayoutGrid className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/10 to-transparent ring-1 ring-inset ring-primary/20 shadow-glow-soft sm:h-10 sm:w-10">
+            <Cube3D />
           </span>
           <div className="min-w-0 leading-tight">
             <h1 className="truncate font-display text-base font-bold tracking-[-0.02em] text-foreground sm:text-xl md:text-2xl">
@@ -443,6 +458,7 @@ export function TaskDashboardView() {
           {/* KPI cards — same horizontal MetricCard as admin view */}
           <div className="grid auto-rows-fr grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <MetricCard
+
               icon={CheckCircle2}
               label="Completed"
               tone="success"
@@ -450,6 +466,7 @@ export function TaskDashboardView() {
               onClick={() => navigate(dashLink({ filter: "mine", status: "done", from: periodFrom, to: periodTo }))}
             />
             <MetricCard
+
               icon={Clock}
               label="On-Time Rate"
               tone="primary"
@@ -457,6 +474,7 @@ export function TaskDashboardView() {
               sub={myStats.assigned > 0 ? `${myStats.onTime} of ${myStats.assigned}` : undefined}
             />
             <MetricCard
+
               icon={Timer}
               label="Avg Days"
               tone="muted"
@@ -464,6 +482,7 @@ export function TaskDashboardView() {
               invertTrend
             />
             <MetricCard
+
               icon={LayoutGrid}
               label="In Progress"
               tone="warning"
@@ -519,11 +538,14 @@ export function TaskDashboardView() {
           <DesignerWorkloadSummary tasks={tasks} userId={profile?.id ?? ""} />
         </>
       ) : (
-        /* Admin / Coordinator view */
-        <>
+        /* Admin / Coordinator view
+           key={period} remounts the subtree on Week/Month/Quarter switch so the
+           whole dashboard visibly re-staggers in each time. */
+        <div key={period} className="space-y-6">
           {/* ── Hero KPI grid — 8 uniform horizontal cards, 4×2 on lg ── */}
-          <div className="grid auto-rows-fr grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          <div className="df-rise grid auto-rows-fr grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <MetricCard
+
               icon={CheckCircle2}
               label="Delivered"
               tone="success"
@@ -535,6 +557,7 @@ export function TaskDashboardView() {
               }
             />
             <MetricCard
+
               icon={Clock}
               label="On-Time"
               tone={
@@ -567,6 +590,7 @@ export function TaskDashboardView() {
               }
             />
             <MetricCard
+
               icon={Timer}
               label="Avg Cycle"
               tone={
@@ -594,6 +618,7 @@ export function TaskDashboardView() {
               }
             />
             <MetricCard
+
               icon={PlusCircle}
               label="Created"
               tone="primary"
@@ -605,6 +630,7 @@ export function TaskDashboardView() {
               }
             />
             <MetricCard
+
               icon={Activity}
               label="Active"
               tone="primary"
@@ -620,6 +646,7 @@ export function TaskDashboardView() {
               onClick={() => navigate(dashLink({ status: "in_progress" }))}
             />
             <MetricCard
+
               icon={Zap}
               label="Urgent"
               tone={a.kpis.urgentCount > 0 ? "destructive" : "muted"}
@@ -629,6 +656,7 @@ export function TaskDashboardView() {
               onClick={() => navigate(dashLink({ filter: "urgent" }))}
             />
             <MetricCard
+
               icon={Flame}
               label="Overdue"
               tone={a.kpis.overdueCount > 0 ? "warning" : "muted"}
@@ -638,6 +666,7 @@ export function TaskDashboardView() {
               onClick={() => navigate(dashLink({ overdue: "1", filter: "all" }))}
             />
             <MetricCard
+
               icon={AlertTriangle}
               label="Late"
               tone={a.kpis.lateCompletions.current > 0 ? "destructive" : "muted"}
@@ -656,7 +685,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Charts */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="df-rise grid grid-cols-1 gap-4 lg:grid-cols-3" style={{ animationDelay: "90ms" }}>
             {/* Volume chart */}
             <Card className={cn(CARD, "lg:col-span-2")}>
               <CardContent className="p-5">
@@ -717,7 +746,7 @@ export function TaskDashboardView() {
           </div>
 
           {/* Workload + At-risk */}
-          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+          <div className="df-rise grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2" style={{ animationDelay: "180ms" }}>
             <WorkloadDistribution
               data={a.designerStats}
               onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
@@ -728,23 +757,25 @@ export function TaskDashboardView() {
           {/* Visual charts — priority donut (pie) + cycle-time column chart.
               Replaces the old compact priority/cycle rollups with real charts
               so the effort + priority load reads at a glance. */}
-          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+          <div className="df-rise grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2" style={{ animationDelay: "270ms" }}>
             <PriorityDonut data={a.priorityMix} />
             <CycleTimeChart data={a.cycleTimeDist} />
           </div>
 
           {/* Compact rollups — FK staffing mix + demand-by-client. */}
-          <div className="grid items-stretch gap-4 grid-cols-1 sm:grid-cols-2">
+          <div className="df-rise grid items-stretch gap-4 grid-cols-1 sm:grid-cols-2" style={{ animationDelay: "360ms" }}>
             <KittingMixCard data={a.kittingMix} />
             <TopClientsCard data={a.topClients} />
           </div>
 
           {/* Leaderboard */}
-          <TaskLeaderboard
-            data={a.designerStats}
-            onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
-          />
-        </>
+          <div className="df-rise" style={{ animationDelay: "450ms" }}>
+            <TaskLeaderboard
+              data={a.designerStats}
+              onDesignerClick={canOpenScorecard ? setScorecardDesignerId : undefined}
+            />
+          </div>
+        </div>
       )}
 
       <DesignerScorecardDrawer
@@ -909,7 +940,6 @@ export function MetricCard({
   invertTrend,
   pulse,
   onClick,
-  tilt,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -921,8 +951,6 @@ export function MetricCard({
   invertTrend?: boolean;
   pulse?: boolean;
   onClick?: () => void;
-  /** Opt-in subtle cursor-follow 3D tilt (≤4.5°). Off by default. */
-  tilt?: boolean;
 }) {
   const numericValue = typeof value === "number" ? value : 0;
   const animated = useAnimatedNumber(numericValue);
@@ -939,11 +967,9 @@ export function MetricCard({
   const body = (
     <>
       <div className="relative z-[1] flex h-full items-center gap-3 sm:gap-4">
-        {/* Icon circle — gentle always-on float when tilt is enabled */}
         <span className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ring-inset sm:h-12 sm:w-12",
-          TONE_RING[tone],
-          tilt && "df-float"
+          TONE_RING[tone]
         )}>
           <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </span>
@@ -977,49 +1003,9 @@ export function MetricCard({
     </>
   );
 
-  // Opt-in cursor-follow 3D tilt (idea #3) — max 4.5°, paired with a small
-  // lift. Skipped under prefers-reduced-motion. Callback ref works for both
-  // the div and button wrappers.
-  const tiltEl = useRef<HTMLElement | null>(null);
-  const tiltProps = tilt
-    ? {
-        ref: (el: HTMLElement | null) => {
-          tiltEl.current = el;
-        },
-        onMouseMove: (e: React.MouseEvent) => {
-          const el = tiltEl.current;
-          if (!el || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
-            return;
-          const r = el.getBoundingClientRect();
-          const px = (e.clientX - r.left) / r.width - 0.5;
-          const py = (e.clientY - r.top) / r.height - 0.5;
-          el.style.transform = `perspective(900px) rotateX(${(-py * 4.5).toFixed(2)}deg) rotateY(${(px * 4.5).toFixed(2)}deg) translateY(-2px)`;
-        },
-        onMouseLeave: () => {
-          if (tiltEl.current) tiltEl.current.style.transform = "";
-        },
-        style: {
-          transformStyle: "preserve-3d" as const,
-          transition: "transform 250ms cubic-bezier(.16,1,.3,1)",
-        },
-      }
-    : {};
-
-  // Always-on premium light sweep (only on tilt-enabled cards). Sits behind the
-  // content (z-0) and is clipped by the card's overflow-hidden.
-  const sheen = tilt ? (
-    <span aria-hidden className="df-sheen pointer-events-none absolute inset-0 z-0" />
-  ) : null;
-
   const base =
-    "group relative flex h-full overflow-hidden rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 hover:[border-color:var(--border-strong)] sm:px-4 sm:py-3.5";
-  if (!onClick)
-    return (
-      <div className={base} {...tiltProps}>
-        {sheen}
-        {body}
-      </div>
-    );
+    "group relative flex h-full overflow-hidden rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 sm:px-4 sm:py-3.5";
+  if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
       type="button"
@@ -1028,9 +1014,7 @@ export function MetricCard({
         base,
         "outline-none hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary/40"
       )}
-      {...tiltProps}
     >
-      {sheen}
       {body}
     </button>
   );
