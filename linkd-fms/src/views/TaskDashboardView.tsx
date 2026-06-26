@@ -106,7 +106,10 @@ export function TaskDashboardView() {
   const [source, setSource] = useState<SourceLens>("all");
   const a = useTaskAnalytics(period, customRange, source);
   const { tasks } = useTasks();
-  const { totalCount: pendingSampleCount } = useSamples({ sampleStatus: "pending" });
+  const { totalCount: pendingSampleCount } = useSamples({
+    source: ["task_completion", "sales_erp"],
+    sampleStatus: "pending",
+  });
 
   // Scorecard drawer state (admin-only opens; for designer self-view this
   // would still pop, but coordinators see nothing because the drawer
