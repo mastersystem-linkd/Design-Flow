@@ -342,9 +342,19 @@ export function KanbanView() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const { data } = await supabase
+      // Use the explicit FK constraint name — task_assignments has TWO FKs to
+      // profiles (designer_id + assigned_by), so the column-name hint can fail
+      // to disambiguate and error the whole fetch (→ empty team map → split
+      // tasks render "Open"). This matches the proven PoolQueueTable query.
+      const { data, error } = await supabase
         .from("task_assignments")
-        .select("task_id, design_type, designer:profiles!designer_id(full_name, avatar_url)");
+        .select(
+          "task_id, design_type, designer:profiles!task_assignments_designer_id_fkey(full_name, avatar_url)"
+        );
+      if (error) {
+        console.warn("[KanbanView] team-info fetch failed:", error.message);
+        return;
+      }
       if (cancelled || !data) return;
       const grouped = new Map<string, { types: Set<string>; designers: Map<string, { name: string; avatarUrl: string | null }> }>();
       for (const row of data as any[]) {
@@ -354,10 +364,14 @@ export function KanbanView() {
         }
         const g = grouped.get(row.task_id)!;
         if (row.design_type) g.types.add(row.design_type);
-        if (row.designer?.full_name) {
-          g.designers.set(row.designer.full_name, {
-            name: row.designer.full_name,
-            avatarUrl: row.designer.avatar_url ?? null,
+        // PostgREST may return the embedded designer as an object OR a
+        // single-element array (relationship-detection quirk on a multi-FK
+        // table). Normalize so the name is always read.
+        const d = Array.isArray(row.designer) ? row.designer[0] : row.designer;
+        if (d?.full_name) {
+          g.designers.set(d.full_name, {
+            name: d.full_name,
+            avatarUrl: d.avatar_url ?? null,
           });
         }
       }
