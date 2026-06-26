@@ -287,11 +287,10 @@ export default async function handler(
     // task_counters: resetting it left the counter at 0 while restored tasks
     // still held ORD-YYYY-0001…, so the next new task collided on task_code and
     // failed. A monotonic counter is harmless.
-    const { data, error } = await (
-      admin.rpc as unknown as (
-        fn: string
-      ) => Promise<{ data: unknown; error: { message: string } | null }>
-    )("fn_clear_all_transactional");
+    // Call directly on `admin` (not a detached variable) to keep `this`.
+    const { data, error } = (await admin.rpc(
+      "fn_clear_all_transactional" as never
+    )) as unknown as { data: unknown; error: { message: string } | null };
     if (error) {
       res.status(500).json({ error: `Failed to clear all data: ${error.message}` });
       return;

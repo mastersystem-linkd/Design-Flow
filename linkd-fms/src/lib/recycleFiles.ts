@@ -45,13 +45,14 @@ export async function trashFiles(
     name: f.name ?? f.path.split("/").pop() ?? f.path,
     size: f.size ?? 0,
   }));
-  // These RPCs aren't in the generated Supabase types yet (migration 0087) —
-  // cast through `any` so the typed client doesn't reject the names.
-  const rpc = supabase.rpc as unknown as (
-    fn: string,
-    args?: Record<string, unknown>
-  ) => Promise<{ data: unknown; error: { message: string } | null }>;
-  const { data, error } = await rpc("fn_bin_storage_files", { p_files: payload });
+  // These RPCs aren't in the generated Supabase types yet (migrations 0087/0088)
+  // — cast the args/result so the typed client doesn't reject the names. MUST be
+  // called as `supabase.rpc(...)` (not via a detached variable) or the method
+  // loses its `this` binding → "Cannot read properties of undefined (reading 'rest')".
+  const { data, error } = (await supabase.rpc(
+    "fn_bin_storage_files" as never,
+    { p_files: payload } as never
+  )) as unknown as { data: unknown; error: { message: string } | null };
   if (error) return { trashed: 0, error: error.message };
   return { trashed: typeof data === "number" ? data : files.length, error: null };
 }
@@ -67,14 +68,12 @@ export async function fetchBinnedPaths(): Promise<{
   paths: Set<string>;
   error: string | null;
 }> {
-  const rpc = supabase.rpc as unknown as (
-    fn: string,
-    args?: Record<string, unknown>
-  ) => Promise<{ data: unknown; error: { message: string } | null }>;
-
   let lastErr: string | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, error } = await rpc("fn_binned_storage_paths");
+    // Call directly on `supabase` (not a detached variable) to keep `this`.
+    const { data, error } = (await supabase.rpc(
+      "fn_binned_storage_paths" as never
+    )) as unknown as { data: unknown; error: { message: string } | null };
     if (!error) {
       const rows = (data as { bucket: string; path: string }[]) ?? [];
       return { paths: new Set(rows.map((r) => `${r.bucket}::${r.path}`)), error: null };
