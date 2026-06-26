@@ -3171,9 +3171,11 @@ function TaskRow({
         const conceptParts = task.concept ? task.concept.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return (
       <td className="px-3 py-1.5 text-left align-middle">
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* Single-line cell — keep concept pills, source badge & design types on
+            one row so every row stays the same height (no wrapping). */}
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
           {conceptParts.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex gap-1">
               {conceptParts.map((p) => (
                 <span key={p} className="rounded-md border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[11px] font-medium text-foreground whitespace-nowrap">
                   {p}
@@ -3181,12 +3183,12 @@ function TaskRow({
               ))}
             </div>
           ) : (
-            <span className="font-medium text-foreground">{task.concept || "—"}</span>
+            <span className="font-medium text-foreground whitespace-nowrap">{task.concept || "—"}</span>
           )}
           <ExternalOriginBadge source={task.external_source} refId={task.external_ref_id} />
           {teamInfo && teamInfo.designTypes.length > 0 && (
             <span
-              className="text-[11px] text-muted-foreground"
+              className="whitespace-nowrap text-[11px] text-muted-foreground"
               title={teamInfo.designTypes.length > 3 ? teamInfo.designTypes.join(", ") : undefined}
             >
               {teamInfo.designTypes.length <= 3
@@ -3196,7 +3198,7 @@ function TaskRow({
           )}
           {task.status === "done" && (
             <span
-              className="inline-flex items-center gap-0.5 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-success"
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-success"
               title="Design done — add fabric to complete"
             >
               <Check className="h-2.5 w-2.5" />

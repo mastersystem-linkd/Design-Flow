@@ -17,7 +17,7 @@ export function ExternalOriginBadge({ source, refId, size = "sm" }: ExternalOrig
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md bg-primary/10 font-semibold text-primary",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-primary/10 font-semibold text-primary",
         size === "sm" && "px-1.5 py-0.5 text-[10px]",
         size === "md" && "px-2 py-0.5 text-[11px]",
       )}
