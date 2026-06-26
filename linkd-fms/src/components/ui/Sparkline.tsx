@@ -80,7 +80,7 @@ export function Sparkline({
           <stop
             offset="0%"
             stopColor={color}
-            stopOpacity={isEmpty ? 0.03 : 0.12}
+            stopOpacity={isEmpty ? 0.03 : 0.18}
           />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
@@ -94,7 +94,7 @@ export function Sparkline({
         d={linePath}
         fill="none"
         stroke={color}
-        strokeWidth={isEmpty ? 1 : 1.5}
+        strokeWidth={isEmpty ? 1 : 2}
         strokeLinecap="round"
         strokeLinejoin="round"
         opacity={isEmpty ? 0.2 : 1}
@@ -105,7 +105,7 @@ export function Sparkline({
         <circle
           cx={lastPoint.x}
           cy={lastPoint.y}
-          r={2.5}
+          r={3}
           fill={color}
         />
       )}

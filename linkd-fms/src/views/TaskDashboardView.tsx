@@ -925,48 +925,50 @@ export function MetricCard({
   const animated = useAnimatedNumber(numericValue);
   const displayValue = typeof value === "number" ? animated : value;
 
+  const hasSparkline = sparklineData && sparklineData.length >= 3;
+
   const body = (
-    <div className="flex h-full items-center gap-3 sm:gap-4">
-      {/* Icon circle */}
-      <span className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ring-inset sm:h-12 sm:w-12",
-        TONE_RING[tone]
-      )}>
-        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
-      </span>
+    <>
+      <div className="relative z-[1] flex h-full items-center gap-3 sm:gap-4">
+        {/* Icon circle */}
+        <span className={cn(
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ring-inset sm:h-12 sm:w-12",
+          TONE_RING[tone]
+        )}>
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+        </span>
 
-      {/* Text stack */}
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-          {label}
-        </p>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-xl font-bold leading-none tracking-tight tabular-nums text-foreground sm:text-2xl">
-            {displayValue}
-          </span>
-          {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
-        </div>
-        {sub && (
-          <p className="mt-0.5 text-[10px] font-medium text-muted-foreground sm:text-[11px]">{sub}</p>
-        )}
-      </div>
-
-      {/* Trend badge (top-right) */}
-      {(trend || (sparklineData && sparklineData.length >= 3)) && (
-        <div className="flex shrink-0 flex-col items-end gap-1 self-start">
-          <DeltaBadge metric={trend} invertTrend={invertTrend} />
-          {sparklineData && sparklineData.length >= 3 && (
-            <div className="hidden w-14 sm:block" role="img" aria-label={`${label} trend`}>
-              <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={20} />
-            </div>
+        {/* Text stack */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+              {label}
+            </p>
+            {trend && <DeltaBadge metric={trend} invertTrend={invertTrend} />}
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xl font-bold leading-none tracking-tight tabular-nums text-foreground sm:text-2xl">
+              {displayValue}
+            </span>
+            {pulse && <span className={cn("h-1.5 w-1.5 rounded-full animate-urgent-pulse", TONE_DOT[tone])} />}
+          </div>
+          {sub && (
+            <p className="mt-0.5 text-[10px] font-medium text-muted-foreground sm:text-[11px]">{sub}</p>
           )}
         </div>
+      </div>
+
+      {/* Sparkline — full-width area anchored to the card bottom */}
+      {hasSparkline && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 overflow-hidden rounded-b-xl" role="img" aria-label={`${label} trend`}>
+          <Sparkline data={sparklineData} color={TONE_SPARK[tone]} height={40} />
+        </div>
       )}
-    </div>
+    </>
   );
 
   const base =
-    "group relative flex h-full rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 sm:px-4 sm:py-3.5";
+    "group relative flex h-full overflow-hidden rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 sm:px-4 sm:py-3.5";
   if (!onClick) return <div className={base}>{body}</div>;
   return (
     <button
