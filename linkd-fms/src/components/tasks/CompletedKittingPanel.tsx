@@ -219,7 +219,7 @@ export function CompletedKittingPanel({
     // sample_id column may not exist yet (migration pending). Try with it
     // first; if the DB returns a column-not-found error, retry without it
     // so the panel never crashes on older schemas.
-    const BASE_COLS = "id, task_id, party_name, priority, form_date, completed_at, completed_by, form_payload, image_url, data_entry_status" as const;
+    const BASE_COLS = "id, task_id, party_name, priority, form_date, created_at, completed_at, completed_by, form_payload, image_url, data_entry_status" as const;
 
     async function runQuery(select: string) {
       let q = supabase
@@ -363,7 +363,10 @@ export function CompletedKittingPanel({
         sample_id: sampleId,
         party_name: resolvedParty,
         priority: (r.priority ?? null) as CompletedRow["priority"],
-        form_date: str(r, "form_date"),
+        // FK added during brief creation carries a form_date; FK added later
+        // (e.g. from the pool) may not — fall back to when the FK record was
+        // created so the date column never shows a bare "—".
+        form_date: str(r, "form_date") || str(r, "created_at"),
         completed_at: str(r, "completed_at"),
         completed_by: completedBy,
         task_code: parentId ? codeByParentId.get(parentId) ?? null : null,

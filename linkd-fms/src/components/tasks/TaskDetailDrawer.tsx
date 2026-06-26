@@ -3532,14 +3532,21 @@ function ActionFooter({
     void advance("done", "Marked completed ✓");
   }
 
-  // ----------------- DONE: completion badge -----------------
-  if (task.status === "done") {
+  // ----------------- DONE / COMPLETED: terminal badge -----------------
+  // `done` = design finished but completion details (fabric) not yet captured —
+  // it is NOT fully completed, so don't mislabel it. Only `completed` is closed.
+  if (task.status === "done" || task.status === "completed") {
+    const fullyCompleted = task.status === "completed";
     return (
       <FooterShell>
         <div className="flex w-full items-center justify-center gap-2 text-sm">
-          <Check className="h-4 w-4 text-success" />
-          <span className="font-medium text-foreground">Completed</span>
-          <span className="text-muted-foreground">· {formatDate(task.updated_at)}</span>
+          <Check className={cn("h-4 w-4", fullyCompleted ? "text-success" : "text-success/70")} />
+          <span className="font-medium text-foreground">
+            {fullyCompleted ? "Completed" : "Done — awaiting completion details"}
+          </span>
+          <span className="text-muted-foreground">
+            · {formatDate(task.completed_at ?? task.updated_at)}
+          </span>
         </div>
       </FooterShell>
     );

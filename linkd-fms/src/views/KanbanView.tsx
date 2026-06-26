@@ -3211,15 +3211,6 @@ function TaskRow({
                 : `${teamInfo.designTypes.slice(0, 3).join(", ")} +${teamInfo.designTypes.length - 3}`}
             </span>
           )}
-          {task.status === "done" && (
-            <span
-              className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-success"
-              title="Design done — add fabric to complete"
-            >
-              <Check className="h-2.5 w-2.5" />
-              Done
-            </span>
-          )}
         </div>
       </td>
         );
