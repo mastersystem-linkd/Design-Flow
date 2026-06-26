@@ -107,8 +107,20 @@ export function TaskDashboardView() {
   const [source, setSource] = useState<SourceLens>("all");
   const a = useTaskAnalytics(period, customRange, source);
   const { tasks } = useTasks();
+  // The pending-sample chip must respect the Internal/ERP lens too: internal =
+  // task-completion samples, ERP = sales_erp samples, all = both. (Previously
+  // hardcoded to both, so it showed the combined total under every lens.)
+  const pendingSampleSources = useMemo<("task_completion" | "sales_erp")[]>(
+    () =>
+      source === "internal"
+        ? ["task_completion"]
+        : source === "erp"
+          ? ["sales_erp"]
+          : ["task_completion", "sales_erp"],
+    [source]
+  );
   const { totalCount: pendingSampleCount } = useSamples({
-    source: ["task_completion", "sales_erp"],
+    source: pendingSampleSources,
     sampleStatus: "pending",
   });
 
