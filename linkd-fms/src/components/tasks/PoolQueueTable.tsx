@@ -46,6 +46,8 @@ export interface PoolQueueTableProps {
   onDeleteTask?: (task: TaskWithRelations) => void;
   /** Called when admin clicks "Split Task" from the row menu. */
   onSplitTask?: (task: TaskWithRelations) => void;
+  /** Called when admin/coordinator clicks "Full Knitting" from the row menu. */
+  onFullKitting?: (task: TaskWithRelations) => void;
   /** The pipeline stepper JSX to render as the table header. */
   headerSlot?: React.ReactNode;
   /** Table density class — "compact" or "comfortable". */
@@ -104,6 +106,7 @@ export function PoolQueueTable({
   onEditTask,
   onDeleteTask,
   onSplitTask,
+  onFullKitting,
   headerSlot,
   tableDensity,
   urgentOnly = false,
@@ -282,6 +285,7 @@ export function PoolQueueTable({
           onEdit={onEditTask ? () => onEditTask(task) : undefined}
           onDelete={onDeleteTask ? () => onDeleteTask(task) : undefined}
           onSplit={onSplitTask ? () => onSplitTask(task) : undefined}
+          onFullKitting={onFullKitting ? () => onFullKitting(task) : undefined}
           assignedDesigners={splitAssignments[task.id]}
         />
       );
@@ -358,6 +362,7 @@ interface PoolRowProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onSplit?: () => void;
+  onFullKitting?: () => void;
   assignedDesigners?: { name: string; qty: number }[];
 }
 
@@ -376,6 +381,7 @@ function PoolRow({
   onEdit,
   onDelete,
   onSplit,
+  onFullKitting,
   assignedDesigners,
 }: PoolRowProps) {
   const isUrgent = task.priority === "urgent";
@@ -541,6 +547,7 @@ function PoolRow({
               onEdit={onEdit}
               onDelete={onDelete}
               onSplit={onSplit}
+              onFullKitting={onFullKitting}
             />
           )}
         </div>
@@ -696,6 +703,7 @@ function PoolRowActionMenu({
   onEdit,
   onDelete,
   onSplit,
+  onFullKitting,
 }: {
   role: UserRole;
   task: TaskWithRelations;
@@ -704,6 +712,7 @@ function PoolRowActionMenu({
   onEdit?: () => void;
   onDelete?: () => void;
   onSplit?: () => void;
+  onFullKitting?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -834,6 +843,20 @@ function PoolRowActionMenu({
               >
                 <Scissors className="h-3.5 w-3.5 text-muted-foreground" />
                 {task.is_split ? "Manage Split" : "Split Task"}
+              </button>
+            )}
+            {isAdmin && onFullKitting && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  onFullKitting();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+              >
+                <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                Full Knitting
               </button>
             )}
           </div>,

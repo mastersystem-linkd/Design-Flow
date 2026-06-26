@@ -1437,6 +1437,7 @@ export function KanbanView() {
               onEditTask={isAdmin ? setEditTask : undefined}
               onDeleteTask={isAdmin ? setDeleteTask : undefined}
               onSplitTask={isAdmin ? setSplitTask : undefined}
+              onFullKitting={isAdmin ? (task) => setFkDrawerTask(task) : undefined}
               headerSlot={pipelineStepper}
               tableDensity={tableDensity}
               urgentOnly={filter === "urgent"}
