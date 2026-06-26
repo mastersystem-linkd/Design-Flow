@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2, Clock, Timer, PlusCircle, AlertTriangle,
-  LayoutGrid, Trophy, ChevronUp, ChevronDown, ChevronRight,
+  LayoutGrid, ChevronUp, ChevronDown, ChevronRight,
   Package, Flame, Zap, Building2, Lightbulb, Activity,
   FlaskConical, Layers,
 } from "lucide-react";
@@ -27,6 +27,7 @@ import {
 } from "@/hooks/useTaskAnalytics";
 import { KpiCard } from "@/components/analytics/KpiCard";
 import { Cube3D } from "@/components/analytics/Cube3D";
+import { Trophy3D } from "@/components/analytics/Trophy3D";
 import { WorkloadDistribution } from "@/components/analytics/WorkloadDistribution";
 import { AtRiskTasks } from "@/components/analytics/AtRiskTasks";
 import { DesignerScorecardDrawer } from "@/components/analytics/DesignerScorecardDrawer";
@@ -1153,7 +1154,7 @@ function DashboardTabButton({
 // ============================================================================
 
 type SortKey = "score" | "completed" | "onTime" | "avgDays" | "assigned";
-const RANK_EMOJI: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
+const TOP_3 = new Set([1, 2, 3]);
 
 // ============================================================================
 // Designer's personal task list
@@ -1438,7 +1439,7 @@ function TaskLeaderboard({
     <Card>
       <CardContent className="py-4">
         <div className="mb-4 flex items-center gap-2">
-          <Trophy className="h-5 w-5 text-warning" />
+          <Trophy3D rank={1} size={24} />
           <h3 className="text-sm font-semibold text-foreground sm:text-lg">Designer Task Performance</h3>
         </div>
 
@@ -1446,7 +1447,6 @@ function TaskLeaderboard({
         <div className="space-y-2 sm:hidden">
           {sorted.map((d, i) => {
             const rank = i + 1;
-            const emoji = RANK_EMOJI[rank];
             const otRatio = d.assigned > 0 ? d.onTime / d.assigned : 0;
             const scoreColor = d.score >= 90 ? "bg-success" : d.score >= 75 ? "bg-warning" : "bg-destructive";
             return (
@@ -1460,7 +1460,7 @@ function TaskLeaderboard({
                 )}
               >
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-lg">{emoji ?? <span className="text-sm text-muted-foreground">#{rank}</span>}</span>
+                  {TOP_3.has(rank) ? <Trophy3D rank={rank as 1|2|3} size={24} /> : <span className="text-sm text-muted-foreground">#{rank}</span>}
                   <Avatar className="h-8 w-8">
                     {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
                     <AvatarFallback className="bg-primary/10 text-primary text-[10px]">{getInitials(d.full_name)}</AvatarFallback>
@@ -1502,7 +1502,6 @@ function TaskLeaderboard({
             <tbody>
               {sorted.map((d, i) => {
                 const rank = i + 1;
-                const emoji = RANK_EMOJI[rank];
                 const otRatio = d.assigned > 0 ? d.onTime / d.assigned : 0;
                 const scoreColor = d.score >= 90 ? "bg-success" : d.score >= 75 ? "bg-warning" : "bg-destructive";
 
@@ -1517,7 +1516,7 @@ function TaskLeaderboard({
                     )}
                   >
                     <td className={cn("px-4 py-3 text-center", rank === 1 && "bg-warning/10", rank === 2 && "bg-muted/20", rank === 3 && "bg-warning/5")}>
-                      {emoji ?? <span className="text-muted-foreground">{rank}</span>}
+                      {TOP_3.has(rank) ? <div className="inline-flex justify-center"><Trophy3D rank={rank as 1|2|3} size={26} /></div> : <span className="text-muted-foreground">{rank}</span>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">

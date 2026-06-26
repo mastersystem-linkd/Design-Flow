@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Trophy, ChevronUp, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronRight } from "lucide-react";
+import { Trophy3D } from "@/components/analytics/Trophy3D";
 import {
   Card,
   CardContent,
@@ -16,7 +17,7 @@ import type { ConceptWithRelations } from "@/types/database";
 
 type SortKey = "score" | "submitted" | "approved" | "rejected" | "revisions";
 
-const RANK_EMOJI: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
+const TOP_3 = new Set([1, 2, 3]);
 
 // ============================================================================
 // Main component
@@ -60,7 +61,7 @@ export function DesignerLeaderboard({
         <CardContent className="py-4">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Trophy className="h-5 w-5 text-warning" />
+              <Trophy3D rank={1} size={24} />
               <div>
                 <h3 className="text-sm font-semibold text-foreground sm:text-lg">
                   Designer Concept Performance
@@ -77,7 +78,6 @@ export function DesignerLeaderboard({
           <div className="space-y-2 sm:hidden">
             {sorted.map((d, i) => {
               const rank = i + 1;
-              const emoji = RANK_EMOJI[rank];
               const scoreColor =
                 d.score >= 90 ? "bg-success" : d.score >= 75 ? "bg-warning" : "bg-destructive";
               return (
@@ -89,7 +89,7 @@ export function DesignerLeaderboard({
                   className="group flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors active:scale-[0.99] hover:bg-secondary/50"
                 >
                   <div className="flex flex-col items-center gap-1">
-                    <span className="text-lg">{emoji ?? <span className="text-sm text-muted-foreground">#{rank}</span>}</span>
+                    {TOP_3.has(rank) ? <Trophy3D rank={rank as 1|2|3} size={24} /> : <span className="text-sm text-muted-foreground">#{rank}</span>}
                     <Avatar className="h-8 w-8">
                       {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
                       <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
@@ -140,7 +140,6 @@ export function DesignerLeaderboard({
               <tbody>
                 {sorted.map((d, i) => {
                   const rank = i + 1;
-                  const emoji = RANK_EMOJI[rank];
                   const progressPct = Math.min(100, (d.approved / d.target) * 100);
                   const progressColor =
                     d.approved >= 3 ? "bg-success" : d.approved >= 1 ? "bg-warning" : "bg-destructive";
@@ -160,7 +159,7 @@ export function DesignerLeaderboard({
                       )}
                     >
                       <td className="px-4 py-3 text-center">
-                        {emoji ?? <span className="text-muted-foreground">{rank}</span>}
+                        {TOP_3.has(rank) ? <div className="inline-flex justify-center"><Trophy3D rank={rank as 1|2|3} size={26} /></div> : <span className="text-muted-foreground">{rank}</span>}
                       </td>
 
                       <td className="px-4 py-3">
