@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Target, Trophy, Flame, Calendar } from "lucide-react";
+import { Trophy, Flame, Calendar } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -64,42 +64,21 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
   const teamProgressPct = Math.round((totalApproved / Math.max(1, teamTarget)) * 100);
   const champion = [...data].sort((a, b) => b.approvedCount - a.approvedCount)[0];
 
-  const radialColor =
-    teamRate >= 80
-      ? "stroke-success"
-      : teamRate >= 50
-      ? "stroke-warning"
-      : "stroke-destructive";
-
-  // Pushed to a 240px viewBox with r=96 so the donut fills the column and
-  // reads as the hero of the card. Stroke 20 to match — at this radius a
-  // thin stroke looks anaemic. The arc paints a gradient (deep→light hue
-  // along the sweep) for a richer look than a flat colored ring.
-  const r = 96;
-  const c = 2 * Math.PI * r;
-  const dash = mounted ? (teamRate / 100) * c : 0;
-
-  // Tier-driven gradient ids — different `id`s per render lets multiple
-  // hero cards coexist on the page without sharing strokes (Concept and
-  // future variants).
-  const gradId = "team-target-gradient";
-  const glowId = "team-target-glow";
-  const gradStart =
-    teamRate >= 80
-      ? "rgb(34, 197, 94)"  // success-500 — bright leaf
-      : teamRate >= 50
-      ? "rgb(245, 158, 11)" // warning-500 — amber
-      : "rgb(239, 68, 68)"; // destructive-500 — coral
-  const gradEnd =
-    teamRate >= 80
-      ? "rgb(74, 222, 128)" // success-400 — lighter mint
-      : teamRate >= 50
-      ? "rgb(251, 191, 36)" // warning-400 — sun
-      : "rgb(248, 113, 113)"; // destructive-400 — peach
+  const tone: "success" | "warning" | "destructive" =
+    teamRate >= 80 ? "success" : teamRate >= 50 ? "warning" : "destructive";
 
   return (
-    <Card className="h-full overflow-hidden">
-      <CardContent className="flex h-full flex-col gap-3 py-4">
+    <Card className="relative h-full overflow-hidden">
+      {/* soft tier-tinted wash for a high-tech backdrop */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{
+          background:
+            "radial-gradient(120% 70% at 0% 0%, rgb(var(--warning)/0.06), transparent 55%)",
+        }}
+      />
+      <CardContent className="relative flex h-full flex-col gap-3 py-4">
         {/* Header */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -115,92 +94,41 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
           )}
         </div>
 
-        {/* Hero row — donut + headline side-by-side. */}
+        {/* Hero row — 3D target gyro + headline side-by-side. */}
         <div className="flex items-center gap-4">
-          <div className="relative h-[120px] w-[120px] shrink-0">
-            {teamRate >= 50 && (
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0 rounded-full opacity-40 blur-2xl"
-                style={{
-                  background: `radial-gradient(closest-side, ${gradStart} 0%, transparent 70%)`,
-                }}
-              />
-            )}
-            <svg viewBox="0 0 240 240" className="-rotate-90 h-full w-full" aria-hidden>
-              <defs>
-                <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor={gradStart} />
-                  <stop offset="100%" stopColor={gradEnd} />
-                </linearGradient>
-                <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="2" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <circle
-                cx="120"
-                cy="120"
-                r={r}
-                className="fill-none stroke-secondary"
-                strokeWidth={20}
-              />
-              <circle
-                cx="120"
-                cy="120"
-                r={r}
-                stroke={`url(#${gradId})`}
-                fill="none"
-                strokeWidth={20}
-                strokeDasharray={c}
-                strokeDashoffset={c - dash}
-                strokeLinecap="round"
-                filter={`url(#${glowId})`}
-                style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.4,0,0.2,1)" }}
-              />
-              {mounted && teamRate > 0 && (
-                <circle
-                  cx="120"
-                  cy="120"
-                  r="5"
-                  fill={gradEnd}
-                  transform={`rotate(${(teamRate / 100) * 360 - 90} 120 120) translate(${r} 0)`}
-                  style={{ transition: "transform 900ms cubic-bezier(0.4,0,0.2,1)" }}
-                />
-              )}
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <Target className={cn("h-3 w-3", radialColor.replace("stroke-", "text-"))} />
-              <p className="text-2xl font-bold leading-none tabular-nums text-foreground">
-                {teamRate}
-                <span className="text-sm font-semibold text-muted-foreground">%</span>
-              </p>
-              <p className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                on target
-              </p>
-            </div>
+          <div className="shrink-0">
+            <TargetGyro pct={teamRate} tone={tone} />
           </div>
 
-          {/* Headline numbers — right column of the hero */}
-          <div className="min-w-0 flex-1">
-            <p className="text-2xl font-bold tabular-nums leading-none text-foreground">
-              {onTarget}
-              <span className="text-base font-normal text-muted-foreground">
-                {" "}/ {totalDesigners}
-              </span>
-            </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              designers hit <b className="text-foreground">{TARGET}</b> approved
-            </p>
-            <p className="mt-1.5 rounded-md bg-secondary/40 px-2 py-0.5 text-[10px] text-muted-foreground">
-              <span className="font-semibold tabular-nums text-foreground">
-                {totalApproved}/{teamTarget}
-              </span>{" "}
-              concepts approved this month
-            </p>
+          {/* Headline numbers + concepts-approved progress */}
+          <div className="min-w-0 flex-1 space-y-2.5">
+            <div>
+              <p className="text-2xl font-bold tabular-nums leading-none text-foreground">
+                {onTarget}
+                <span className="text-base font-normal text-muted-foreground">
+                  {" "}/ {totalDesigners}
+                </span>
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                designers hit <b className="text-foreground">{TARGET}</b> approved this month
+              </p>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="font-medium uppercase tracking-wider text-muted-foreground">
+                  Concepts approved
+                </span>
+                <span className="font-semibold tabular-nums text-foreground">
+                  {totalApproved}/{teamTarget}
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-secondary/60">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-primary via-primary to-primary/60 shadow-[0_0_10px_-2px_rgb(var(--primary)/0.6)] transition-[width] duration-1000 ease-out"
+                  style={{ width: `${mounted ? Math.min(100, teamProgressPct) : 0}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -277,6 +205,61 @@ export function TeamTargetHero({ data, periodStart, periodEnd }: Props) {
 
 /* -------------------------------------------------------------------------- */
 
+// TargetGyro — an always-on 3D "gyroscope" of target rings (pure CSS 3D, no
+// three.js). Three concentric rings orbit on different axes for an elegant,
+// minimal high-tech centrepiece; the live % sits flat in the middle. Rings
+// are tinted by tier and the whole thing freezes under reduced-motion.
+function TargetGyro({
+  pct,
+  tone,
+}: {
+  pct: number;
+  tone: "success" | "warning" | "destructive";
+}) {
+  const toneVar =
+    tone === "success" ? "--success" : tone === "warning" ? "--warning" : "--destructive";
+  return (
+    <div className="tg-scene">
+      <style>{`
+        .tg-scene { position: relative; width: 116px; height: 116px; perspective: 360px; }
+        .tg-rings { position: absolute; inset: 0; transform-style: preserve-3d; }
+        .tg-ring { position: absolute; border-radius: 9999px; border-style: solid; border-width: 2px; will-change: transform; }
+        .tg-r1 { inset: 6px;  animation: tg-x 7s linear infinite; }
+        .tg-r2 { inset: 22px; animation: tg-y 5.5s linear infinite; }
+        .tg-r3 { inset: 38px; animation: tg-xy 9s linear infinite; }
+        @keyframes tg-x  { to { transform: rotateX(360deg); } }
+        @keyframes tg-y  { to { transform: rotateY(360deg); } }
+        @keyframes tg-xy { to { transform: rotateX(360deg) rotateY(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+          .tg-r1 { transform: rotateX(64deg); animation: none; }
+          .tg-r2 { transform: rotateY(64deg); animation: none; }
+          .tg-r3 { transform: rotateX(48deg) rotateY(48deg); animation: none; }
+        }
+      `}</style>
+      <div className="tg-rings">
+        <span className="tg-ring tg-r1" style={{ borderColor: `rgb(var(${toneVar}) / 0.75)` }} />
+        <span className="tg-ring tg-r2" style={{ borderColor: "rgb(var(--primary) / 0.55)" }} />
+        <span className="tg-ring tg-r3" style={{ borderColor: `rgb(var(${toneVar}) / 0.6)` }} />
+      </div>
+      {/* soft glow */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-full opacity-40 blur-2xl"
+        style={{ background: `radial-gradient(closest-side, rgb(var(${toneVar})/0.45), transparent 70%)` }}
+      />
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <p className="text-2xl font-bold leading-none tabular-nums text-foreground">
+          {pct}
+          <span className="text-sm font-semibold text-muted-foreground">%</span>
+        </p>
+        <p className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          on target
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function Divider() {
   return <span className="mx-1.5 h-3 w-px shrink-0 bg-border" />;
 }
@@ -287,24 +270,38 @@ function DesignerRow({ entry }: { entry: TargetRaceEntry }) {
     : entry.approvedCount > 0
       ? "text-warning"
       : "text-muted-foreground";
+  const barColor = entry.isOnTarget
+    ? "bg-success"
+    : entry.approvedCount > 0
+      ? "bg-warning"
+      : "bg-muted-foreground/30";
+  const pct = Math.min(100, Math.round((entry.approvedCount / TARGET) * 100));
 
   return (
     <div
-      className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/40 px-1.5 py-1 transition-colors hover:border-primary/30 hover:bg-card"
+      className="flex flex-col gap-1 rounded-lg border border-border/60 bg-card/40 px-2 py-1.5 transition-all hover:border-primary/30 hover:bg-card hover:shadow-card-soft"
       title={`${entry.name} — ${entry.approvedCount}/${TARGET} approved`}
     >
-      <Avatar className="h-4 w-4 shrink-0">
-        {entry.avatarUrl ? <AvatarImage src={entry.avatarUrl} /> : null}
-        <AvatarFallback className="bg-primary/10 text-[7px] text-primary">
-          {getInitials(entry.name)}
-        </AvatarFallback>
-      </Avatar>
-      <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-foreground">
-        {entry.name.split(" ")[0]}
-      </span>
-      <span className={cn("shrink-0 text-[9px] font-semibold tabular-nums", countColor)}>
-        {entry.approvedCount}/{TARGET}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <Avatar className="h-5 w-5 shrink-0">
+          {entry.avatarUrl ? <AvatarImage src={entry.avatarUrl} /> : null}
+          <AvatarFallback className="bg-primary/10 text-[8px] text-primary">
+            {getInitials(entry.name)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+          {entry.name.split(" ")[0]}
+        </span>
+        <span className={cn("shrink-0 text-[10px] font-semibold tabular-nums", countColor)}>
+          {entry.approvedCount}/{TARGET}
+        </span>
+      </div>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-secondary/60">
+        <div
+          className={cn("h-full rounded-full transition-[width] duration-700", barColor)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }

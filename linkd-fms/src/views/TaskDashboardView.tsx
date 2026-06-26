@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2, Clock, Timer, PlusCircle, AlertTriangle,
   LayoutGrid, Trophy, ChevronUp, ChevronDown, ChevronRight,
@@ -909,6 +909,7 @@ export function MetricCard({
   invertTrend,
   pulse,
   onClick,
+  tilt,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -920,6 +921,8 @@ export function MetricCard({
   invertTrend?: boolean;
   pulse?: boolean;
   onClick?: () => void;
+  /** Opt-in subtle cursor-follow 3D tilt (≤4.5°). Off by default. */
+  tilt?: boolean;
 }) {
   const numericValue = typeof value === "number" ? value : 0;
   const animated = useAnimatedNumber(numericValue);
@@ -936,10 +939,11 @@ export function MetricCard({
   const body = (
     <>
       <div className="relative z-[1] flex h-full items-center gap-3 sm:gap-4">
-        {/* Icon circle */}
+        {/* Icon circle — gentle always-on float when tilt is enabled */}
         <span className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ring-inset sm:h-12 sm:w-12",
-          TONE_RING[tone]
+          TONE_RING[tone],
+          tilt && "df-float"
         )}>
           <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </span>
@@ -973,9 +977,49 @@ export function MetricCard({
     </>
   );
 
+  // Opt-in cursor-follow 3D tilt (idea #3) — max 4.5°, paired with a small
+  // lift. Skipped under prefers-reduced-motion. Callback ref works for both
+  // the div and button wrappers.
+  const tiltEl = useRef<HTMLElement | null>(null);
+  const tiltProps = tilt
+    ? {
+        ref: (el: HTMLElement | null) => {
+          tiltEl.current = el;
+        },
+        onMouseMove: (e: React.MouseEvent) => {
+          const el = tiltEl.current;
+          if (!el || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+            return;
+          const r = el.getBoundingClientRect();
+          const px = (e.clientX - r.left) / r.width - 0.5;
+          const py = (e.clientY - r.top) / r.height - 0.5;
+          el.style.transform = `perspective(900px) rotateX(${(-py * 4.5).toFixed(2)}deg) rotateY(${(px * 4.5).toFixed(2)}deg) translateY(-2px)`;
+        },
+        onMouseLeave: () => {
+          if (tiltEl.current) tiltEl.current.style.transform = "";
+        },
+        style: {
+          transformStyle: "preserve-3d" as const,
+          transition: "transform 250ms cubic-bezier(.16,1,.3,1)",
+        },
+      }
+    : {};
+
+  // Always-on premium light sweep (only on tilt-enabled cards). Sits behind the
+  // content (z-0) and is clipped by the card's overflow-hidden.
+  const sheen = tilt ? (
+    <span aria-hidden className="df-sheen pointer-events-none absolute inset-0 z-0" />
+  ) : null;
+
   const base =
-    "group relative flex h-full overflow-hidden rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 sm:px-4 sm:py-3.5";
-  if (!onClick) return <div className={base}>{body}</div>;
+    "group relative flex h-full overflow-hidden rounded-xl border border-border bg-card px-3 py-3 shadow-sm transition-all duration-200 hover:[border-color:var(--border-strong)] sm:px-4 sm:py-3.5";
+  if (!onClick)
+    return (
+      <div className={base} {...tiltProps}>
+        {sheen}
+        {body}
+      </div>
+    );
   return (
     <button
       type="button"
@@ -984,7 +1028,9 @@ export function MetricCard({
         base,
         "outline-none hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-primary/40"
       )}
+      {...tiltProps}
     >
+      {sheen}
       {body}
     </button>
   );

@@ -14,8 +14,9 @@ import {
   Sparkles,
   Calendar,
   Palette,
-  Layers,
+  ArrowUpRight,
 } from "lucide-react";
+import { useAnimatedNumber } from "@/hooks/useAnimatedNumber";
 import { useAuth } from "@/hooks/useAuth";
 import { useAnalytics, type Period } from "@/hooks/useAnalytics";
 import { useConcepts } from "@/hooks/useConcepts";
@@ -204,16 +205,29 @@ export function AnalyticsView({
                 <Download className="h-3.5 w-3.5" />
               </Button>
             )}
-            <div className="inline-flex rounded-lg bg-secondary p-1">
+            {/* Segmented control with a sliding pill that springs between
+                positions (idea #7). Equal-width grid slots keep the pill
+                aligned under each label; reduced-motion makes the slide instant. */}
+            <div className="relative grid grid-cols-3 rounded-lg bg-secondary p-1">
+              <span
+                aria-hidden
+                className="absolute inset-y-1 rounded-md bg-primary shadow-sm"
+                style={{
+                  width: "calc((100% - 0.5rem) / 3)",
+                  left: "0.25rem",
+                  transform: `translateX(${Math.max(0, PERIODS.findIndex((p) => p.value === period)) * 100}%)`,
+                  transition: "transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+                }}
+              />
               {PERIODS.map((p) => (
                 <button
                   key={p.value}
                   type="button"
                   onClick={() => setPeriod(p.value)}
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    "relative z-10 rounded-md px-3 py-1.5 text-center text-xs font-medium transition-colors duration-200",
                     period === p.value
-                      ? "bg-primary text-white"
+                      ? "text-white"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -312,14 +326,17 @@ export function AnalyticsView({
           </CardContent>
         </Card>
       ) : (
-        /* ── ADMIN / COORDINATOR VIEW ── */
-        <>
+        /* ── ADMIN / COORDINATOR VIEW ──
+           key={period} remounts the subtree on Week/Month/Quarter switch so the
+           whole dashboard visibly re-staggers in each time. */
+        <div key={period} className="space-y-3">
           {/* KPI cards — clean bordered grid (Linear/Vercel idiom), matching
               the rebuilt Task Dashboard hero: high-contrast numerals, trend
               pill, quiet sparkline, subtle hover lift. No divided-cell strip,
               no decorative wrapper — hierarchy from grouping + contrast. */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
+          <div className="df-rise grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
             <MetricCard
+              tilt
               icon={FileText}
               label="Concepts Submitted"
               tone="primary"
@@ -330,6 +347,7 @@ export function AnalyticsView({
               onClick={() => navigate(`${ROUTES.concepts}?tab=all`)}
             />
             <MetricCard
+              tilt
               icon={CheckCircle2}
               label="Approved"
               tone={a.kpis.approvalRate.current > 80 ? "success" : a.kpis.approvalRate.current < 50 ? "destructive" : "success"}
@@ -340,6 +358,7 @@ export function AnalyticsView({
               onClick={() => navigate(`${ROUTES.concepts}?tab=approved`)}
             />
             <MetricCard
+              tilt
               icon={PackageCheck}
               label="Completed"
               tone={a.kpis.completionRate.current >= 70 ? "success" : a.kpis.completionRate.current >= 40 ? "warning" : "muted"}
@@ -350,6 +369,7 @@ export function AnalyticsView({
               onClick={() => navigate(`${ROUTES.concepts}?tab=completed`)}
             />
             <MetricCard
+              tilt
               icon={RotateCcw}
               label="Avg Review Time"
               tone={a.kpis.avgApprovalHours.current === 0 ? "muted" : a.kpis.avgApprovalHours.current < 24 ? "success" : a.kpis.avgApprovalHours.current < 48 ? "warning" : "destructive"}
@@ -362,17 +382,26 @@ export function AnalyticsView({
             />
           </div>
 
-          {/* ── Print Production Pipeline — post-approval lifecycle ── */}
-          <Card>
-            <CardContent className="p-3 sm:p-4">
+          {/* ── Concepts Pipeline — review → completion lifecycle ── */}
+          <Card className="df-rise relative overflow-hidden" style={{ animationDelay: "90ms" }}>
+            {/* faint high-tech grid wash behind the stage tiles */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 opacity-[0.5]"
+              style={{
+                background:
+                  "radial-gradient(120% 80% at 100% 0%, rgb(var(--primary)/0.05), transparent 60%)",
+              }}
+            />
+            <CardContent className="relative p-3 sm:p-4">
               <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
-                    <Layers className="h-[18px] w-[18px]" />
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-transparent ring-1 ring-inset ring-primary/15 shadow-glow-soft">
+                    <PipelineCube />
                   </span>
                   <div className="leading-tight">
-                    <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Print Production Pipeline</h3>
-                    <p className="text-[11px] font-medium text-muted-foreground">Post-approval lifecycle</p>
+                    <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Concepts Pipeline</h3>
+                    <p className="text-[11px] font-medium text-muted-foreground">Review → completion lifecycle</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -387,7 +416,7 @@ export function AnalyticsView({
                 </div>
               </header>
 
-              <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 sm:gap-2 xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 sm:gap-3 xl:grid-cols-6">
                 {/* First-time MD review queue. Sits at the front of the strip
                     because nothing else in the pipeline moves until these
                     are decided. */}
@@ -568,7 +597,7 @@ export function AnalyticsView({
           </Card>
 
           {/* Charts + Pipeline — compact 2-col row */}
-          <div className="grid gap-2.5 lg:grid-cols-3">
+          <div className="df-rise grid gap-2.5 lg:grid-cols-3" style={{ animationDelay: "180ms" }}>
             <div className="lg:col-span-2">
               <VolumeChart
                 data={a.volumeData}
@@ -582,7 +611,7 @@ export function AnalyticsView({
               (2:3 of a 5-col grid). MD Review stretches to match the taller
               Target card. When MD Review is hidden (designers), Target spans
               the full row. */}
-          <div className="grid items-stretch gap-2.5 lg:grid-cols-5">
+          <div className="df-rise grid items-stretch gap-2.5 lg:grid-cols-5" style={{ animationDelay: "270ms" }}>
             {isAdminCheck(role) && (
               <div className="h-full lg:col-span-2">
                 <MdReviewPanel stats={a.mdReview} />
@@ -598,8 +627,10 @@ export function AnalyticsView({
           </div>
 
           {/* Designer Leaderboard — single source of per-designer performance */}
-          <DesignerLeaderboard data={a.designerStats} concepts={concepts} />
-        </>
+          <div className="df-rise" style={{ animationDelay: "360ms" }}>
+            <DesignerLeaderboard data={a.designerStats} concepts={concepts} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -669,10 +700,97 @@ function PersonalTargetRing({ approved, target }: { approved: number; target: nu
 // Work-status pipeline mini components
 // ============================================================================
 
-/**
- * Compact pipeline counter. Each tone maps to a token-backed background so
- * the pill adapts to light/dark theme without a per-mode override.
- */
+// A small, always-on 3D cube (pure CSS 3D — no three.js) for the pipeline
+// header. Continuously rotates for an elegant, minimal "high-tech" accent;
+// freezes under prefers-reduced-motion. Scoped <style> keeps it self-contained.
+function PipelineCube() {
+  return (
+    <div className="cp-cube-scene" aria-hidden>
+      <style>{`
+        .cp-cube-scene { width: 30px; height: 30px; perspective: 140px; }
+        .cp-cube {
+          position: relative; width: 30px; height: 30px;
+          transform-style: preserve-3d;
+          animation: cp-cube-spin 9s linear infinite;
+          will-change: transform;
+        }
+        .cp-cube-face {
+          position: absolute; inset: 0; border-radius: 5px;
+          border: 1px solid rgb(var(--primary) / 0.55);
+          background: linear-gradient(135deg, rgb(var(--primary) / 0.18), rgb(var(--primary) / 0.04));
+          box-shadow: inset 0 0 8px rgb(var(--primary) / 0.18);
+        }
+        .cp-cf-front  { transform: translateZ(15px); }
+        .cp-cf-back   { transform: rotateY(180deg) translateZ(15px); }
+        .cp-cf-right  { transform: rotateY(90deg)  translateZ(15px); }
+        .cp-cf-left   { transform: rotateY(-90deg) translateZ(15px); }
+        .cp-cf-top    { transform: rotateX(90deg)  translateZ(15px); }
+        .cp-cf-bottom { transform: rotateX(-90deg) translateZ(15px); }
+        @keyframes cp-cube-spin {
+          from { transform: rotateX(-22deg) rotateY(0deg); }
+          to   { transform: rotateX(-22deg) rotateY(360deg); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .cp-cube { animation: none; transform: rotateX(-22deg) rotateY(-32deg); }
+        }
+      `}</style>
+      <div className="cp-cube">
+        <span className="cp-cube-face cp-cf-front" />
+        <span className="cp-cube-face cp-cf-back" />
+        <span className="cp-cube-face cp-cf-right" />
+        <span className="cp-cube-face cp-cf-left" />
+        <span className="cp-cube-face cp-cf-top" />
+        <span className="cp-cube-face cp-cf-bottom" />
+      </div>
+    </div>
+  );
+}
+
+// Pipeline stage tile — a minimalist "3D" card: it tilts toward the cursor
+// (perspective + parallax depth on the inner layers) and lifts with a soft
+// tone-tinted glow. Motion is cursor-driven and fully skipped under
+// prefers-reduced-motion; the count-up self-disables there too.
+const STAGE_TONES: Record<
+  string,
+  { text: string; ring: string; chip: string; glow: string; accent: string }
+> = {
+  muted: {
+    text: "text-muted-foreground",
+    ring: "ring-border",
+    chip: "bg-muted/30 text-muted-foreground",
+    glow: "rgb(var(--muted-foreground)/0.20)",
+    accent: "from-muted-foreground/40 to-transparent",
+  },
+  primary: {
+    text: "text-primary",
+    ring: "ring-primary/25",
+    chip: "bg-primary/10 text-primary",
+    glow: "rgb(var(--primary)/0.30)",
+    accent: "from-primary to-primary/20",
+  },
+  warning: {
+    text: "text-warning",
+    ring: "ring-warning/25",
+    chip: "bg-warning/10 text-warning",
+    glow: "rgb(var(--warning)/0.30)",
+    accent: "from-warning to-warning/20",
+  },
+  destructive: {
+    text: "text-destructive",
+    ring: "ring-destructive/25",
+    chip: "bg-destructive/10 text-destructive",
+    glow: "rgb(var(--destructive)/0.30)",
+    accent: "from-destructive to-destructive/20",
+  },
+  success: {
+    text: "text-success",
+    ring: "ring-success/25",
+    chip: "bg-success/10 text-success",
+    glow: "rgb(var(--success)/0.30)",
+    accent: "from-success to-success/20",
+  },
+};
+
 function WorkPill({
   icon,
   label,
@@ -687,34 +805,77 @@ function WorkPill({
   href: string;
 }) {
   const navigate = useNavigate();
-  const toneClass = {
-    muted:       "bg-muted/20 text-muted-foreground border-border border-l-muted-foreground",
-    primary:     "bg-primary/10 text-primary border-primary/30 border-l-primary",
-    warning:     "bg-warning/10 text-warning border-warning/30 border-l-warning",
-    destructive: "bg-destructive/10 text-destructive border-destructive/30 border-l-destructive",
-    success:     "bg-success/10 text-success border-success/30 border-l-success",
-  }[tone];
+  const ref = useRef<HTMLButtonElement>(null);
+  const animated = useAnimatedNumber(value);
+  const t = STAGE_TONES[tone];
+
+  const handleMove = (e: React.MouseEvent) => {
+    const el = ref.current;
+    if (!el) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    el.style.transform = `perspective(620px) rotateX(${(-py * 7).toFixed(2)}deg) rotateY(${(px * 7).toFixed(2)}deg) translateY(-3px)`;
+  };
+  const handleLeave = () => {
+    if (ref.current) ref.current.style.transform = "";
+  };
 
   return (
     <button
+      ref={ref}
       type="button"
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
       onClick={() => navigate(href)}
+      style={{
+        transformStyle: "preserve-3d",
+        transition: "transform 280ms cubic-bezier(.16,1,.3,1), box-shadow 280ms ease",
+        ["--stage-glow" as string]: t.glow,
+      }}
       className={cn(
-        // Mobile: vertical stack (icon+label on top, big value below) so long
-        //         labels like "Pending Approval" / "In Revision" never get
-        //         cropped in the 2-column mobile grid.
-        // Desktop (sm+): horizontal layout with justify-between.
-        "flex flex-col items-start gap-0.5 rounded-lg border border-l-[3px] px-2 py-2 text-left transition-all duration-200 hover:shadow-card-soft hover:brightness-[1.04] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-2.5 sm:py-1.5",
-        toneClass
+        "group relative isolate flex flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card px-3 py-2.5 text-left outline-none ring-1 ring-inset",
+        "shadow-sm hover:shadow-[0_14px_34px_-16px_var(--stage-glow)] focus-visible:ring-2 focus-visible:ring-primary/40",
+        t.ring
       )}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className="shrink-0">{icon}</span>
-        <span className="truncate text-[10px] font-medium uppercase tracking-wider opacity-80">
+      {/* top accent line */}
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r opacity-70",
+          t.accent
+        )}
+      />
+      {/* corner glow that lights up on hover */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-7 -top-9 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+        style={{ background: t.glow }}
+      />
+      {/* icon chip + label (lifted slightly in 3D space) */}
+      <div className="relative flex items-center gap-2" style={{ transform: "translateZ(18px)" }}>
+        <span
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset transition-transform duration-300 group-hover:scale-110",
+            t.chip,
+            t.ring
+          )}
+        >
+          {icon}
+        </span>
+        <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
       </div>
-      <span className="shrink-0 text-lg font-bold tabular-nums leading-none sm:text-base">{value}</span>
+      {/* value (lifted further forward for parallax depth) */}
+      <div className="relative flex items-end justify-between" style={{ transform: "translateZ(34px)" }}>
+        <span className={cn("text-2xl font-bold leading-none tabular-nums", t.text)}>
+          {animated}
+        </span>
+        <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground/60" />
+      </div>
     </button>
   );
 }
