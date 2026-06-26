@@ -141,6 +141,10 @@ export function TaskDetailDrawer({
   const isOwner = !!(task && (task.assigned_to === user?.id || task.created_by === user?.id));
   const canEdit = isAdminRole(profile?.role) || isOwner;
   const canDelete = isAdminRole(profile?.role);
+  // Working a task — updating progress (qty) + completing it — is the ASSIGNED
+  // designer's job ONLY. Admins/coordinators manage tasks (edit fields, assign,
+  // hand off) but must never update progress or complete on a designer's behalf.
+  const canWork = !!(task && task.assigned_to === user?.id);
 
   // The ASSIGNEE can split off their own claim: keep part, release the rest to
   // the pool. Only on an in-progress, not-yet-split task with room to release.
@@ -291,7 +295,7 @@ export function TaskDetailDrawer({
                     task={task}
                     hasFiles={files.length > 0}
                     onUpdated={handleChanged}
-                    readOnly={!canEdit}
+                    readOnly={!canWork}
                   />
                 ) : (
                   <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2">
@@ -317,7 +321,7 @@ export function TaskDetailDrawer({
               {!editMode && (
                 <CompletionSection
                   task={task}
-                  canComplete={!!canEdit}
+                  canComplete={canWork}
                   onAddDetails={() => void handleComplete()}
                 />
               )}
@@ -1580,10 +1584,6 @@ function BriefDetails({
   const hasMsgDate = !!task.whatsapp_received_date;
   const hasMsgTime = !!task.whatsapp_received_time;
   const hasAssignedBy = !!task.assigned_by;
-  const scalarCount = 4 + (hasFabric ? 1 : 0) + (hasWa ? 1 : 0) + (hasMsgDate ? 1 : 0) + (hasMsgTime ? 1 : 0) + (hasAssignedBy ? 1 : 0);
-  const oddTrailing = scalarCount % 2 === 1;
-  const lastKey = hasAssignedBy ? "assigned" : hasWa ? "wa" : hasFabric ? "fabric" : "assigned";
-  const wide = (key: string) => (oddTrailing && key === lastKey ? "col-span-2" : "");
 
   return (
     <div className="space-y-1.5">
@@ -1710,7 +1710,6 @@ function BriefDetails({
               label="Assigned to"
               icon={<UserCircle2 className="h-3 w-3" />}
               tone="primary"
-              className={wide("assigned")}
             >
               <AssigneeRow task={task} isAdmin={isAdmin} onAssigned={onChanged} />
             </InfoCard>
@@ -1750,7 +1749,7 @@ function BriefDetails({
             )}
 
             {hasAssignedBy && (
-              <InfoCard label="Assigned By" icon={<UserCircle2 className="h-3 w-3" />} className={wide("assigned")}>
+              <InfoCard label="Assigned By" icon={<UserCircle2 className="h-3 w-3" />}>
                 {task.assigned_by}
               </InfoCard>
             )}
