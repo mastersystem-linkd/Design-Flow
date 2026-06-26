@@ -925,7 +925,13 @@ export function MetricCard({
   const animated = useAnimatedNumber(numericValue);
   const displayValue = typeof value === "number" ? animated : value;
 
-  const hasSparkline = sparklineData && sparklineData.length >= 3;
+  // Only draw the sparkline when there's actual movement — a series that's all
+  // the same value (e.g. all zeros on an empty period) renders as a flat line
+  // across the card, which reads as a stray rule rather than a trend.
+  const hasSparkline =
+    !!sparklineData &&
+    sparklineData.length >= 3 &&
+    new Set(sparklineData).size > 1;
 
   const body = (
     <>
