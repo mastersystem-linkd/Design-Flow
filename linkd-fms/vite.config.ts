@@ -9,6 +9,26 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Split big, stable vendor libs into their own cacheable chunks so they
+    // (a) load in parallel, (b) stay cached across app deploys (their hash
+    // only changes when the lib upgrades, not when our code does), and
+    // (c) keep the main `index` bundle lean. `exceljs` + `three` are only
+    // ever dynamically imported, so these become on-demand chunks (export /
+    // login) rather than part of the initial download.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          supabase: ["@supabase/supabase-js"],
+          recharts: ["recharts"],
+          exceljs: ["exceljs"],
+          three: ["three"],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
   server: {
     port: 5173,
     // This project lives on a Google Drive mount (g:\My Drive\…). Google

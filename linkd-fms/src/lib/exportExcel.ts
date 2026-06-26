@@ -1,6 +1,24 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import type { DesignerConceptStat } from "@/hooks/useAnalytics";
 import type { DesignerTaskStat } from "@/hooks/useTaskAnalytics";
+
+// exceljs is ~900 KB. Load it ONLY when an export actually runs (dynamic
+// import), so it never ships in the dashboard / scorecard route chunks — those
+// import this module for its export functions but shouldn't pay for ExcelJS
+// upfront. The `import type` above keeps every `ExcelJS.*` type annotation.
+let _excelPromise: Promise<typeof import("exceljs")> | null = null;
+function getExcel() {
+  if (!_excelPromise) {
+    _excelPromise = import("exceljs").then((m) => {
+      // exceljs is CJS (`export =`): the ESM interop puts the namespace on
+      // `.default` at runtime, but TS types `import("exceljs")` as the export
+      // itself (no `.default`). Read `.default` with a fallback to the module.
+      const mod = m as unknown as { default?: typeof import("exceljs") };
+      return mod.default ?? (m as unknown as typeof import("exceljs"));
+    });
+  }
+  return _excelPromise;
+}
 
 interface KpiSummary {
   periodLabel: string;
@@ -57,7 +75,7 @@ export async function exportConceptDashboardExcel(
   kpis: KpiSummary,
   fileName: string
 ) {
-  const wb = new ExcelJS.Workbook();
+  const wb: ExcelJS.Workbook = new (await getExcel()).Workbook();
   wb.creator = "LinkD Design Flow";
   wb.created = new Date();
 
@@ -433,7 +451,7 @@ export async function exportTaskDashboardExcel(
   kpis: TaskKpiSummary,
   fileName: string
 ) {
-  const wb = new ExcelJS.Workbook();
+  const wb: ExcelJS.Workbook = new (await getExcel()).Workbook();
   wb.creator = "LinkD Design Flow";
   wb.created = new Date();
 
@@ -586,7 +604,7 @@ export async function exportScorecardsExcel(
   periodLabel: string,
   fileName: string
 ) {
-  const wb = new ExcelJS.Workbook();
+  const wb: ExcelJS.Workbook = new (await getExcel()).Workbook();
   wb.creator = "LinkD Design Flow";
   wb.created = new Date();
 
