@@ -1449,7 +1449,7 @@ function TaskLeaderboard({
     <Card>
       <CardContent className="py-4">
         <div className="mb-4 flex items-center gap-2">
-          <Trophy3D rank={1} size={24} />
+          <Trophy3D rank={1} size={28} />
           <h3 className="text-sm font-semibold text-foreground sm:text-lg">Designer Task Performance</h3>
         </div>
 
@@ -1470,7 +1470,7 @@ function TaskLeaderboard({
                 )}
               >
                 <div className="flex flex-col items-center gap-1">
-                  {TOP_3.has(rank) ? <Trophy3D rank={rank as 1|2|3} size={24} /> : <span className="text-sm text-muted-foreground">#{rank}</span>}
+                  {TOP_3.has(rank) ? <Trophy3D rank={rank as 1|2|3} size={28} /> : <span className="text-sm text-muted-foreground">#{rank}</span>}
                   <Avatar className="h-8 w-8">
                     {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
                     <AvatarFallback className="bg-primary/10 text-primary text-[10px]">{getInitials(d.full_name)}</AvatarFallback>
@@ -1526,7 +1526,7 @@ function TaskLeaderboard({
                     )}
                   >
                     <td className={cn("px-4 py-3 text-center", rank === 1 && "bg-warning/10", rank === 2 && "bg-muted/20", rank === 3 && "bg-warning/5")}>
-                      {TOP_3.has(rank) ? <div className="inline-flex justify-center"><Trophy3D rank={rank as 1|2|3} size={26} /></div> : <span className="text-muted-foreground">{rank}</span>}
+                      {TOP_3.has(rank) ? <div className="inline-flex justify-center"><Trophy3D rank={rank as 1|2|3} size={32} /></div> : <span className="text-muted-foreground">{rank}</span>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">

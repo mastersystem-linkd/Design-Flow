@@ -61,7 +61,7 @@ export function DesignerLeaderboard({
         <CardContent className="py-4">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Trophy3D rank={1} size={24} />
+              <Trophy3D rank={1} size={28} />
               <div>
                 <h3 className="text-sm font-semibold text-foreground sm:text-lg">
                   Designer Concept Performance
@@ -89,7 +89,7 @@ export function DesignerLeaderboard({
                   className="group flex w-full items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors active:scale-[0.99] hover:bg-secondary/50"
                 >
                   <div className="flex flex-col items-center gap-1">
-                    {TOP_3.has(rank) ? <Trophy3D rank={rank as 1|2|3} size={24} /> : <span className="text-sm text-muted-foreground">#{rank}</span>}
+                    {TOP_3.has(rank) ? <Trophy3D rank={rank as 1|2|3} size={28} /> : <span className="text-sm text-muted-foreground">#{rank}</span>}
                     <Avatar className="h-8 w-8">
                       {d.avatar_url ? <AvatarImage src={d.avatar_url} /> : null}
                       <AvatarFallback className="bg-primary/10 text-primary text-[10px]">
@@ -159,7 +159,7 @@ export function DesignerLeaderboard({
                       )}
                     >
                       <td className="px-4 py-3 text-center">
-                        {TOP_3.has(rank) ? <div className="inline-flex justify-center"><Trophy3D rank={rank as 1|2|3} size={26} /></div> : <span className="text-muted-foreground">{rank}</span>}
+                        {TOP_3.has(rank) ? <div className="inline-flex justify-center"><Trophy3D rank={rank as 1|2|3} size={32} /></div> : <span className="text-muted-foreground">{rank}</span>}
                       </td>
 
                       <td className="px-4 py-3">

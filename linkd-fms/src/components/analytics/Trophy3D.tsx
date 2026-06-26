@@ -1,156 +1,162 @@
-import { cn } from "@/lib/utils";
+const COLORS = {
+  1: { front: "#facc15", side: "#ca8a04", rim: "#fde047", star: "#fff7ed", shadow: "rgba(250,204,21,0.45)", label: "1st" },
+  2: { front: "#94a3b8", side: "#64748b", rim: "#cbd5e1", star: "#f1f5f9", shadow: "rgba(148,163,184,0.40)", label: "2nd" },
+  3: { front: "#f97316", side: "#c2410c", rim: "#fdba74", star: "#fff7ed", shadow: "rgba(249,115,22,0.40)", label: "3rd" },
+} as const;
 
-const RANK_CONFIG: Record<number, { cup: string; base: string; glow: string; label: string }> = {
-  1: {
-    cup: "from-amber-300 via-yellow-400 to-amber-500",
-    base: "from-amber-400 to-yellow-500",
-    glow: "shadow-[0_0_14px_rgb(251_191_36/0.50)]",
-    label: "1st",
-  },
-  2: {
-    cup: "from-slate-300 via-gray-200 to-slate-400",
-    base: "from-slate-300 to-gray-400",
-    glow: "shadow-[0_0_10px_rgb(148_163_184/0.35)]",
-    label: "2nd",
-  },
-  3: {
-    cup: "from-orange-400 via-amber-600 to-orange-700",
-    base: "from-orange-500 to-amber-700",
-    glow: "shadow-[0_0_10px_rgb(234_88_12/0.30)]",
-    label: "3rd",
-  },
-};
-
-export function Trophy3D({ rank, size = 28 }: { rank: 1 | 2 | 3; size?: number }) {
-  const c = RANK_CONFIG[rank];
-  const id = `t3d-${rank}`;
+export function Trophy3D({ rank, size = 32 }: { rank: 1 | 2 | 3; size?: number }) {
+  const c = COLORS[rank];
+  const S = size;
+  const cup  = S * 0.52;
+  const cupH = S * 0.48;
+  const stem = S * 0.08;
+  const stemH = S * 0.14;
+  const baseW = S * 0.56;
+  const baseH = S * 0.10;
+  const handleW = S * 0.14;
 
   return (
     <div
-      className={cn("trophy-3d group/trophy relative", c.glow)}
-      style={{ width: size, height: size }}
+      className="trophy3d"
+      style={{ width: S, height: S }}
       aria-label={`${c.label} place trophy`}
       role="img"
     >
       <style>{`
-        .trophy-3d {
-          perspective: 200px;
-          border-radius: 50%;
+        .trophy3d {
+          perspective: 300px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
-        .trophy-inner {
+        .trophy3d-body {
           transform-style: preserve-3d;
-          animation: trophy-idle 3s ease-in-out infinite;
+          animation: t3d-rock 3.2s ease-in-out infinite;
           will-change: transform;
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
         }
-        .trophy-3d:hover .trophy-inner,
-        .trophy-3d:focus-within .trophy-inner {
-          animation: trophy-celebrate 0.6s cubic-bezier(.36,1.2,.5,1) 1, trophy-idle 3s ease-in-out 0.6s infinite;
+        .trophy3d:hover .trophy3d-body {
+          animation: t3d-pop 0.5s cubic-bezier(.34,1.56,.64,1) 1,
+                     t3d-rock 3.2s ease-in-out 0.5s infinite;
         }
-        @keyframes trophy-idle {
-          0%, 100% { transform: rotateY(0deg) rotateX(0deg); }
-          25%      { transform: rotateY(8deg) rotateX(-3deg); }
-          50%      { transform: rotateY(0deg) rotateX(0deg); }
-          75%      { transform: rotateY(-8deg) rotateX(3deg); }
+        @keyframes t3d-rock {
+          0%, 100% { transform: rotateY(0deg)   rotateX(2deg); }
+          25%      { transform: rotateY(18deg)  rotateX(-2deg); }
+          75%      { transform: rotateY(-18deg) rotateX(-2deg); }
         }
-        @keyframes trophy-celebrate {
-          0%   { transform: rotateY(0) scale(1); }
-          25%  { transform: rotateY(-15deg) scale(1.12); }
-          50%  { transform: rotateY(15deg) scale(1.12); }
-          75%  { transform: rotateY(-8deg) scale(1.06); }
-          100% { transform: rotateY(0) scale(1); }
+        @keyframes t3d-pop {
+          0%   { transform: scale(1)   rotateY(0); }
+          30%  { transform: scale(1.2) rotateY(-20deg); }
+          60%  { transform: scale(1.2) rotateY(20deg); }
+          100% { transform: scale(1)   rotateY(0); }
         }
         @media (prefers-reduced-motion: reduce) {
-          .trophy-inner {
+          .trophy3d-body {
             animation: none !important;
-            transform: rotateY(-6deg) !important;
+            transform: rotateY(-8deg) rotateX(2deg) !important;
           }
         }
       `}</style>
 
-      <div className="trophy-inner flex h-full w-full items-center justify-center">
-        <svg
-          viewBox="0 0 40 40"
-          width={size}
-          height={size}
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <linearGradient id={`${id}-cup`} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" className={`[stop-color:theme(colors.amber.300)]`}
-                style={{ stopColor: rank === 1 ? '#fcd34d' : rank === 2 ? '#cbd5e1' : '#fb923c' }} />
-              <stop offset="50%" className="[stop-color:theme(colors.yellow.400)]"
-                style={{ stopColor: rank === 1 ? '#facc15' : rank === 2 ? '#e2e8f0' : '#d97706' }} />
-              <stop offset="100%"
-                style={{ stopColor: rank === 1 ? '#f59e0b' : rank === 2 ? '#94a3b8' : '#c2410c' }} />
-            </linearGradient>
-            <linearGradient id={`${id}-base`} x1="0.5" y1="0" x2="0.5" y2="1">
-              <stop offset="0%"
-                style={{ stopColor: rank === 1 ? '#f59e0b' : rank === 2 ? '#94a3b8' : '#ea580c' }} />
-              <stop offset="100%"
-                style={{ stopColor: rank === 1 ? '#b45309' : rank === 2 ? '#64748b' : '#9a3412' }} />
-            </linearGradient>
-            <linearGradient id={`${id}-shine`} x1="0.3" y1="0" x2="0.7" y2="1">
-              <stop offset="0%" stopColor="white" stopOpacity="0.55" />
-              <stop offset="100%" stopColor="white" stopOpacity="0" />
-            </linearGradient>
-            <filter id={`${id}-glow`}>
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
+      <div className="trophy3d-body">
+        {/* Cup */}
+        <div style={{
+          width: cup,
+          height: cupH,
+          background: `linear-gradient(135deg, ${c.rim} 0%, ${c.front} 40%, ${c.side} 100%)`,
+          borderRadius: `${S * 0.06}px ${S * 0.06}px ${S * 0.30}px ${S * 0.30}px`,
+          boxShadow: `
+            inset ${S * 0.04}px ${S * 0.04}px ${S * 0.10}px rgba(255,255,255,0.50),
+            inset -${S * 0.03}px -${S * 0.03}px ${S * 0.08}px rgba(0,0,0,0.15),
+            0 ${S * 0.04}px ${S * 0.16}px ${c.shadow}
+          `,
+          position: "relative",
+          transformStyle: "preserve-3d",
+          transform: "translateZ(2px)",
+        }}>
+          {/* Shine strip */}
+          <div style={{
+            position: "absolute",
+            top: S * 0.04,
+            left: S * 0.06,
+            width: S * 0.06,
+            height: cupH * 0.65,
+            borderRadius: 999,
+            background: "linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0) 100%)",
+          }} />
 
-          {/* Cup body */}
-          <path
-            d="M12 8 h16 v2 c0 8 -3 13 -8 15 c-5 -2 -8 -7 -8 -15 z"
-            fill={`url(#${id}-cup)`}
-            filter={`url(#${id}-glow)`}
-          />
+          {/* Star emblem */}
+          <svg
+            viewBox="0 0 24 24"
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%) translateZ(3px)",
+              width: S * 0.30,
+              height: S * 0.30,
+            }}
+          >
+            <path
+              d="M12 2 l2.4 5 5.4 0.8 -3.9 3.8 0.9 5.4 -4.8-2.5 -4.8 2.5 0.9-5.4 -3.9-3.8 5.4-0.8z"
+              fill={c.star}
+              opacity={0.65}
+            />
+          </svg>
 
           {/* Left handle */}
-          <path
-            d="M12 10 C6 10 5 15 9 18 L12 16"
-            stroke={`url(#${id}-cup)`}
-            strokeWidth="2"
-            strokeLinecap="round"
-            fill="none"
-          />
+          <div style={{
+            position: "absolute",
+            top: S * 0.02,
+            left: -handleW + S * 0.01,
+            width: handleW,
+            height: cupH * 0.60,
+            border: `${S * 0.04}px solid ${c.front}`,
+            borderLeft: `${S * 0.04}px solid ${c.side}`,
+            borderRadius: `${S * 0.12}px 0 0 ${S * 0.12}px`,
+            borderRight: "none",
+            boxShadow: `inset 1px 1px 2px rgba(255,255,255,0.3), -1px 1px 3px ${c.shadow}`,
+          }} />
 
           {/* Right handle */}
-          <path
-            d="M28 10 C34 10 35 15 31 18 L28 16"
-            stroke={`url(#${id}-cup)`}
-            strokeWidth="2"
-            strokeLinecap="round"
-            fill="none"
-          />
+          <div style={{
+            position: "absolute",
+            top: S * 0.02,
+            right: -handleW + S * 0.01,
+            width: handleW,
+            height: cupH * 0.60,
+            border: `${S * 0.04}px solid ${c.front}`,
+            borderRight: `${S * 0.04}px solid ${c.rim}`,
+            borderRadius: `0 ${S * 0.12}px ${S * 0.12}px 0`,
+            borderLeft: "none",
+            boxShadow: `inset -1px 1px 2px rgba(255,255,255,0.3), 1px 1px 3px ${c.shadow}`,
+          }} />
+        </div>
 
-          {/* Shine highlight */}
-          <path
-            d="M15 10 h4 v2 c0 6 -1 9 -3 11 c-2 -2 -2 -5 -1 -11 z"
-            fill={`url(#${id}-shine)`}
-            opacity="0.7"
-          />
+        {/* Stem */}
+        <div style={{
+          width: stem,
+          height: stemH,
+          background: `linear-gradient(90deg, ${c.side}, ${c.front}, ${c.rim})`,
+          transform: "translateZ(1px)",
+        }} />
 
-          {/* Stem */}
-          <rect x="18" y="25" width="4" height="5" rx="1" fill={`url(#${id}-base)`} />
-
-          {/* Base plate */}
-          <rect x="13" y="30" width="14" height="3" rx="1.5" fill={`url(#${id}-base)`} />
-
-          {/* Base shine */}
-          <rect x="15" y="30.5" width="10" height="1" rx="0.5" fill="white" opacity="0.3" />
-
-          {/* Star on cup */}
-          <path
-            d="M20 12 l1.2 2.4 2.6 0.4 -1.9 1.8 0.4 2.6 -2.3 -1.2 -2.3 1.2 0.4 -2.6 -1.9 -1.8 2.6 -0.4z"
-            fill="white"
-            opacity="0.5"
-          />
-        </svg>
+        {/* Base */}
+        <div style={{
+          width: baseW,
+          height: baseH,
+          background: `linear-gradient(135deg, ${c.rim} 0%, ${c.front} 40%, ${c.side} 100%)`,
+          borderRadius: S * 0.04,
+          boxShadow: `
+            inset ${S * 0.02}px ${S * 0.01}px ${S * 0.04}px rgba(255,255,255,0.40),
+            inset -${S * 0.02}px -${S * 0.01}px ${S * 0.04}px rgba(0,0,0,0.12),
+            0 ${S * 0.02}px ${S * 0.06}px rgba(0,0,0,0.10)
+          `,
+          transform: "translateZ(1px)",
+        }} />
       </div>
     </div>
   );
